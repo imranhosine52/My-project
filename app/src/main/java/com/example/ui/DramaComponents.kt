@@ -31,7 +31,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -57,37 +56,58 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // =========================================================================
-// 🏷️ ১ নম্বর ছবির হুবহু টেক্সট-সাইজ চিকন ডার্ক-গ্লাস ডাবিং ব্যাজ
+// 🏷️ ১. ১০০% ডাইনামিক ডাবিং ব্যাজ (সার্ভার থেকে আসা যেকোনো ভাষার নাম দেখাবে)
 // =========================================================================
 @Composable
 fun LanguageDubBadge(
     dubText: String,
     modifier: Modifier = Modifier
 ) {
-    val cleanText = when {
-        dubText.contains("Bangla", true) || dubText.contains("Bengali", true) -> "Bangla"
-        dubText.contains("Hindi", true) -> "Hindi"
-        dubText.contains("Dual", true) -> "Dual"
-        dubText.isNotBlank() -> dubText.replace(" Dubbed", "").replace(" Dub", "").trim()
-        else -> "Bangla"
+    val cleanText = remember(dubText) {
+        val trimmed = dubText.trim()
+        when {
+            trimmed.contains("Bangla", ignoreCase = true) || trimmed.contains("Bengali", ignoreCase = true) -> "Bangla"
+            trimmed.contains("Hindi", ignoreCase = true) -> "Hindi"
+            trimmed.contains("English", ignoreCase = true) || trimmed.contains("Eng", ignoreCase = true) -> "English"
+            trimmed.contains("Tamil", ignoreCase = true) -> "Tamil"
+            trimmed.contains("Telugu", ignoreCase = true) -> "Telugu"
+            trimmed.contains("Korean", ignoreCase = true) -> "Korean"
+            trimmed.contains("Japanese", ignoreCase = true) -> "Japanese"
+            trimmed.contains("Chinese", ignoreCase = true) -> "Chinese"
+            trimmed.contains("Dual", ignoreCase = true) -> "Dual"
+            trimmed.isNotBlank() -> trimmed.replace(" Dubbed", "", ignoreCase = true)
+                .replace(" Dub", "", ignoreCase = true).trim()
+            else -> "HD"
+        }
     }
 
-    // 🎯 টেক্সটের সাইজ অনুযায়ী একদম চিকন ও স্লিম গ্লাস বক্স
+    // ভাষার ধরন অনুযায়ী ব্যাকগ্রাউন্ড টিন্ট
+    val (badgeBg, badgeBorder, badgeTextColor) = remember(cleanText) {
+        when (cleanText.lowercase()) {
+            "bangla" -> Triple(Color(0xFF2A2000), Color(0xFFFFB300), Color(0xFFFFB300))
+            "hindi"  -> Triple(Color(0xFF001F3F), Color(0xFF00B0FF), Color(0xFF00E5FF))
+            "english"-> Triple(Color(0xFF00291B), Color(0xFF00D166), Color(0xFF00E676))
+            "tamil", "telugu" -> Triple(Color(0xFF20102E), Color(0xFFA855F7), Color(0xFFD8B4FE))
+            "korean", "japanese", "chinese" -> Triple(Color(0xFF1E2430), Color(0xFF60A5FA), Color(0xFF93C5FD))
+            else     -> Triple(Color(0x99000000), Color(0x44FFFFFF), Color.White)
+        }
+    }
+
     Box(
         modifier = modifier
             .padding(top = 4.dp, end = 4.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(Color.Black.copy(alpha = 0.55f))
-            .border(0.4.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(3.dp))
-            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(badgeBg)
+            .border(0.6.dp, badgeBorder.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 1.5.dp)
     ) {
         Text(
             text = cleanText,
-            color = Color.White.copy(alpha = 0.95f),
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Medium,
+            color = badgeTextColor,
+            fontSize = 8.5.sp,
+            fontWeight = FontWeight.Bold,
             lineHeight = 10.sp,
-            letterSpacing = 0.1.sp
+            letterSpacing = 0.2.sp
         )
     }
 }
@@ -173,9 +193,8 @@ fun VipCrown3DIcon(modifier: Modifier = Modifier) {
 }
 
 // =========================================================================
-// 🎬 Short TV, Downloads, Me কাস্টম ভেক্টর আইকনসমূহ
+// 🎬 কাস্টম ভেক্টর আইকনসমূহ
 // =========================================================================
-
 @Composable
 fun ShortTvCustomStackedIcon(
     tint: Color,
@@ -479,7 +498,7 @@ fun TopNavigationBar(
 }
 
 // =========================================================================
-// 🌟 হিরো স্পটলাইট কার্ড
+// 🌟 হিরো স্পটলাইট কার্ড (Display Name সহ)
 // =========================================================================
 @Composable
 fun HotSpotlightHeroCard(
@@ -549,11 +568,12 @@ fun HotSpotlightHeroCard(
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(drama.title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        // 🎯 ছোট ও পরিষ্কার ডিসপ্লে নেম
+                        Text(drama.displayName, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                            (listOf("All", drama.dubBadge) + drama.categories.take(2)).filter { it.isNotBlank() }.forEach { tag ->
+                            (listOf("All", drama.dubBadge, drama.country) + drama.categories.take(2)).filter { it.isNotBlank() }.distinct().forEach { tag ->
                                 Surface(shape = RoundedCornerShape(4.dp), color = SurfaceVariantDark.copy(alpha = 0.8f)) {
                                     Text(tag, color = TextSecondary, fontSize = 8.5.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
                                 }
@@ -602,7 +622,7 @@ fun HotSpotlightHeroCard(
                     ) {
                         AsyncImage(
                             model = ImageRequest.Builder(context).data(drama.posterUrl ?: drama.bannerUrl).crossfade(true).build(),
-                            contentDescription = drama.title,
+                            contentDescription = drama.displayName,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
@@ -677,6 +697,9 @@ fun HorizontalDramaRow(
     }
 }
 
+// =========================================================================
+// 🖼️ কমপ্যাক্ট কার্ড (ডাইনামিক ডাবিং ব্যাজ ও Display Name সহ)
+// =========================================================================
 @Composable
 fun DramaPosterCardHorizontal(
     drama: ContentItemDto,
@@ -697,7 +720,7 @@ fun DramaPosterCardHorizontal(
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context).data(drama.posterUrl ?: drama.bannerUrl).crossfade(true).build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
@@ -708,8 +731,9 @@ fun DramaPosterCardHorizontal(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))))
             )
 
+            // 🎯 সার্ভার থেকে আসা যেকোনো ভাষার ডাবিং ব্যাজ
             LanguageDubBadge(
-                dubText = drama.dubBadge.ifBlank { drama.language },
+                dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
@@ -724,8 +748,9 @@ fun DramaPosterCardHorizontal(
 
         Spacer(modifier = Modifier.height(3.dp))
 
+        // 🎯 পরিচ্ছন্ন ছোট নাম
         Text(
-            text = drama.title,
+            text = drama.displayName,
             color = Color(0xFFDCE0E8),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
