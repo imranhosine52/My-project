@@ -1,8 +1,8 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class,
-    ExperimentalFoundationApi::class,
-    UnstableApi::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
 )
 
 package com.example.ui.screens.player
@@ -28,7 +28,6 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -95,6 +94,7 @@ import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlin.OptIn // 👈 ফিক্সড: আসল কোটলিন অপ্ট-ইন ইমপোর্ট করা হয়েছে
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -245,11 +245,9 @@ fun PlayerScreen(
 
         prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
 
-        // অ্যাপের লাইভ স্টেট আপডেট
         viewModel.selectEpisode(ep.copy(isLocked = false))
         Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} unlocked for 1 minute! Enjoy.", Toast.LENGTH_LONG).show()
 
-        // ৬০ সেকেন্ড পর স্বয়ংক্রিয়ভাবে রি-লক চেক লুপ
         coroutineScope.launch {
             delay(60_000L)
             if (!isUserVip) {
@@ -258,7 +256,6 @@ fun PlayerScreen(
         }
     }
 
-    // মাল্টি-ক্লিক অ্যাড হ্যান্ডলার
     fun handleMultiClickAdUnlock(ep: EpisodeDto) {
         currentAdClickStep++
         val opened = UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
@@ -652,7 +649,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // ⏱️ ৩. অ্যাডমিন প্যানেল নির্ধারিত ডায়নামিক মিনিট ইন্টারভাল অ্যাড ট্রিগার
+    // ⏱️ ৩. ডায়নামিক মিনিট ইন্টারভাল অ্যাড ট্রিগার
     // =========================================================================
     LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
@@ -1049,8 +1046,8 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 🎯 ফিক্সড: stickyHeader কলসাইট অপ্ট-ইন যুক্ত
-                                stickyHeader {
+                                // 🎯 ফিক্সড: stickyHeader এরর দূর করতে নির্ভরযোগ্য item ব্লক ব্যবহার করা হয়েছে
+                                item {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
                                         commentsCount = persistentDramaComments.size,
