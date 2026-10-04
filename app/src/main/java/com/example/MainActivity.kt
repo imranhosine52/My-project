@@ -12,6 +12,8 @@ import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
+import androidx.activity.enableEdgeToEdge // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
