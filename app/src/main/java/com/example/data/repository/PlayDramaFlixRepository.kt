@@ -19,13 +19,12 @@ class PlayDramaFlixRepository(
     private val apiService: PlayDramaFlixApiService = ApiClient.apiService,
     private val database: AppDatabase = AppDatabase.getInstance(context)
 ) {
-    // 🧱 ৬টি ডেডিকেটেড সাব-রিপোজিটরি ইনস্ট্যান্স
+    // 🧱 ৫টি ডেডিকেটেড সাব-রিপোজিটরি ইনস্ট্যান্স
     val contentRepository = ContentRepository(context, apiService, database)
     val authRepository = AuthRepository(context, apiService)
     val subscriptionRepository = SubscriptionRepository(context, apiService, authRepository)
     val interactionRepository = InteractionRepository(context, apiService, database, authRepository)
     val appConfigRepository = AppConfigRepository(context, apiService)
-    val tiktokRepository = TiktokRepository(context, apiService, authRepository) // 👈 নতুন TikTok/Reels রিপোজিটরি
 
     // =========================================================================
     // 📺 1. CONTENT & WATCH PROGRESS DELEGATIONS
@@ -203,31 +202,4 @@ class PlayDramaFlixRepository(
             Result.success(emptyList())
         }
     }
-
-    // =========================================================================
-    // 🌟 6. TIKTOK REELS, CREATOR PAGES & 24H STORIES DELEGATIONS
-    // =========================================================================
-    suspend fun applyForCreatorPage(pageName: String, handle: String, bio: String?, avatarUri: Uri?) =
-        tiktokRepository.applyForCreatorPage(pageName, handle, bio, avatarUri)
-
-    suspend fun getMyCreatorPage() =
-        tiktokRepository.getMyCreatorPage()
-
-    suspend fun uploadReel(title: String, description: String?, videoUri: Uri) =
-        tiktokRepository.uploadReel(title, description, videoUri)
-
-    suspend fun uploadStory(caption: String?, mediaUri: Uri, isVideo: Boolean) =
-        tiktokRepository.uploadStory(caption, mediaUri, isVideo)
-
-    suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1) =
-        tiktokRepository.getReelsFeed(tab, page)
-
-    suspend fun getActiveStories() =
-        tiktokRepository.getActiveStories()
-
-    suspend fun interactReel(reelId: Int, type: String) =
-        tiktokRepository.interactReel(reelId, type)
-
-    suspend fun toggleFollowPage(pageId: Int) =
-        tiktokRepository.toggleFollowPage(pageId)
 }
