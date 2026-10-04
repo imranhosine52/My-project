@@ -7,14 +7,12 @@ package com.example.ui.screens.shorts
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
-import android.util.Rational
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -25,10 +23,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -62,6 +57,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -87,7 +83,7 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.CustomAdsConfigResponse
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.EpisodeDto
-import com.example.ui.components.CustomVideoAdDialog // 👈 কাস্টম অ্যাড ডায়ালগ
+import com.example.ui.components.CustomVideoAdDialog
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.AppAnalyticsTracker
@@ -102,6 +98,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Locale
+import kotlin.math.abs
 
 private fun findActivity(context: Context): Activity? {
     var current = context
@@ -225,9 +222,6 @@ fun ShortsPlayerScreen(
     val isUserLoggedIn = authState.isLoggedIn
     val isUserVip = playerState.isVip || authState.isVip
 
-    // =========================================================================
-    // 📢 কাস্টম ভিডিও অ্যাড ইঞ্জিন স্টেট ও এপিআই ফেচিং
-    // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
     var watchedEpisodesCounter by rememberSaveable { mutableIntStateOf(0) }
@@ -263,6 +257,11 @@ fun ShortsPlayerScreen(
             ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
     }
 
+    // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
+    val cleanShortTitle = remember(content) {
+        content.displayName
+    }
+
     LaunchedEffect(slug) {
         viewModel.loadDramaDetails(slug, context)
     }
@@ -277,7 +276,6 @@ fun ShortsPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    // ⚡ 2X স্পিড
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
@@ -319,11 +317,10 @@ fun ShortsPlayerScreen(
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(activePageIndex) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
 
-    // 🎯 ৩ পর্ব পর পর স্বয়ংক্রিয় বিজ্ঞাপন ট্রিগার চেকার
+    // ৩ পর্ব পর পর অ্যাড চেকার
     LaunchedEffect(activePageIndex) {
         if (activePageIndex > 0) {
             watchedEpisodesCounter++
-            // ইউজার ভিআইপি না হলে এবং ইন্টারভাল মিললে কাস্টম বিজ্ঞাপন চালু হবে
             if (!isUserVip && customAdsConfig?.customAdsEnabled == true && customShortsAds.isNotEmpty()) {
                 if (watchedEpisodesCounter % shortsAdInterval == 0) {
                     activeCustomVideoAd = customShortsAds.random()
@@ -340,13 +337,12 @@ fun ShortsPlayerScreen(
 
     val currentVideoUrl = remember(currentEp, slug) { resolveBestEpisodeUrl(currentEp, slug) }
 
-    LaunchedEffect(activePageIndex, slug, content.title) {
+    LaunchedEffect(activePageIndex, slug, cleanShortTitle) {
         val target = effectiveEpisodes.getOrNull(activePageIndex)
         if (target != null) {
             viewModel.selectEpisode(target)
-            val shortTitle = content.title.ifBlank { slug }
             val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-            AppAnalyticsTracker.trackScreen(context, "Watching Short: $shortTitle - Ep ${target.episodeNumber}", numericUid)
+            AppAnalyticsTracker.trackScreen(context, "Watching Short: $cleanShortTitle - Ep ${target.episodeNumber}", numericUid)
         }
     }
 
@@ -413,9 +409,7 @@ fun ShortsPlayerScreen(
 
     BackHandler {
         when {
-            activeCustomVideoAd != null -> {
-                // বিজ্ঞাপন চলাকালীন ব্যাক প্রেস ব্লক
-            }
+            activeCustomVideoAd != null -> {}
             showBatchDownloadDialog -> showBatchDownloadDialog = false
             showQualitySelectionSheet -> showQualitySelectionSheet = false
             showSpeedSelectionSheet -> showSpeedSelectionSheet = false
@@ -747,15 +741,25 @@ fun ShortsPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
+                // =============================================================
+                // 🎯 ৩. পেজারের ভেতরের কন্টেন্ট (স্ক্রল করার সময় স্মুথভাবে উপরে যাবে)
+                // =============================================================
                 VerticalPager(
                     state = verticalPagerState,
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = !isUserSeeking && !is2xActive,
                     flingBehavior = singleEpisodeFlingBehavior
-                ) { _ ->
+                ) { page ->
+                    val pageOffset = ((verticalPagerState.currentPage - page) + verticalPagerState.currentPageOffsetFraction)
+                    val absOffset = abs(pageOffset)
+                    val smoothAlpha = (1f - absOffset * 1.4f).coerceIn(0f, 1f)
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = smoothAlpha
+                            }
                             .pointerInput(isUserSeeking) {
                                 detectTapGestures(
                                     onPress = {
@@ -788,7 +792,57 @@ fun ShortsPlayerScreen(
                                     }
                                 )
                             }
-                    )
+                    ) {
+                        // 🎯 সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save) পেজের সাথে স্ক্রল হবে
+                        if (!isImmersiveFullscreen && !isHalfDrawerOpen && page == activePageIndex) {
+                            ShortsActionColumn(
+                                context = context,
+                                title = cleanShortTitle,
+                                slug = slug,
+                                likesCount = playerState.likesCount.toLong(),
+                                isLiked = playerState.isLiked,
+                                isInWatchlist = playerState.isInWatchlist,
+                                onLikeClick = {
+                                    if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                                    else viewModel.toggleLikeDrama()
+                                },
+                                onSaveClick = {
+                                    if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                                    else viewModel.toggleWatchlist()
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 12.dp, bottom = 80.dp)
+                            )
+                        }
+
+                        // 🎯 টাইটেল, ডেসক্রিপশন ও টাইমলাইন পেজের সাথে স্মুথভাবে স্ক্রল হবে
+                        if (!isImmersiveFullscreen && !isHalfDrawerOpen && page == activePageIndex) {
+                            ShortsVideoFloatingOverlay(
+                                content = content.copy(
+                                    title = cleanShortTitle,
+                                    rawDisplayName = cleanShortTitle,
+                                    name = cleanShortTitle
+                                ),
+                                currentPositionMs = currentPositionMs,
+                                totalDurationMs = totalDurationMs,
+                                isUserSeeking = isUserSeeking,
+                                seekPosition = seekPosition,
+                                onSeekStarted = { isUserSeeking = true },
+                                onSeeking = { seekPosition = it },
+                                onSeekFinished = {
+                                    exoPlayer.seekTo(it)
+                                    currentPositionMs = it
+                                    isUserSeeking = false
+                                },
+                                onOpenIntroductionTab = {
+                                    drawerInitialTab = 0
+                                    isHalfDrawerOpen = true
+                                },
+                                modifier = Modifier.align(Alignment.BottomCenter)
+                            )
+                        }
+                    }
                 }
 
                 // ⚡ ২X স্পিড
@@ -812,53 +866,7 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save)
-                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                    ShortsActionColumn(
-                        context = context,
-                        title = content.title,
-                        slug = slug,
-                        likesCount = playerState.likesCount.toLong(),
-                        isLiked = playerState.isLiked,
-                        isInWatchlist = playerState.isInWatchlist,
-                        onLikeClick = {
-                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                            else viewModel.toggleLikeDrama()
-                        },
-                        onSaveClick = {
-                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                            else viewModel.toggleWatchlist()
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 80.dp)
-                    )
-                }
-
-                // ভিডিও ফ্রেমের ওপর ভাসমান টাইটেল, ডেসক্রিপশন ও টাইমলাইন
-                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                    ShortsVideoFloatingOverlay(
-                        content = content,
-                        currentPositionMs = currentPositionMs,
-                        totalDurationMs = totalDurationMs,
-                        isUserSeeking = isUserSeeking,
-                        seekPosition = seekPosition,
-                        onSeekStarted = { isUserSeeking = true },
-                        onSeeking = { seekPosition = it },
-                        onSeekFinished = {
-                            exoPlayer.seekTo(it)
-                            currentPositionMs = it
-                            isUserSeeking = false
-                        },
-                        onOpenIntroductionTab = {
-                            drawerInitialTab = 0
-                            isHalfDrawerOpen = true
-                        },
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    )
-                }
-
-                // ২ নম্বর ছবির হুবহু প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস
+                // প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস
                 if (isControlsVisible) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -937,7 +945,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // ⬛ ৩. শুধুমাত্র নীল দাগের নিচে থাকা "সলিড কালো ব্যাকগ্রাউন্ড বার"
+            // ⬛ ৪. সলিড কালো ব্যাকগ্রাউন্ড বার (Ep নম্বর, স্পিড ও কোয়ালিটি)
             if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                 ShortsSolidBlackBottomBar(
                     currentEpNum = currentEpNum,
@@ -955,15 +963,15 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📢 ৫. 🎯 কাস্টম স্পন্সর ভিডিও অ্যাড প্লেয়ার (৩ পর্ব পর পর পপ-আপ)
+        // 📢 ৫. কাস্টম ভিডিও অ্যাড ডায়ালগ
         // =========================================================================
         activeCustomVideoAd?.let { ad ->
-            exoPlayer.pause() // বিজ্ঞাপন চলাকালীন মূল ভিডিও থামানো
+            exoPlayer.pause()
             CustomVideoAdDialog(
                 ad = ad,
                 onAdFinishedOrSkipped = {
                     activeCustomVideoAd = null
-                    exoPlayer.play() // বিজ্ঞাপন শেষ হলে পুনরায় চালু
+                    exoPlayer.play()
                 },
                 onNavigateInternalScreen = { target ->
                     activeCustomVideoAd = null
@@ -990,7 +998,6 @@ fun ShortsPlayerScreen(
         // =========================================================================
         // 📑 ৬. সমস্ত বটম শিটসমূহ
         // =========================================================================
-
         if (isHalfDrawerOpen) {
             Box(
                 modifier = Modifier
@@ -1006,7 +1013,11 @@ fun ShortsPlayerScreen(
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                 ) {
                     ShortsHalfDrawerSheet(
-                        content = content,
+                        content = content.copy(
+                            title = cleanShortTitle,
+                            rawDisplayName = cleanShortTitle,
+                            name = cleanShortTitle
+                        ),
                         episodes = effectiveEpisodes,
                         currentEpNum = currentEpNum,
                         initialTab = drawerInitialTab,
@@ -1058,7 +1069,7 @@ fun ShortsPlayerScreen(
 
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
-                title = content.title,
+                title = cleanShortTitle,
                 slug = slug,
                 episodes = effectiveEpisodes,
                 isVip = isUserVip,
@@ -1068,7 +1079,7 @@ fun ShortsPlayerScreen(
                     showBatchDownloadDialog = false
                     selectedList.forEach { ep ->
                         val pad = String.format(Locale.US, "%02d", ep.episodeNumber)
-                        val customBatchTitle = "${content.title} - Ep $pad (${chosenQualityKey.uppercase()}) - By PdFlix"
+                        val customBatchTitle = "$cleanShortTitle - Ep $pad (${chosenQualityKey.uppercase()}) - By PdFlix"
                         val targetUrl = ep.downloadOptions?.firstOrNull {
                             it.quality.contains(chosenQualityKey, true)
                         }?.url ?: ep.resolveDownloadUrl(slug)
