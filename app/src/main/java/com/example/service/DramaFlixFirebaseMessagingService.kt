@@ -124,7 +124,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["title"]
             ?: data["heading"]
             ?: if (notifType == "chat_reply") "💬 New Reply in Community Chat"
-               else if (notifType == "new_reel" || notifType == "reel") "🎬 New Reel Uploaded!"
                else "New Drama Added!"
 
         val body = remoteMessage.notification?.body
@@ -211,7 +210,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 channelName,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for chat replies, reels, drama series, and updates."
+                description = "Notifications for chat replies, drama series, and updates."
                 enableLights(true)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 250, 150, 250)
@@ -232,18 +231,11 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             }
 
             // =========================================================================
-            // 🎯 রাউটিং লজিক (রিলস, চ্যাট, ভিআইপি বা ড্রামা)
+            // 🎯 নোটিফিকেশন রাউটিং লজিক (চ্যাট, ভিআইপি, আপডেট বা ড্রামা)
             // =========================================================================
             if (notifType == "chat_reply" || notifType == "community_chat") {
                 putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
                 putExtra("type", "chat_reply")
-            } else if (notifType == "new_reel" || notifType == "reel") {
-                // 🎬 নতুন রিলস ভিডিওর জন্য আইডি পাস করা হচ্ছে
-                val reelId = (extraData["reel_id"] ?: extraData["reelId"])?.toIntOrNull() ?: 0
-                val pageId = (extraData["page_id"] ?: extraData["pageId"])?.toIntOrNull() ?: 0
-                putExtra("EXTRA_OPEN_REEL_ID", reelId)
-                putExtra("EXTRA_OPEN_PAGE_ID", pageId)
-                putExtra("type", "new_reel")
             } else if (notifType == "vip_promo" || notifType == "vip_status_update") {
                 putExtra("EXTRA_OPEN_VIP", true)
                 putExtra("type", notifType)
