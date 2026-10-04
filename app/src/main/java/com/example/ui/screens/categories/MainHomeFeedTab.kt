@@ -54,7 +54,6 @@ fun MainHomeFeedTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        // 🎯 ফিক্সড: statusBarTop + 84.dp দেওয়া হয়েছে যেন ব্যানারটি টপ বারের ঠিক নিচ থেকে শুরু হয় (ওভারল্যাপ ছাড়া)
         contentPadding = PaddingValues(top = statusBarTop + 84.dp, bottom = 60.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -247,7 +246,7 @@ fun MainHomeFeedTab(
 }
 
 // =========================================================================
-// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড (কোনো শাইনিং বর্ডার নেই + ১ নম্বর ছবির ডার্ক গ্লাস ব্যাজ)
+// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড (Display Name ও ডাইনামিক ডাবিং ব্যাজ সহ)
 // =========================================================================
 @Composable
 fun HomePosterCardHorizontal(
@@ -275,7 +274,7 @@ fun HomePosterCardHorizontal(
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -293,9 +292,9 @@ fun HomePosterCardHorizontal(
                     )
             )
 
-            // ১ নম্বর ছবির মতো স্বচ্ছ ডার্ক গ্লাস ব্যাজ
+            // 🎯 ডাইনামিক ডাবিং ব্যাজ (সার্ভারের আসল ভাষা অনুযায়ী)
             LanguageDubBadge(
-                dubText = drama.dubBadge.ifBlank { drama.language },
+                dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
@@ -313,8 +312,9 @@ fun HomePosterCardHorizontal(
 
         Spacer(modifier = Modifier.height(3.dp))
 
+        // 🎯 ছোট ও পরিচ্ছন্ন নাম
         Text(
-            text = drama.title,
+            text = drama.displayName,
             color = Color(0xFFE2E8F0),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
@@ -325,7 +325,7 @@ fun HomePosterCardHorizontal(
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড
+// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড (Display Name ও ডাইনামিক ডাবিং ব্যাজ সহ)
 // =========================================================================
 @Composable
 fun HomeGridDramaCard(
@@ -353,7 +353,7 @@ fun HomeGridDramaCard(
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -372,9 +372,9 @@ fun HomeGridDramaCard(
                     )
             )
 
-            // ১ নম্বর ছবির মতো স্বচ্ছ ডার্ক গ্লাস ব্যাজ
+            // 🎯 ডাইনামিক ডাবিং ব্যাজ
             LanguageDubBadge(
-                dubText = drama.dubBadge.ifBlank { drama.language },
+                dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
@@ -392,8 +392,9 @@ fun HomeGridDramaCard(
 
         Spacer(modifier = Modifier.height(3.dp))
 
+        // 🎯 ছোট ও পরিচ্ছন্ন নাম
         Text(
-            text = drama.title,
+            text = drama.displayName,
             color = Color(0xFFE2E8F0),
             fontSize = 10.5.sp,
             fontWeight = FontWeight.Medium,
