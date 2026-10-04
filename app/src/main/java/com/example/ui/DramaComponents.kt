@@ -32,7 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -821,7 +820,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৭. ডার্ক বটম ন্যাভিগেশন বার (সুপার স্লিম ৪০dp ও আধুনিক প্রিমিয়াম ডিজাইন)
+// 🧭 ৭. ক্লিন ৪-ট্যাব বটম ন্যাভিগেশন বার (Home, Short TV, Downloads, Me)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -833,18 +832,18 @@ fun PlayDramaFlixBottomNav(
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
     Surface(
-        color = Color(0xFF10131B), // ডিপ প্রিমিয়াম ডার্ক ব্যাকগ্রাউন্ড
+        color = Color(0xFF10131B),
         border = BorderStroke(
             width = 0.5.dp,
-            color = Color(0xFF1F2432) // অতি সূক্ষ্ম টপ বর্ডার
+            color = Color(0xFF1F2432)
         ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding() // ফোনের সিস্টেম জেসচার বারের সেফটি
-                .height(40.dp) // 👈 আপনার নির্দেশ অনুযায়ী ঠিক ৪০dp করা হলো
+                .navigationBarsPadding()
+                .height(40.dp)
                 .padding(horizontal = 2.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
@@ -863,7 +862,7 @@ fun PlayDramaFlixBottomNav(
                         .fillMaxHeight()
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null // ল্যাগহীন ফাস্ট টাচ
+                            indication = null
                         ) { onTabSelected(tab) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -872,7 +871,7 @@ fun PlayDramaFlixBottomNav(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(18.dp), // ৪০dp উচ্চতার জন্য পারফেক্ট সাইজ
+                            modifier = Modifier.size(18.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             when (tab) {
@@ -887,14 +886,6 @@ fun PlayDramaFlixBottomNav(
                                 BottomNavTab.SHORT_TV -> {
                                     Icon(
                                         imageVector = Icons.Default.SmartDisplay,
-                                        contentDescription = tab.label,
-                                        tint = iconTint,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                }
-                                BottomNavTab.REELS -> {
-                                    Icon(
-                                        imageVector = Icons.Default.MovieFilter,
                                         contentDescription = tab.label,
                                         tint = iconTint,
                                         modifier = Modifier.size(17.dp)
@@ -949,12 +940,12 @@ fun PlayDramaFlixBottomNav(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(1.dp)) // স্লিম গ্যাপ
+                        Spacer(modifier = Modifier.height(1.dp))
 
                         Text(
                             text = tab.label,
                             color = textColor,
-                            fontSize = 8.5.sp, // ক্রিস্প ও ক্লিন স্লিম ফন্ট
+                            fontSize = 8.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1
                         )
