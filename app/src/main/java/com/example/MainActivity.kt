@@ -9,12 +9,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -31,12 +28,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
-import com.example.data.model.CreatorPageDto
 import com.example.data.model.LocalVideoItem
-import com.example.data.model.UserReelDto
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
-import com.example.data.repository.ReelsRepository
 import com.example.ui.PlayDramaFlixBottomNav
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.SocialBarAdOverlay
@@ -45,18 +39,13 @@ import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
-import com.example.ui.screens.profile.CreatorWebDashboardScreen
-import com.example.ui.screens.profile.PublicCreatorProfileScreen
-import com.example.ui.screens.reels.*
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.*
 import com.example.util.AppAnalyticsTracker
-import com.example.util.ReelsCachePreloadManager
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 object ShortTvNavHelper {
@@ -79,18 +68,6 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
-    
-    // 🎯 নির্দিষ্ট রিলস ভিডিও টার্গেট
-    data class Reels(val targetReel: UserReelDto? = null) : Screen()
-    
-    data class ReelsSearch(val initialQuery: String = "") : Screen()
-    data class ReelsSearchResult(val query: String) : Screen()
-    data class HashtagDetail(val hashtag: String) : Screen()
-    data class VideoTrimmer(val videoUri: Uri, val isSeries: Boolean = false) : Screen()
-    data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
-    data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
-    data class CreatorWebDashboard(val pageId: Int, val studioUrl: String) : Screen()
-    data class PublicCreatorProfile(val pageId: Int) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -102,24 +79,15 @@ class MainActivity : ComponentActivity() {
         DramaFlixViewModelFactory(repository)
     }
 
-    private val reelsViewModel: ReelsViewModel by viewModels {
-        val reelsRepository = ReelsRepository(applicationContext)
-        ReelsViewModelFactory(reelsRepository)
-    }
-
     private val pendingNotificationSlug = mutableStateOf<String?>(null)
     private val pendingNotificationIsShorts = mutableStateOf(false)
     private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
-    private val pendingReelId = mutableStateOf<Int?>(null)
-    private val pendingPageId = mutableStateOf<Int?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        ReelsCachePreloadManager.initCache(applicationContext)
 
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
@@ -133,21 +101,17 @@ class MainActivity : ComponentActivity() {
             DramaFlixTheme {
                 MainAppContent(
                     viewModel = viewModel,
-                    reelsViewModel = reelsViewModel,
                     pendingNotificationSlug = pendingNotificationSlug.value,
                     pendingNotificationIsShorts = pendingNotificationIsShorts.value,
                     pendingExternalMediaItem = pendingExternalMediaItem.value,
                     pendingOpenCommunityChat = pendingOpenCommunityChat.value,
                     pendingOpenVipScreen = pendingOpenVipScreen.value,
-                    pendingReelId = pendingReelId.value,
-                    pendingPageId = pendingPageId.value,
                     onFinish = { finish() }
                 )
             }
         }
     }
 
-    // 🎯 অ্যাপ ব্যাকগ্রাউন্ডে থাকলে নোটিফিকেশনে ট্যাপ করলে নতুন ইন্টেন্ট ক্যাচ করা
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -219,34 +183,6 @@ class MainActivity : ComponentActivity() {
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
-
-        // =========================================================================
-        // 🎬 ১. নতুন রিলস নোটিফিকেশন থেকে আসা আইডি শনাক্তকরণ
-        // =========================================================================
-        val incomingReelId = intent.getIntExtra("EXTRA_OPEN_REEL_ID", 0).takeIf { it > 0 }
-            ?: extras?.get("reel_id")?.toString()?.toIntOrNull()
-            ?: extras?.get("reelId")?.toString()?.toIntOrNull()
-
-        if (incomingReelId != null && incomingReelId > 0) {
-            pendingReelId.value = incomingReelId
-            return
-        }
-
-        if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
-            val rId = dataUri?.lastPathSegment?.toIntOrNull()
-            if (rId != null) {
-                pendingReelId.value = rId
-                return
-            }
-        }
-
-        if (dataUriString.contains("/page/") || dataUriString.startsWith("playdramaflix://page")) {
-            val pId = dataUri?.lastPathSegment?.toIntOrNull()
-            if (pId != null) {
-                pendingPageId.value = pId
-                return
-            }
-        }
 
         val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
                 intent.getStringExtra("type") == "chat_reply" ||
@@ -426,44 +362,24 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainAppContent(
     viewModel: DramaFlixViewModel,
-    reelsViewModel: ReelsViewModel,
     pendingNotificationSlug: String?,
     pendingNotificationIsShorts: Boolean,
     pendingExternalMediaItem: LocalVideoItem?,
     pendingOpenCommunityChat: Boolean,
     pendingOpenVipScreen: Boolean,
-    pendingReelId: Int?,
-    pendingPageId: Int?,
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
-    val coroutineScope = rememberCoroutineScope()
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val reelsRepository = remember { ReelsRepository(context) }
 
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val isVip = authState.isVip
-
-    val profileModePrefs = remember {
-        context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
-    }
-
-    var activeProfileMode by remember {
-        mutableStateOf(profileModePrefs.getString("active_profile_mode", "personal") ?: "personal")
-    }
-
-    val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
-    val myCreatorPage = uploadState.creatorPage
-
-    var pendingUploadMode by remember { mutableStateOf("reel") }
 
     var currentScreen by remember {
         mutableStateOf<Screen>(
             if (pendingOpenCommunityChat) Screen.CommunityChat
             else if (pendingOpenVipScreen) Screen.Vip
-            else if (pendingReelId != null) Screen.Reels()
-            else if (pendingPageId != null) Screen.PublicCreatorProfile(pendingPageId)
             else if (pendingExternalMediaItem != null) Screen.LocalPlayer(pendingExternalMediaItem)
             else if (!pendingNotificationSlug.isNullOrBlank()) {
                 if (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true)) {
@@ -475,37 +391,21 @@ private fun MainAppContent(
         )
     }
 
-    // 🎯 নোটিফিকেশন থেকে নির্দিষ্ট রিলস আইডি আসলে সাথে সাথে রিলস স্ক্রিনে নিয়ে যাওয়া
-    LaunchedEffect(pendingReelId) {
-        if (pendingReelId != null && pendingReelId > 0) {
-            coroutineScope.launch {
-                val res = reelsRepository.getReelsFeed("for_you", 1)
-                val allReels = res.getOrDefault(emptyList())
-                val targetReel = allReels.find { it.id == pendingReelId }
-                currentScreen = Screen.Reels(targetReel = targetReel)
-            }
-        }
-    }
-
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> BottomNavTab.HOME
             is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
-            is Screen.Reels, is Screen.ReelsSearch, is Screen.ReelsSearchResult,
-            is Screen.HashtagDetail, is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
-            is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
             is Screen.Downloads -> BottomNavTab.DOWNLOADS
-            is Screen.Profile, is Screen.CreatorWebDashboard -> BottomNavTab.ME
+            is Screen.Profile -> BottomNavTab.ME
             else -> BottomNavTab.HOME
         }
     }
 
     var selectedTab by remember {
         mutableStateOf(
-            if (pendingReelId != null) BottomNavTab.REELS
-            else if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
+            if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
             else BottomNavTab.HOME
         )
     }
@@ -533,15 +433,6 @@ private fun MainAppContent(
                     newScreen is Screen.Player || currentScreen is Screen.Player ||
                     newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
                     newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
-                    newScreen is Screen.Reels || currentScreen is Screen.Reels ||
-                    newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
-                    newScreen is Screen.ReelsSearchResult || currentScreen is Screen.ReelsSearchResult ||
-                    newScreen is Screen.HashtagDetail || currentScreen is Screen.HashtagDetail ||
-                    newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
-                    newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
-                    newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
-                    newScreen is Screen.CreatorWebDashboard || currentScreen is Screen.CreatorWebDashboard ||
-                    newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
                     newScreen is Screen.Vip || currentScreen is Screen.Vip
 
             if (isExempted) {
@@ -574,14 +465,6 @@ private fun MainAppContent(
 
     val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
 
-    val reelVideoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            navigateTo(Screen.VideoTrimmer(videoUri = uri, isSeries = (pendingUploadMode == "series")), null)
-        }
-    }
-
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -608,15 +491,6 @@ private fun MainAppContent(
             is Screen.Home -> null
             is Screen.Player -> null
             is Screen.ShortsPlayer -> null
-            is Screen.Reels -> "Reels Feed Screen"
-            is Screen.ReelsSearch -> "Reels Search Landing Page"
-            is Screen.ReelsSearchResult -> "Reels Search Results: ${screen.query}"
-            is Screen.HashtagDetail -> "Hashtag Detail: ${screen.hashtag}"
-            is Screen.VideoTrimmer -> "Video Trimmer Screen"
-            is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
-            is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
-            is Screen.CreatorWebDashboard -> "Creator Web Analytics Dashboard: ${screen.pageId}"
-            is Screen.PublicCreatorProfile -> "Public Creator Profile: ${screen.pageId}"
             is Screen.Vip -> "VIP Pricing Screen"
             is Screen.Watchlist -> "My Watchlist Screen"
             is Screen.Profile -> "Profile Screen"
@@ -643,16 +517,7 @@ private fun MainAppContent(
             currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
-            currentScreen is Screen.Vip ||
-            currentScreen is Screen.VideoTrimmer ||
-            currentScreen is Screen.ReelDetailsPublish ||
-            currentScreen is Screen.SeriesEpisodePublish ||
-            currentScreen is Screen.ReelsSearch ||
-            currentScreen is Screen.ReelsSearchResult ||
-            currentScreen is Screen.HashtagDetail ||
-            currentScreen is Screen.PublicCreatorProfile ||
-            currentScreen is Screen.CreatorWebDashboard ||
-            currentScreen is Screen.Reels
+            currentScreen is Screen.Vip
 
     Box(
         modifier = Modifier
@@ -673,20 +538,8 @@ private fun MainAppContent(
                                         ShortTvNavHelper.activeSubTab = null
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
-                                    BottomNavTab.REELS -> navigateTo(Screen.Reels(), tab)
                                     BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
-                                    BottomNavTab.ME -> {
-                                        if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                                            coroutineScope.launch {
-                                                val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
-                                                val studioUrl = tokenRes.getOrNull()
-                                                    ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
-                                                navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), tab)
-                                            }
-                                        } else {
-                                            navigateTo(Screen.Profile, tab)
-                                        }
-                                    }
+                                    BottomNavTab.ME -> navigateTo(Screen.Profile, tab)
                                 }
                             }
                         }
@@ -724,174 +577,6 @@ private fun MainAppContent(
                             onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                         )
                     }
-                    is Screen.Reels -> {
-                        ReelsFeedScreen(
-                            viewModel = reelsViewModel,
-                            targetReel = screen.targetReel,
-                            isLoggedIn = authState.isLoggedIn,
-                            currentUserName = authState.userProfile?.displayName ?: "User",
-                            currentUserAvatar = authState.userProfile?.avatar,
-                            onBackClick = { handleBackNavigation() },
-                            onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                            onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
-                            onNavigateToProfile = {
-                                if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                                    coroutineScope.launch {
-                                        val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
-                                        val studioUrl = tokenRes.getOrNull()
-                                            ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
-                                        navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
-                                    }
-                                } else {
-                                    navigateTo(Screen.Profile, BottomNavTab.ME)
-                                }
-                            },
-                            onOpenCreateReel = { mode ->
-                                val hasApprovedPage = uploadState.creatorPage?.isApproved == true
-                                if (!hasApprovedPage) {
-                                    val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
-                                    val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
-                                    UnifiedAdManager.openChromeCustomTab(context, applyUrl)
-                                } else {
-                                    pendingUploadMode = mode
-                                    reelVideoPickerLauncher.launch("video/*")
-                                }
-                            },
-                            onNavigateToPageApply = {
-                                val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
-                                val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
-                                UnifiedAdManager.openChromeCustomTab(context, applyUrl)
-                            },
-                            onOpenPageProfile = { pageId ->
-                                navigateTo(Screen.PublicCreatorProfile(pageId), null)
-                            },
-                            onNavigateToSearch = { initialTag ->
-                                if (initialTag.startsWith("#")) {
-                                    navigateTo(Screen.HashtagDetail(initialTag), null)
-                                } else {
-                                    navigateTo(Screen.ReelsSearch(initialQuery = initialTag), null)
-                                }
-                            },
-                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
-                            onRequireLogin = { viewModel.showAuthDialog(true) }
-                        )
-                    }
-
-                    is Screen.PublicCreatorProfile -> {
-                        PublicCreatorProfileScreen(
-                            pageId = screen.pageId,
-                            reelsViewModel = reelsViewModel,
-                            isLoggedIn = authState.isLoggedIn,
-                            onRequireLogin = { viewModel.showAuthDialog(true) },
-                            onBackClick = { handleBackNavigation() },
-                            onReelClick = { clickedReel ->
-                                navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS)
-                            }
-                        )
-                    }
-
-                    is Screen.ReelsSearch -> {
-                        ReelsSearchScreen(
-                            initialQuery = screen.initialQuery,
-                            onBackClick = { handleBackNavigation() },
-                            onNavigateToResults = { query ->
-                                navigateTo(Screen.ReelsSearchResult(query = query), null)
-                            }
-                        )
-                    }
-                    is Screen.ReelsSearchResult -> {
-                        ReelsSearchResultScreen(
-                            searchQuery = screen.query,
-                            viewModel = reelsViewModel,
-                            onBackClick = { handleBackNavigation() },
-                            onSearchSubmit = { newQuery ->
-                                navigateTo(Screen.ReelsSearchResult(query = newQuery), null)
-                            },
-                            onReelClick = { clickedReel -> 
-                                navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS) 
-                            },
-                            onOpenCreatorProfile = { pageId ->
-                                navigateTo(Screen.PublicCreatorProfile(pageId), null)
-                            },
-                            onOpenHashtagExplorer = { tag ->
-                                navigateTo(Screen.HashtagDetail(tag), null)
-                            }
-                        )
-                    }
-                    is Screen.HashtagDetail -> {
-                        HashtagDetailScreen(
-                            hashtag = screen.hashtag,
-                            onBackClick = { handleBackNavigation() },
-                            onReelClick = { clickedReel -> 
-                                navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS) 
-                            }
-                        )
-                    }
-                    is Screen.VideoTrimmer -> {
-                        VideoTrimmerScreen(
-                            videoUri = screen.videoUri,
-                            isSeries = screen.isSeries,
-                            onBackClick = { handleBackNavigation() },
-                            onNextClick = { trimmedPath, isMuted ->
-                                if (screen.isSeries || pendingUploadMode == "series") {
-                                    navigateTo(
-                                        Screen.SeriesEpisodePublish(
-                                            trimmedVideoPath = trimmedPath,
-                                            isMuted = isMuted
-                                        ),
-                                        null
-                                    )
-                                } else {
-                                    navigateTo(
-                                        Screen.ReelDetailsPublish(
-                                            trimmedVideoPath = trimmedPath,
-                                            isMuted = isMuted
-                                        ),
-                                        null
-                                    )
-                                }
-                            }
-                        )
-                    }
-                    is Screen.ReelDetailsPublish -> {
-                        val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
-                        ReelDetailsPublishScreen(
-                            trimmedVideoPath = screen.trimmedVideoPath,
-                            creatorPage = uploadState.creatorPage,
-                            userId = currentUserIdInt,
-                            onBackClick = { handleBackNavigation() },
-                            onPublishSuccessExit = {
-                                navigateTo(Screen.Reels(), BottomNavTab.REELS)
-                                reelsViewModel.loadFeed(tab = "for_you")
-                            }
-                        )
-                    }
-                    is Screen.SeriesEpisodePublish -> {
-                        val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
-                        SeriesEpisodePublishScreen(
-                            trimmedVideoPath = screen.trimmedVideoPath,
-                            creatorPage = uploadState.creatorPage,
-                            userId = currentUserIdInt,
-                            onBackClick = { handleBackNavigation() },
-                            onPublishSuccessExit = {
-                                navigateTo(Screen.Reels(), BottomNavTab.REELS)
-                                reelsViewModel.loadFeed(tab = "for_you")
-                            }
-                        )
-                    }
-                    is Screen.CreatorWebDashboard -> {
-                        CreatorWebDashboardScreen(
-                            pageId = screen.pageId,
-                            studioUrl = screen.studioUrl,
-                            onSwitchToPersonalProfile = {
-                                activeProfileMode = "personal"
-                                profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
-                                navigateTo(Screen.Profile, BottomNavTab.ME)
-                                Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
-                            },
-                            onBackClick = { handleBackNavigation() }
-                        )
-                    }
                     is Screen.Search -> {
                         SearchScreen(
                             viewModel = viewModel,
@@ -917,20 +602,7 @@ private fun MainAppContent(
                             onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
                             onNavigateToNotification = { navigateTo(Screen.Notification, null) },
                             onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
-                            onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) },
-                            onSwitchToCreatorStudio = { creatorPage: CreatorPageDto ->
-                                coroutineScope.launch {
-                                    val tokenRes = reelsRepository.getCreatorStudioUrl(creatorPage.id)
-                                    val studioUrl = tokenRes.getOrNull()
-                                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${creatorPage.id}"
-
-                                    activeProfileMode = "creator_page"
-                                    profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
-
-                                    navigateTo(Screen.CreatorWebDashboard(creatorPage.id, studioUrl), BottomNavTab.ME)
-                                    Toast.makeText(context, "Switched to ${creatorPage.pageName} Studio", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                            onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) }
                         )
                     }
                     is Screen.Notification -> {
@@ -972,15 +644,6 @@ private fun MainAppContent(
 
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
-                currentScreen is Screen.Reels ||
-                currentScreen is Screen.ReelsSearch ||
-                currentScreen is Screen.ReelsSearchResult ||
-                currentScreen is Screen.HashtagDetail ||
-                currentScreen is Screen.VideoTrimmer ||
-                currentScreen is Screen.ReelDetailsPublish ||
-                currentScreen is Screen.SeriesEpisodePublish ||
-                currentScreen is Screen.CreatorWebDashboard ||
-                currentScreen is Screen.PublicCreatorProfile ||
                 currentScreen is Screen.CommunityChat
 
         if (!shouldHideFloatingChat) {
@@ -997,7 +660,7 @@ private fun MainAppContent(
             )
         }
 
-        if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
+        if (!shouldHideBottomNav && currentScreen !is Screen.Player) {
             SocialBarAdOverlay(
                 isVip = isVip,
                 modifier = Modifier
