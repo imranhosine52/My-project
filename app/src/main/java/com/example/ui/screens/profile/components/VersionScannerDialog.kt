@@ -1,16 +1,17 @@
 package com.example.ui.screens.profile.components
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -31,11 +33,11 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 
-private val ActionGreen = Color(0xFF00E676)
-private val BlueRadar = Color(0xFF2AABEE)
+private val PlayProtectGreen = Color(0xFF00E676)
+private val PlayProtectCyan = Color(0xFF00E5FF)
 
 /**
- * 🛰️ অ্যাপ ভার্সন রাডার স্ক্যানার ও আপডেট চেকার ডায়ালগ
+ * 🛰️ গুগল প্লে-স্টোর (Play Protect) স্টাইল ফ্যান স্ক্যানার
  */
 @Composable
 fun VersionScannerDialog(
@@ -45,37 +47,40 @@ fun VersionScannerDialog(
     modifier: Modifier = Modifier
 ) {
     var isScanning by remember { mutableStateOf(true) }
-    var scanStatusText by remember { mutableStateOf("Connecting to update server...") }
+    var scanStatusText by remember { mutableStateOf("Scanning for updates...") }
     var isUpToDate by remember { mutableStateOf(false) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "radar_anim")
-    val rotationAngle by infiniteTransition.animateFloat(
+    // 🌪️ ফ্যানের মতো ৩৬০ ডিগ্রি ঘূর্ণন অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "fan_sweep")
+    val fanRotationAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = LinearEasing),
+            animation = tween(1200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "radar_rotation"
+        label = "fan_rotation"
     )
+
+    // হালকা স্পন্দন (Pulse)
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
+        initialValue = 0.94f,
+        targetValue = 1.06f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
+            animation = tween(900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "radar_pulse"
+        label = "pulse_scale"
     )
 
     LaunchedEffect(Unit) {
         delay(600)
-        scanStatusText = "Checking latest version compatibility..."
-        delay(700)
         scanStatusText = "Verifying package integrity..."
+        delay(800)
+        scanStatusText = "Checking latest version..."
 
         val updateInfo = viewModel.scanServerForUpdate()
-        delay(500)
+        delay(600)
 
         if (updateInfo?.updateAvailable == true) {
             onDismiss()
@@ -83,7 +88,9 @@ fun VersionScannerDialog(
         } else {
             isScanning = false
             isUpToDate = true
-            scanStatusText = "You are already using the latest version!"
+            scanStatusText = "App is up to date"
+            delay(1800)
+            onDismiss() // স্ক্যান শেষ হলে স্বয়ংক্রিয়ভাবে বন্ধ হবে
         }
     }
 
@@ -91,118 +98,146 @@ fun VersionScannerDialog(
         onDismissRequest = { if (!isScanning) onDismiss() },
         properties = DialogProperties(
             dismissOnBackPress = !isScanning,
-            dismissOnClickOutside = !isScanning
+            dismissOnClickOutside = !isScanning,
+            usePlatformDefaultWidth = false
         )
     ) {
-        Card(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF101522)),
-            border = BorderStroke(1.2.dp, if (isUpToDate) ActionGreen else BlueRadar)
+        // 🎯 কোনো চারকোনা কার্ড নেই — স্ক্রিনের ওপর স্বচ্ছ ফ্লোটিং সারফেস
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.70f))
+                .clickable(enabled = !isScanning) { onDismiss() },
+            contentAlignment = Alignment.Center
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = modifier.padding(24.dp)
             ) {
-                if (isScanning) {
-                    Box(
-                        modifier = Modifier
-                            .size(110.dp)
-                            .scale(pulseScale),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize().rotate(rotationAngle)) {
-                            val r = size.minDimension / 2
-                            drawCircle(
-                                color = BlueRadar.copy(alpha = 0.2f),
-                                radius = r,
-                                style = Stroke(width = 2.dp.toPx())
+                // =============================================================
+                // 🌀 গুগল প্লে-স্টোরের মতো ফ্যান রাডার স্ক্যানার
+                // =============================================================
+                Box(
+                    modifier = Modifier
+                        .size(130.dp)
+                        .scale(pulseScale),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isScanning) {
+                        // ১. ফ্যানের মতো ঘূর্ণায়মান রাডার ব্লেড
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .rotate(fanRotationAngle)
+                        ) {
+                            val r = size.minDimension / 2f
+                            val sweepBrush = Brush.sweepGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    PlayProtectGreen.copy(alpha = 0.05f),
+                                    PlayProtectGreen.copy(alpha = 0.25f),
+                                    PlayProtectGreen.copy(alpha = 0.90f)
+                                )
                             )
+
+                            // বাইরের পাতলা সার্কেল ট্র্যাক
                             drawCircle(
-                                color = BlueRadar.copy(alpha = 0.4f),
-                                radius = r * 0.65f,
+                                color = PlayProtectGreen.copy(alpha = 0.20f),
+                                radius = r,
                                 style = Stroke(width = 1.5.dp.toPx())
                             )
-                            drawLine(
-                                brush = Brush.sweepGradient(listOf(Color.Transparent, BlueRadar)),
-                                start = center,
-                                end = Offset(center.x + r, center.y),
-                                strokeWidth = 3.dp.toPx()
+
+                            // ফ্যানের ব্লেডের মতো রাডার সুইপ
+                            drawArc(
+                                brush = sweepBrush,
+                                startAngle = 0f,
+                                sweepAngle = 90f, // ফ্যানের পাখার মতো ৯০ ডিগ্রি স্লাইস
+                                useCenter = true
+                            )
+
+                            // ঘূর্ণায়মান উজ্জ্বল অগ্রভাগ
+                            drawCircle(
+                                brush = sweepBrush,
+                                radius = r,
+                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                             )
                         }
 
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = null,
-                            tint = BlueRadar,
-                            modifier = Modifier.size(42.dp)
-                        )
+                        // ২. মাঝখানের সিকিউরিটি শিল্ড আইকন
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF101722)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = PlayProtectGreen,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    } else {
+                        // ✅ স্ক্যান সম্পন্ন হওয়ার অ্যানিমেশন
+                        Box(
+                            modifier = Modifier
+                                .size(90.dp)
+                                .clip(CircleShape)
+                                .background(PlayProtectGreen.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Verified",
+                                tint = PlayProtectGreen,
+                                modifier = Modifier.size(54.dp)
+                            )
+                        }
                     }
+                }
 
+                // =============================================================
+                // 📝 টেক্সট ও স্ট্যাটাস
+                // =============================================================
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        text = "Scanning for Updates...",
+                        text = if (isScanning) "Scanning..." else "No updates found",
                         color = Color.White,
                         fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
+
                     Text(
-                        text = scanStatusText,
-                        color = Color(0xFF94A3B8),
+                        text = if (isScanning) scanStatusText else "PlayDramaFlix v$installedVersion is up to date",
+                        color = if (isScanning) Color(0xFF94A3B8) else PlayProtectGreen,
                         fontSize = 12.5.sp,
                         textAlign = TextAlign.Center
                     )
-                } else {
+                }
+
+                // ক্লোজ বাটন (স্ক্যান চলাকালীন বন্ধ করতে চাইলে)
+                if (isScanning) {
+                    Spacer(modifier = Modifier.height(10.dp))
                     Box(
                         modifier = Modifier
-                            .size(80.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
-                            .background(ActionGreen.copy(alpha = 0.15f))
-                            .border(2.dp, ActionGreen, CircleShape),
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .clickable { onDismiss() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = ActionGreen,
-                            modifier = Modifier.size(48.dp)
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
-                    }
-
-                    Text(
-                        text = "You're Up to Date!",
-                        color = Color.White,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = ActionGreen.copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, ActionGreen)
-                    ) {
-                        Text(
-                            text = "Installed Version: v$installedVersion",
-                            color = ActionGreen,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    Button(
-                        onClick = onDismiss,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                    ) {
-                        Text("Great!", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
             }
