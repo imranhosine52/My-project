@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -31,6 +32,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
+import com.example.ui.LanguageDubBadge
+import java.util.Locale
+
+private val GoldRating = Color(0xFFFFB300)
 
 // =============================================================================
 // 📑 ট্যাব হেডার (For you এবং Comments সিলেকশন)
@@ -103,8 +108,8 @@ fun PlayerTabsHeader(
 }
 
 // =============================================================================
-// 🎬 রিকমেন্ডেশন কার্ড (🎯 Episodes পরিবর্তন করে Eps করা হয়েছে)
-// =============================================================================
+// 🎬 রিকমেন্ডেশন কার্ড (🎯 উপরে ডাব ব্যাজ, নিচে রেটিং ও Display Name সহ)
+// =========================================================================
 @Composable
 fun PlayerRecommendationCard(
     drama: ContentItemDto,
@@ -117,41 +122,81 @@ fun PlayerRecommendationCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.72f)
+                .aspectRatio(0.68f)
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, shiningBorderBrush, RoundedCornerShape(8.dp))
                 .background(Color(0xFF141A26))
         ) {
             AsyncImage(
                 model = drama.posterUrl ?: drama.bannerUrl,
-                contentDescription = cardTitle,
+                contentDescription = drama.displayName,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
 
-            // 🎯 এখানে Episodes ছোট করে "Eps" লেখা হয়েছে (যেমন: 20 Eps)
+            // নিচের হালকা ডার্ক ওভারলে
             Box(
                 modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.75f)
+                            )
+                        )
+                    )
+            )
+
+            // 🎯 ১. উপরে ডানে সার্ভারের ডাইনামিক ডাবিং ব্যাজ
+            LanguageDubBadge(
+                dubText = drama.dubBadge,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+
+            // ২. নিচে বামে এপিসোড সংখ্যা
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "HD"
+            Text(
+                text = epCount,
+                color = Color.White.copy(alpha = 0.95f),
+                fontSize = 8.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(4.dp)
-                    .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                    .padding(horizontal = 5.dp, vertical = 4.dp)
+            )
+
+            // 🎯 ৩. নিচে ডানে হালকা রেটিং (কোনো ভারী বক্স ছাড়া)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 5.dp, vertical = 4.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(9.dp)
+                )
                 Text(
-                    text = "${drama.totalEpisodes} Eps",
-                    color = Color(0xFFE2E8F0),
-                    fontSize = 9.sp,
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(3.5.dp))
 
+        // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
         Text(
-            text = cardTitle,
+            text = drama.displayName,
             color = Color(0xFFCCD0DB),
-            fontSize = 11.5.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -160,7 +205,7 @@ fun PlayerRecommendationCard(
 }
 
 // =============================================================================
-// ✍️ কমেন্ট ইনপুট বক্স (ভয়েস ছাড়া শুধু টাইপিং, ইমোজি ও স্টিকার)
+// ✍️ কমেন্ট ইনপুট বক্স
 // =============================================================================
 @Composable
 fun PlayerInlineCommentInput(
