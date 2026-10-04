@@ -26,10 +26,10 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -44,11 +44,17 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
+import com.example.ui.LanguageDubBadge
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.Random
 
+// 🎨 হোমপেজের হুবহু ব্যাকগ্রাউন্ড ও কালার প্যালেট
+private val HomeBackgroundDark = Color(0xFF090A0F)
+private val CardBorderColor = Color(0xFF1E2638)
+private val GoldRating = Color(0xFFFFB300)
 private val LimeYellowAccent = Color(0xFFE5FE00)
 private val LimeYellowButtonText = Color(0xFF0F1400)
 
@@ -59,36 +65,49 @@ fun RecentlyAddedCategoryScreen(
     onNavigateToPlayer: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 🎯 রিফ্রেশ সিড (কার্ডগুলোর অবস্থান প্রতিবার ডায়নামিক রোটেট হওয়ার জন্য)
+    var refreshSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val heroSliderItems = remember(items) { items.take(10) }
+
+    // ডায়নামিক রোটেশন সহ ফিল্টারবিহীন নতুন ড্রামা তালিকা
+    val dynamicNewList = remember(items, refreshSeed) {
+        if (items.size > 2) items.shuffled(Random(refreshSeed)) else items
+    }
+
+    // ৪টি করে কার্ড প্রতি সারিতে
+    val gridChunks = remember(dynamicNewList) {
+        dynamicNewList.chunked(4)
+    }
+
     if (items.isEmpty()) {
         Box(
             modifier = modifier
                 .fillMaxSize()
+                .background(HomeBackgroundDark)
                 .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "No recently added dramas found",
                 color = Color(0xFF94A3B8),
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 textAlign = TextAlign.Center
             )
         }
     } else {
-        val heroSliderItems = remember(items) { items.take(10) }
-        val gridChunks = remember(items) { items.chunked(3) }
-
         LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFF0C0F15)),
+                .background(HomeBackgroundDark),
             contentPadding = PaddingValues(
-                top = statusBarTop + 94.dp,
-                bottom = 80.dp
+                top = statusBarTop + 84.dp,
+                bottom = 70.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // =========================================================================
-            // 🌟 ১. স্ক্রিনশটের হুবহু হিরো স্পটলাইট স্লাইডার কার্ড
+            // 🌟 ১. টপ হিরো স্পটলাইট স্লাইডার কার্ড
             // =========================================================================
             if (heroSliderItems.isNotEmpty()) {
                 item {
@@ -96,70 +115,70 @@ fun RecentlyAddedCategoryScreen(
                         spotlightDramas = heroSliderItems,
                         onWatchClick = { drama -> onNavigateToPlayer(drama.slug) },
                         onDetailsClick = { drama -> onNavigateToPlayer(drama.slug) },
-                        modifier = Modifier.padding(horizontal = 12.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp)
                     )
                 }
             }
 
             // =========================================================================
-            // 🏷️ ২. সেকশন হেডার (লাল দাগ সহ)
+            // 🏷️ ২. সেকশন হেডার (কোনো ফিল্টার অপশন ছাড়া)
             // =========================================================================
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 2.dp),
+                        .padding(horizontal = 10.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .width(3.5.dp)
-                                .height(16.dp)
-                                .clip(RoundedCornerShape(2.dp))
+                                .width(3.dp)
+                                .height(14.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
                                 .background(Color(0xFFFF2A4B))
                         )
                         Text(
-                            text = "Recently Added",
+                            text = "Recently Added Releases",
                             color = Color.White,
-                            fontSize = 17.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Text(
-                        text = "${items.size} Series",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 12.sp,
+                        text = "${dynamicNewList.size} Titles",
+                        color = Color(0xFF8E95A5),
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
 
             // =========================================================================
-            // 🔲 ৩. ৩-কলাম ড্রামা গ্রিড
+            // 🔲 ৩. ৪-কলাম কম্প্যাক্ট ড্রামা গ্রিড
             // =========================================================================
             items(gridChunks.size) { rowIndex ->
                 val rowDramas = gridChunks[rowIndex]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     rowDramas.forEach { drama ->
                         Box(modifier = Modifier.weight(1f)) {
-                            RecentlyAddedDramaCard(
+                            CompactDesktopNewCard(
                                 drama = drama,
                                 onClick = { onNavigateToPlayer(drama.slug) }
                             )
                         }
                     }
-                    repeat(3 - rowDramas.size) {
+                    repeat(4 - rowDramas.size) {
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
@@ -169,7 +188,7 @@ fun RecentlyAddedCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 হিরো স্পটলাইট স্লাইডার কার্ড (Series পেজের হুবহু স্টাইল)
+// 🎬 হিরো স্পটলাইট স্লাইডার কার্ড (Display Name সহ)
 // =========================================================================
 @Composable
 fun RecentlyAddedHeroSpotlightCard(
@@ -184,7 +203,6 @@ fun RecentlyAddedHeroSpotlightCard(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // অটো-স্লাইড লুপ (প্রতি ৪.২ সেকেন্ডে)
     LaunchedEffect(pagerState.pageCount) {
         if (totalPages > 1) {
             while (isActive) {
@@ -216,10 +234,10 @@ fun RecentlyAddedHeroSpotlightCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(Color(0xFF0F131D))
-            .border(1.dp, Color(0xFF232B3D), RoundedCornerShape(16.dp))
-            .padding(14.dp)
+            .border(1.dp, Color(0xFF232B3D), RoundedCornerShape(14.dp))
+            .padding(12.dp)
     ) {
         Column {
             Box(modifier = Modifier.fillMaxWidth()) {
@@ -240,7 +258,7 @@ fun RecentlyAddedHeroSpotlightCard(
                                 .weight(1f)
                                 .padding(end = 10.dp)
                         ) {
-                            // ১. টপ ব্যাজ রো: [ NEW ]  [ 2026 ]  [ ★ 9.2 ]
+                            // ১. টপ ব্যাজ রো: [ NEW ]  [ 2026 ]  [ ★ 9.0 ]
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -294,9 +312,9 @@ fun RecentlyAddedHeroSpotlightCard(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // ২. ড্রামার নাম
+                            // 🎯 ড্রামার ছোট ও পরিচ্ছন্ন নাম
                             Text(
-                                text = drama.title,
+                                text = drama.displayName,
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
@@ -307,12 +325,12 @@ fun RecentlyAddedHeroSpotlightCard(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // ৩. ক্যাটাগরি ট্যাগস
+                            // ৩. ক্যাটাগরি ও দেশ ট্যাগস
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 modifier = Modifier.horizontalScroll(rememberScrollState())
                             ) {
-                                (listOf("All", drama.dubBadge) + drama.categories.take(2)).filter { it.isNotBlank() }.distinct().forEach { tag ->
+                                (listOf("All", drama.dubBadge, drama.country) + drama.categories.take(2)).filter { it.isNotBlank() }.distinct().forEach { tag ->
                                     Surface(
                                         shape = RoundedCornerShape(5.dp),
                                         color = Color(0xFF1E2638)
@@ -330,7 +348,7 @@ fun RecentlyAddedHeroSpotlightCard(
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            // ৪. অ্যাকশন বাটনসমূহ: [ ▶ Watch Now ]  [ ℹ Details ]
+                            // ৪. অ্যাকশন বাটনসমূহ
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = { onWatchClick(drama) },
@@ -388,7 +406,7 @@ fun RecentlyAddedHeroSpotlightCard(
                                     .data(drama.posterUrl ?: drama.bannerUrl)
                                     .crossfade(true)
                                     .build(),
-                                contentDescription = drama.title,
+                                contentDescription = drama.displayName,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
@@ -433,11 +451,9 @@ fun RecentlyAddedHeroSpotlightCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // =========================================================================
-            // 🟡 ডট ইন্ডিকেটর (● ▬ ● ● ●)
-            // =========================================================================
+            // 🟡 ডট ইন্ডিকেটর
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -463,37 +479,15 @@ fun RecentlyAddedHeroSpotlightCard(
 }
 
 // =========================================================================
-// 🖼️ ৩-কলাম ড্রামা কার্ড (Series পেজের হুবহু পরিষ্কার লুক)
+// 🖼️ ৪-কলাম কম্প্যাক্ট কার্ড (হালকা রেটিং ও ডাইনামিক ডাবিং ব্যাজ সহ)
 // =========================================================================
 @Composable
-fun RecentlyAddedDramaCard(
+fun CompactDesktopNewCard(
     drama: ContentItemDto,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-
-    val infiniteTransition = rememberInfiniteTransition(label = "recentlyAddedCardShine")
-    val shimmerOffset by infiniteTransition.animateFloat(
-        initialValue = -300f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerOffset"
-    )
-
-    val shineBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0x33FFFFFF),
-            Color(0xFF6366F1).copy(alpha = 0.8f),
-            Color(0xFF00E5FF).copy(alpha = 0.8f),
-            Color(0x33FFFFFF)
-        ),
-        start = Offset(shimmerOffset, 0f),
-        end = Offset(shimmerOffset + 250f, 350f)
-    )
 
     Column(
         modifier = modifier
@@ -504,24 +498,21 @@ fun RecentlyAddedDramaCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(10.dp))
-                .border(
-                    width = 1.dp,
-                    brush = shineBorderBrush,
-                    shape = RoundedCornerShape(10.dp)
-                )
-                .background(Color(0xFF1E2430))
+                .clip(RoundedCornerShape(6.dp))
+                .border(0.6.dp, CardBorderColor, RoundedCornerShape(6.dp))
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
 
+            // নিচের হালকা ডার্ক শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -530,54 +521,63 @@ fun RecentlyAddedDramaCard(
                             listOf(
                                 Color.Transparent,
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.85f)
+                                Color.Black.copy(alpha = 0.70f)
                             )
                         )
                     )
             )
 
-            // ডাবিং ব্যাজ (Bangla / Hindi)
-            val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
-            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 10.dp))
-                    .background(badgeColor)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (isBangla) "Bangla" else "Hindi",
-                    color = Color.Black,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
+            // ডাবিং ব্যাজ (উপরে ডানে)
+            LanguageDubBadge(
+                dubText = drama.dubBadge,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
 
             // এপিসোড সংখ্যা
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Series"
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "New"
             Text(
                 text = epCount,
-                color = Color.White,
-                fontSize = 9.5.sp,
-                fontWeight = FontWeight.Bold,
+                color = Color.White.copy(alpha = 0.95f),
+                fontSize = 7.5.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
             )
+
+            // রেটিং (নিচে ডানে - হালকা ইফেক্ট)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(8.5.dp)
+                )
+                Text(
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(5.dp))
+        Spacer(modifier = Modifier.height(2.5.dp))
 
+        // ছোট ও পরিচ্ছন্ন নাম (Display Name)
         Text(
-            text = drama.title,
+            text = drama.displayName,
             color = Color(0xFFE2E8F0),
-            fontSize = 11.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 14.sp
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
