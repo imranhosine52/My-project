@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.app.Activity // 👈 ফিক্সড: Activity ইমপোর্ট যুক্ত করা হয়েছে
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -417,7 +418,6 @@ private fun MainAppContent(
     }
 
     val handleBackNavigation: () -> Unit = {
-        // স্ক্রিন ব্যাক করার সময় ওরিয়েন্টেশন সোজা (Portrait) করা
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (navigationBackStack.isNotEmpty()) {
             val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
@@ -432,11 +432,10 @@ private fun MainAppContent(
     }
 
     // =========================================================================
-    // 🎯 সুরক্ষিত সেন্ট্রাল নেভিগেশন ইঞ্জিন (VIP ও ব্রাউজার ফুল সাপোর্ট সহ)
+    // 🎯 সেন্ট্রাল নেভিগেশন ইঞ্জিন
     // =========================================================================
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
-            // ১. প্লেয়ার স্ক্রিন থেকে বের হলে ওরিয়েন্টেশন সোজা করা
             if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
