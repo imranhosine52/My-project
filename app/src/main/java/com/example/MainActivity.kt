@@ -17,6 +17,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -372,9 +374,6 @@ private fun MainAppContent(
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val isVip = authState.isVip
 
@@ -395,7 +394,6 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
-    // 🎯 ৫টি মূল ট্যাবের সাথে স্ক্রিন রেজলভার
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> BottomNavTab.HOME
@@ -515,12 +513,12 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
-    // ফুলস্ক্রিন প্লেয়ার বা বিশেষ কিছু স্ক্রিনে বটম বার হাইড থাকবে
-    val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
+    // 🎯 প্লেয়ার পেজগুলোতে (Player, Shorts, LocalPlayer) বটম ন্যাভিগেশন বার পুরোপুরি বন্ধ থাকবে
+    val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
+            currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.Notification ||
             currentScreen is Screen.LocalGallery ||
-            currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat
 
@@ -543,7 +541,7 @@ private fun MainAppContent(
                                         ShortTvNavHelper.activeSubTab = null
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
-                                    BottomNavTab.VIP -> navigateTo(Screen.Vip, tab) // 👑 VIP স্ক্রিন নেভিগেশন
+                                    BottomNavTab.VIP -> navigateTo(Screen.Vip, tab)
                                     BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
                                     BottomNavTab.ME -> navigateTo(Screen.Profile, tab)
                                 }
@@ -553,97 +551,107 @@ private fun MainAppContent(
                 }
             }
         ) { _ ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                when (val screen = currentScreen) {
-                    is Screen.Home -> {
-                        HomeScreen(
-                            viewModel = viewModel,
-                            initialCategory = screen.category,
-                            onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
-                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
-                            onNavigateToSearch = { navigateTo(Screen.Search, null) },
-                            onNavigateToNotification = { navigateTo(Screen.Notification, null) }
-                        )
-                    }
-                    is Screen.ShortsPlayer -> {
-                        ShortsPlayerScreen(
-                            slug = screen.slug,
-                            viewModel = viewModel,
-                            onBackClick = { handleBackNavigation() },
-                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) }
-                        )
-                    }
-                    is Screen.Player -> {
-                        PlayerScreen(
-                            slug = screen.slug,
-                            viewModel = viewModel,
-                            onBackClick = { handleBackNavigation() },
-                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
-                            onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
-                            onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
-                        )
-                    }
-                    is Screen.Search -> {
-                        SearchScreen(
-                            viewModel = viewModel,
-                            onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
-                        )
-                    }
-                    is Screen.Vip -> {
-                        VipScreen(
-                            viewModel = viewModel,
-                            onNavigateBack = { handleBackNavigation() },
-                            onNavigateToProfile = { navigateTo(Screen.Profile, BottomNavTab.ME) }
-                        )
-                    }
-                    is Screen.Watchlist -> {
-                        WatchlistScreen(
-                            viewModel = viewModel,
-                            onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
-                        )
-                    }
-                    is Screen.Profile -> {
-                        ProfileScreen(
-                            viewModel = viewModel,
-                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
-                            onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
-                            onNavigateToNotification = { navigateTo(Screen.Notification, null) },
-                            onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
-                            onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) }
-                        )
-                    }
-                    is Screen.Notification -> {
-                        NotificationScreen(
-                            viewModel = viewModel,
-                            onBackClick = { handleBackNavigation() },
-                            onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug, false) }
-                        )
-                    }
-                    is Screen.LocalGallery -> {
-                        LocalGalleryScreen(
-                            onBackClick = { handleBackNavigation() },
-                            onVideoClick = { video -> navigateTo(Screen.LocalPlayer(video), null) }
-                        )
-                    }
-                    is Screen.LocalPlayer -> {
-                        LocalPlayerScreen(
-                            videoItem = screen.videoItem,
-                            onBackClick = { handleBackNavigation() }
-                        )
-                    }
-                    is Screen.Downloads -> {
-                        DownloadsScreen(
-                            onBackClick = { handleBackNavigation() },
-                            onPlayDownloadedVideo = { localVideoItem ->
-                                navigateTo(Screen.LocalPlayer(localVideoItem), null)
-                            }
-                        )
-                    }
-                    is Screen.CommunityChat -> {
-                        CommunityChatScreen(
-                            viewModel = viewModel,
-                            onBackClick = { handleBackNavigation() }
-                        )
+            // 🌟 মসৃণ ফ্লুইড ট্রানজিশন (Smooth Screen Fade & Slide Animation)
+            AnimatedContent(
+                targetState = currentScreen,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) togetherWith
+                    fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                },
+                label = "screen_transition"
+            ) { targetScreen ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (targetScreen) {
+                        is Screen.Home -> {
+                            HomeScreen(
+                                viewModel = viewModel,
+                                initialCategory = targetScreen.category,
+                                onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
+                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                onNavigateToSearch = { navigateTo(Screen.Search, null) },
+                                onNavigateToNotification = { navigateTo(Screen.Notification, null) }
+                            )
+                        }
+                        is Screen.ShortsPlayer -> {
+                            ShortsPlayerScreen(
+                                slug = targetScreen.slug,
+                                viewModel = viewModel,
+                                onBackClick = { handleBackNavigation() },
+                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) }
+                            )
+                        }
+                        is Screen.Player -> {
+                            PlayerScreen(
+                                slug = targetScreen.slug,
+                                viewModel = viewModel,
+                                onBackClick = { handleBackNavigation() },
+                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
+                                onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
+                            )
+                        }
+                        is Screen.Search -> {
+                            SearchScreen(
+                                viewModel = viewModel,
+                                onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
+                            )
+                        }
+                        is Screen.Vip -> {
+                            VipScreen(
+                                viewModel = viewModel,
+                                onNavigateBack = { handleBackNavigation() },
+                                onNavigateToProfile = { navigateTo(Screen.Profile, BottomNavTab.ME) }
+                            )
+                        }
+                        is Screen.Watchlist -> {
+                            WatchlistScreen(
+                                viewModel = viewModel,
+                                onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
+                            )
+                        }
+                        is Screen.Profile -> {
+                            ProfileScreen(
+                                viewModel = viewModel,
+                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
+                                onNavigateToNotification = { navigateTo(Screen.Notification, null) },
+                                onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
+                                onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) }
+                            )
+                        }
+                        is Screen.Notification -> {
+                            NotificationScreen(
+                                viewModel = viewModel,
+                                onBackClick = { handleBackNavigation() },
+                                onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug, false) }
+                            )
+                        }
+                        is Screen.LocalGallery -> {
+                            LocalGalleryScreen(
+                                onBackClick = { handleBackNavigation() },
+                                onVideoClick = { video -> navigateTo(Screen.LocalPlayer(video), null) }
+                            )
+                        }
+                        is Screen.LocalPlayer -> {
+                            LocalPlayerScreen(
+                                videoItem = targetScreen.videoItem,
+                                onBackClick = { handleBackNavigation() }
+                            )
+                        }
+                        is Screen.Downloads -> {
+                            DownloadsScreen(
+                                onBackClick = { handleBackNavigation() },
+                                onPlayDownloadedVideo = { localVideoItem ->
+                                    navigateTo(Screen.LocalPlayer(localVideoItem), null)
+                                }
+                            )
+                        }
+                        is Screen.CommunityChat -> {
+                            CommunityChatScreen(
+                                viewModel = viewModel,
+                                onBackClick = { handleBackNavigation() }
+                            )
+                        }
                     }
                 }
             }
