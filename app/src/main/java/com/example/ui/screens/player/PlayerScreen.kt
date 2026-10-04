@@ -28,7 +28,9 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -76,7 +78,6 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.example.ads.StartAppBanner
-import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.CustomAdsConfigResponse
@@ -96,7 +97,6 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -109,10 +109,6 @@ private fun findActivityFromContext(context: Context): Activity? {
         current = current.baseContext
     }
     return null
-}
-
-private fun cleanDramaTitle(title: String): String {
-    return title.split("|", "-").firstOrNull()?.trim() ?: title
 }
 
 private fun isDirectMediaUrl(rawUrl: String?): Boolean {
@@ -177,7 +173,6 @@ fun PlayerScreen(
         ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
         ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
 
-    // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
     val cleanShortTitle = remember(content) {
         content.displayName
     }
@@ -199,15 +194,12 @@ fun PlayerScreen(
 
     var isMediaSendingLock by remember { mutableStateOf(false) }
 
+    // =========================================================================
+    // 📢 ১. কাস্টম অ্যাড কনফিগারেশন ও ডায়নামিক মিনিট টাইমার
+    // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
-
-    val triggeredCuePoints = remember(currentActiveSlug, playerState.currentEpisode?.episodeNumber) { 
-        mutableStateListOf<Int>() 
-    }
-    var lastMidrollAdTriggerSec by remember(currentActiveSlug, playerState.currentEpisode?.episodeNumber) { 
-        mutableLongStateOf(0L) 
-    }
+    var lastMidrollTriggerSeconds by remember(currentActiveSlug) { mutableLongStateOf(0L) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -229,8 +221,61 @@ fun PlayerScreen(
         customAdsConfig?.ads?.filter { it.placement == "long_video" || it.placement == "all" } ?: emptyList()
     }
 
+    // =========================================================================
+    // 🎯 ২. একাধিক ক্লিক অ্যাড ও ১ মিনিট আনলক ভ্যালিডিটি ইঞ্জিন
+    // =========================================================================
+    val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
+    val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
+
+    // এডমিন প্যানেল থেকে প্রয়োজনীয় ক্লিক সংখ্যা (ডিফল্ট: ২ টি ক্লিক)
+    val requiredAdClicks = remember(adConfig) {
+        adConfig.rules?.timerSeconds?.let { (it / 5).coerceIn(1, 3) } ?: 2
+    }
+    var currentAdClickStep by remember { mutableIntStateOf(0) }
+
+    // ১ মিনিটের আনলক মেথড (৬০ সেকেন্ড)
+    fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
+        val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
+        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // 👈 ১ মিনিট (৬০,০০০ ms)
+        val storageKey = "unlock_expiry_${currentActiveSlug}_ep${ep.episodeNumber}"
+
+        prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
+
+        // অ্যাপের লাইভ স্টেট আপডেট
+        viewModel.selectEpisode(ep.copy(isLocked = false))
+        Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} unlocked for 1 minute! Enjoy.", Toast.LENGTH_LONG).show()
+
+        // ৬০ সেকেন্ড পর স্বয়ংক্রিয়ভাবে রি-লক চেক লুপ
+        coroutineScope.launch {
+            delay(60_000L)
+            if (!isUserVip) {
+                prefs.edit().remove(storageKey).apply()
+            }
+        }
+    }
+
+    // মাল্টি-ক্লিক অ্যাড হ্যান্ডলার
+    fun handleMultiClickAdUnlock(ep: EpisodeDto) {
+        currentAdClickStep++
+        val opened = UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
+
+        if (currentAdClickStep >= requiredAdClicks) {
+            currentAdClickStep = 0
+            viewModel.dismissEpisodeUnlockModal()
+            unlockEpisodeForOneMinute(ep)
+        } else {
+            val remainingClicks = requiredAdClicks - currentAdClickStep
+            Toast.makeText(
+                context,
+                "✓ Click $currentAdClickStep completed! Complete $remainingClicks more click to unlock.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
+        currentAdClickStep = 0
 
         val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.displayName
@@ -324,9 +369,6 @@ fun PlayerScreen(
 
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
-
-    val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
-    val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
     fun handleBackNavigation() {
         if (activeCustomVideoAd != null) {
@@ -605,6 +647,9 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
+    // =========================================================================
+    // ⏱️ ৩. অ্যাডমিন প্যানেল নির্ধারিত ডায়নামিক মিনিট ইন্টারভাল অ্যাড ট্রিগার
+    // =========================================================================
     LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -614,26 +659,23 @@ fun PlayerScreen(
             }
 
             val currentSec = (currentPositionMs / 1000L).toInt()
+
+            // 👑 ভিআইপি না হলে এবং অ্যাডমিন প্যানেল থেকে অ্যাড সক্রিয় থাকলে নির্দিষ্ট মিনিট পর পর অ্যাড চলবে
             if (!isUserVip && activeCustomVideoAd == null && customAdsConfig?.customAdsEnabled == true) {
                 val longRules = customAdsConfig?.longVideoRules
                 if (longRules?.enabled == true && customLongAds.isNotEmpty()) {
-                    val cuePoints = longRules.cuePointTimestamps
-                    val intervalSec = longRules.midrollIntervalSeconds.coerceAtLeast(120)
 
-                    val matchedCuePoint = cuePoints.firstOrNull { point ->
-                        point > 0 && currentSec in point..(point + 2) && point !in triggeredCuePoints
-                    }
+                    // অ্যাডমিন প্যানেল থেকে আসা মিনিট ইন্টারভাল (ডিফল্ট: ৫ মিনিট / ৩০০ সেকেন্ড)
+                    val repeatIntervalSec = (longRules.repeatIntervalSeconds).coerceAtLeast(60)
+                    val firstAdDelaySec = (longRules.firstAdDelaySeconds).coerceAtLeast(0)
 
-                    val intervalPassed = currentSec > 60 && (currentSec - lastMidrollAdTriggerSec) >= intervalSec
+                    val isFirstAdTime = lastMidrollTriggerSeconds == 0L && currentSec >= firstAdDelaySec
+                    val isRepeatAdTime = lastMidrollTriggerSeconds > 0L && (currentSec - lastMidrollTriggerSeconds) >= repeatIntervalSec
 
-                    if (matchedCuePoint != null || (cuePoints.isEmpty() && intervalPassed)) {
-                        if (matchedCuePoint != null) {
-                            triggeredCuePoints.add(matchedCuePoint)
-                        }
-                        lastMidrollAdTriggerSec = currentSec.toLong()
-
-                        exoPlayer.pause()
-                        activeCustomVideoAd = customLongAds.random()
+                    if (isFirstAdTime || isRepeatAdTime) {
+                        lastMidrollTriggerSeconds = currentSec.toLong()
+                        exoPlayer.pause() // মূল ভিডিও পজ
+                        activeCustomVideoAd = customLongAds.random() // কাস্টম বিজ্ঞাপন চালু
                     }
                 }
             }
@@ -820,7 +862,7 @@ fun PlayerScreen(
                     } else {
                         PlayerVideoBox(
                             exoPlayer = exoPlayer,
-                            title = cleanShortTitle, // 🎯 ছোট ও পরিচ্ছন্ন নাম
+                            title = cleanShortTitle,
                             slug = currentActiveSlug,
                             episodeNumber = currentEp?.episodeNumber ?: 1,
                             downloadUrl = downloadUrl,
@@ -962,22 +1004,14 @@ fun PlayerScreen(
                                 item {
                                     PlayerHeaderSection(
                                         content = content,
-                                        shortTitle = cleanShortTitle, // 🎯 ছোট ও পরিচ্ছন্ন নাম
+                                        shortTitle = cleanShortTitle,
                                         viewsCount = playerState.viewsCount,
                                         likesCount = playerState.likesCount.toLong(),
                                         isLiked = playerState.isLiked,
                                         isInWatchlist = playerState.isInWatchlist,
                                         isDescriptionExpanded = isDescriptionExpanded,
-                                        onPreviousClick = {
-                                            StartIoAdManager.showInterstitial(context, isVip = isUserVip) {
-                                                viewModel.playPreviousEpisode()
-                                            }
-                                        },
-                                        onNextClick = {
-                                            StartIoAdManager.showInterstitial(context, isVip = isUserVip) {
-                                                viewModel.playNextEpisode()
-                                            }
-                                        },
+                                        onPreviousClick = { viewModel.playPreviousEpisode() },
+                                        onNextClick = { viewModel.playNextEpisode() },
                                         onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
                                         onLikeClick = {
                                             if (!isUserLoggedIn) showAuthSheet = true
@@ -1041,7 +1075,7 @@ fun PlayerScreen(
                                             for (drama in rowDramas) {
                                                 PlayerRecommendationCard(
                                                     drama = drama,
-                                                    cardTitle = drama.displayName, // 🎯 ছোট নাম
+                                                    cardTitle = drama.displayName,
                                                     shiningBorderBrush = shiningBorderBrush,
                                                     onClick = {
                                                         dramaHistoryStack.add(currentActiveSlug)
@@ -1162,7 +1196,7 @@ fun PlayerScreen(
 
                             if (showBatchDownloadDialog) {
                                 PlayerBatchDownloadSheet(
-                                    title = cleanShortTitle, // 🎯 ছোট নাম
+                                    title = cleanShortTitle,
                                     slug = currentActiveSlug,
                                     episodes = effectiveEpisodes,
                                     isVip = isUserVip,
@@ -1193,6 +1227,9 @@ fun PlayerScreen(
             }
         }
 
+        // =========================================================================
+        // 🎬 ৪. ইউটিউব স্টাইল কাস্টম ভিডিও বিজ্ঞাপন উইন্ডো
+        // =========================================================================
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
             CustomVideoAdDialog(
@@ -1287,7 +1324,7 @@ fun PlayerScreen(
 
         if (showDownloadSheet) {
             DownloadResourceSheet(
-                title = cleanShortTitle, // 🎯 ছোট নাম
+                title = cleanShortTitle,
                 downloadUrl = downloadUrl,
                 onDismiss = { showDownloadSheet = false },
                 onDownloadNow = {
@@ -1311,23 +1348,20 @@ fun PlayerScreen(
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
+        // =========================================================================
+        // 🔒 ৫. ১ মিনিট আনলক ভ্যালিডিটি ও মাল্টি-ক্লিক ডিরেক্ট লিংক ডায়ালগ
+        // =========================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
-                onDismiss = { viewModel.dismissEpisodeUnlockModal() },
+                onDismiss = {
+                    currentAdClickStep = 0
+                    viewModel.dismissEpisodeUnlockModal()
+                },
                 onWatchAd = {
-                    val act = activity ?: findActivityFromContext(context)
-                    if (act != null) {
-                        StartIoAdManager.showRewardedAd(act) { isRewarded ->
-                            if (isRewarded) {
-                                viewModel.unlockEpisodeWithRewardAd(context, currentActiveSlug, lockedTarget)
-                                Toast.makeText(context, "Episode ${lockedTarget.episodeNumber} unlocked for 2 hours!", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    } else {
-                        viewModel.unlockEpisodeWithRewardAd(context, currentActiveSlug, lockedTarget)
-                    }
+                    // মাল্টি-ক্লিক ডিরেক্ট লিংক হ্যান্ডলার চালনা করা
+                    handleMultiClickAdUnlock(lockedTarget)
                 },
                 onUpgradeVip = {
                     viewModel.dismissEpisodeUnlockModal()
