@@ -1,6 +1,6 @@
 package com.example.ui.screens.categories
 
-import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,12 +12,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -33,7 +31,9 @@ import coil.request.ImageRequest
 import com.example.ads.StartAppBanner
 import com.example.data.model.ContentItemDto
 import com.example.ui.HotSpotlightHeroCard
+import com.example.ui.LanguageDubBadge
 import com.example.ui.SectionHeader
+import com.example.ui.VipCrown3DIcon
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.HomeUiState
 
@@ -54,8 +54,8 @@ fun MainHomeFeedTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = statusBarTop + 94.dp, bottom = 72.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(top = statusBarTop + 68.dp, bottom = 60.dp), // 🎯 স্লিম মার্জিন
+        verticalArrangement = Arrangement.spacedBy(10.dp) // 🎯 ডেস্কটপ-স্টাইল টাইট স্পেসিং
     ) {
         // ১. Spotlight Hero Carousel
         if (homeState.spotlightDramas.isNotEmpty()) {
@@ -64,7 +64,7 @@ fun MainHomeFeedTab(
                     spotlightDramas = homeState.spotlightDramas,
                     onWatchClick = { drama -> onNavigateToPlayer(drama.slug) },
                     onDetailsClick = { drama -> onNavigateToPlayer(drama.slug) },
-                    modifier = Modifier.padding(horizontal = 12.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp)
                 )
             }
         }
@@ -73,7 +73,7 @@ fun MainHomeFeedTab(
         item {
             HomeVipPromoBanner(
                 onVipClick = onNavigateToVip,
-                modifier = Modifier.padding(horizontal = 12.dp)
+                modifier = Modifier.padding(horizontal = 10.dp)
             )
         }
 
@@ -85,8 +85,8 @@ fun MainHomeFeedTab(
                     onSeeAllClick = { onSelectCategoryTab(1) }
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(homeState.recentlyAdded) { drama ->
                         HomePosterCardHorizontal(
@@ -106,8 +106,8 @@ fun MainHomeFeedTab(
                     onSeeAllClick = { onSelectCategoryTab(2) }
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(sortedPopularByViews.take(10)) { drama ->
                         HomePosterCardHorizontal(
@@ -119,7 +119,7 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৫. Shorts Drama (🎯 ফিক্সড: onSeeAllClick দেওয়া হয়েছে)
+        // ৫. Shorts Drama
         if (homeState.shortsContent.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -127,8 +127,8 @@ fun MainHomeFeedTab(
                     onSeeAllClick = { onSelectCategoryTab(3) }
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(homeState.shortsContent) { drama ->
                         HomePosterCardHorizontal(
@@ -148,8 +148,8 @@ fun MainHomeFeedTab(
                     onSeeAllClick = { onSelectCategoryTab(4) }
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(homeState.dramaSeriesContent) { drama ->
                         HomePosterCardHorizontal(
@@ -169,8 +169,8 @@ fun MainHomeFeedTab(
                     onSeeAllClick = { onSelectCategoryTab(7) }
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(homeState.banglaDubbed) { drama ->
                         HomePosterCardHorizontal(
@@ -190,8 +190,8 @@ fun MainHomeFeedTab(
                     onSeeAllClick = { onSelectCategoryTab(8) }
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(homeState.hindiDubbed) { drama ->
                         HomePosterCardHorizontal(
@@ -216,8 +216,8 @@ fun MainHomeFeedTab(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 rowDramas.forEach { drama ->
                     Box(modifier = Modifier.weight(1f)) {
@@ -239,14 +239,14 @@ fun MainHomeFeedTab(
                 isVip = isVip,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .padding(horizontal = 10.dp, vertical = 2.dp)
             )
         }
     }
 }
 
 // =========================================================================
-// 🖼️ বড় সাইজের হরিজন্টাল কার্ড (চিকন গোল্ডেন শিমার অ্যানিমেশন সহ)
+// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড (কোনো শাইনিং বর্ডার নেই + ১ নম্বর ছবির ডার্ক গ্লাস ব্যাজ)
 // =========================================================================
 @Composable
 fun HomePosterCardHorizontal(
@@ -256,45 +256,18 @@ fun HomePosterCardHorizontal(
 ) {
     val context = LocalContext.current
 
-    val infiniteTransition = rememberInfiniteTransition(label = "goldenCardShine")
-    val shimmerOffset by infiniteTransition.animateFloat(
-        initialValue = -300f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerOffset"
-    )
-
-    // ✨ ০.৭dp চিকন প্রিমিয়াম গোল্ডেন গ্রেডিয়েন্ট ব্রাশ
-    val goldenShineBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0x22FFD700),
-            Color(0xFFFFD700).copy(alpha = 0.92f), // Glowing Pure Gold
-            Color(0xFFFFB300).copy(alpha = 0.85f), // Rich Amber
-            Color(0x22FFD700)
-        ),
-        start = Offset(shimmerOffset, 0f),
-        end = Offset(shimmerOffset + 240f, 340f)
-    )
-
     Column(
         modifier = modifier
-            .width(145.dp) // 👈 বড় ও সিনেমাটিক প্রস্থ
+            .width(118.dp) // 👈 ডেস্কটপ-স্টাইল স্লিম প্রস্থ
             .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(205.dp) // 👈 বড় ও ক্লিয়ার উচ্চতা
-                .clip(RoundedCornerShape(12.dp))
-                .border(
-                    width = 0.7.dp, // 👈 অতি চিকন ও নিখুঁত বর্ডার লাইন
-                    brush = goldenShineBorderBrush,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .background(Color(0xFF1E2430))
+                .height(162.dp) // 👈 স্লিম উচ্চতা
+                .clip(RoundedCornerShape(8.dp))
+                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp)) // 👈 পরিচ্ছন্ন স্থির বর্ডার
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -310,62 +283,48 @@ fun HomePosterCardHorizontal(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(48.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0x99000000), Color(0xF5000000))
+                            listOf(Color.Transparent, Color(0x99000000), Color(0xF0000000))
                         )
                     )
             )
 
-            val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
-            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
-
-            // ভাষা ব্যাজ
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 12.dp))
-                    .background(badgeColor)
-                    .padding(horizontal = 7.5.dp, vertical = 2.5.dp)
-            ) {
-                Text(
-                    text = if (isBangla) "Bangla" else "Hindi",
-                    color = Color.Black,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
+            // ১ নম্বর ছবির মতো স্বচ্ছ ডার্ক গ্লাস ব্যাজ
+            LanguageDubBadge(
+                dubText = drama.dubBadge.ifBlank { drama.language },
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
 
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
             Text(
                 text = epCount,
                 color = Color.White,
-                fontSize = 10.5.sp,
+                fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 8.dp, bottom = 6.dp)
+                    .padding(start = 6.dp, bottom = 4.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(3.dp))
 
         Text(
             text = drama.title,
             color = Color(0xFFE2E8F0),
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 15.sp
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের নিচের গ্রিড কার্ড (চিকন গোল্ডেন শিমার সহ)
+// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড (কোনো শাইনিং বর্ডার নেই + ডার্ক গ্লাস ব্যাজ)
 // =========================================================================
 @Composable
 fun HomeGridDramaCard(
@@ -375,28 +334,6 @@ fun HomeGridDramaCard(
 ) {
     val context = LocalContext.current
 
-    val infiniteTransition = rememberInfiniteTransition(label = "homeGridCardShine")
-    val shimmerOffset by infiniteTransition.animateFloat(
-        initialValue = -300f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerOffset"
-    )
-
-    val goldenShineBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0x22FFD700),
-            Color(0xFFFFD700).copy(alpha = 0.92f),
-            Color(0xFFFFB300).copy(alpha = 0.85f),
-            Color(0x22FFD700)
-        ),
-        start = Offset(shimmerOffset, 0f),
-        end = Offset(shimmerOffset + 240f, 340f)
-    )
-
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -405,14 +342,10 @@ fun HomeGridDramaCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(11.dp))
-                .border(
-                    width = 0.7.dp, // 👈 অতি চিকন ও প্রিমিয়াম বর্ডার লাইন
-                    brush = goldenShineBorderBrush,
-                    shape = RoundedCornerShape(11.dp)
-                )
-                .background(Color(0xFF1E2430))
+                .aspectRatio(0.70f)
+                .clip(RoundedCornerShape(8.dp))
+                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp)) // 👈 স্থির বর্ডার
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -438,52 +371,39 @@ fun HomeGridDramaCard(
                     )
             )
 
-            val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
-            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 11.dp))
-                    .background(badgeColor)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (isBangla) "Bangla" else "Hindi",
-                    color = Color.Black,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
+            // ১ নম্বর ছবির মতো স্বচ্ছ ডার্ক গ্লাস ব্যাজ
+            LanguageDubBadge(
+                dubText = drama.dubBadge.ifBlank { drama.language },
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
 
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
             Text(
                 text = epCount,
                 color = Color.White,
-                fontSize = 9.5.sp,
+                fontSize = 8.5.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                    .padding(horizontal = 5.dp, vertical = 4.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(5.dp))
+        Spacer(modifier = Modifier.height(3.dp))
 
         Text(
             text = drama.title,
             color = Color(0xFFE2E8F0),
-            fontSize = 11.sp,
+            fontSize = 10.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 14.sp
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
 // =========================================================================
-// 👑 VIP ব্যানার
+// 👑 স্লিম VIP ব্যানার
 // =========================================================================
 @Composable
 fun HomeVipPromoBanner(
@@ -493,15 +413,15 @@ fun HomeVipPromoBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(
                 Brush.horizontalGradient(
                     listOf(Color(0xFF2E2405), Color(0xFF1E1700), Color(0xFF131000))
                 )
             )
-            .border(1.dp, Color(0xFF5E4804), RoundedCornerShape(14.dp))
+            .border(0.8.dp, Color(0xFF5E4804), RoundedCornerShape(10.dp))
             .clickable { onVipClick() }
-            .padding(14.dp)
+            .padding(10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -510,109 +430,38 @@ fun HomeVipPromoBanner(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                HomeGolden3DVipCrownIcon()
+                VipCrown3DIcon(modifier = Modifier.size(24.dp, 20.dp))
 
                 Column {
                     Text(
                         text = "Upgrade to VIP All-Access",
                         color = GoldVip,
-                        fontSize = 14.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Zero Ads • 1080p Full HD • All Episodes Unlocked",
+                        text = "Zero Ads • 1080p Ultra HD • All Episodes Unlocked",
                         color = TextSecondary,
-                        fontSize = 11.sp
+                        fontSize = 10.sp
                     )
                 }
             }
 
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(GoldVip)
-                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
             ) {
                 Text(
                     text = "Get VIP",
                     color = GoldButtonText,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Black
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun HomeGolden3DVipCrownIcon(
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(46.dp, 36.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFFFEA00),
-                            Color(0xFFFF9100),
-                            Color(0xFFFF6D00)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = Color(0xFFFFF176),
-                    shape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "VIP",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-                fontStyle = FontStyle.Italic,
-                letterSpacing = 0.5.sp
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .offset(y = (-4).dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF1744))
-                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(11.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF1744))
-                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF1744))
-                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
-            )
         }
     }
 }
