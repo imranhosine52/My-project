@@ -31,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -56,12 +57,90 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // =========================================================================
-// 🎨 ছবির হুবহু ৩টি কাস্টম আইকন (Vector Canvas Implementation)
+// 👑 ছবির হুবহু ৩-পয়েন্ট গোল্ডেন ক্রাউন ও রুবি জেমস্টোন ভেক্টর আইকন
+// =========================================================================
+@Composable
+fun VipCrownIllustratedIcon(
+    modifier: Modifier = Modifier.size(28.dp, 24.dp)
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            // ১. ক্রাউনের মূল সোনালী বডি
+            val crownPath = Path().apply {
+                moveTo(w * 0.18f, h * 0.88f)
+                lineTo(w * 0.82f, h * 0.88f)
+                quadraticTo(w * 0.90f, h * 0.88f, w * 0.88f, h * 0.78f)
+                lineTo(w * 0.84f, h * 0.44f)
+                quadraticTo(w * 0.68f, h * 0.54f, w * 0.50f, h * 0.28f)
+                quadraticTo(w * 0.32f, h * 0.54f, w * 0.16f, h * 0.44f)
+                lineTo(w * 0.12f, h * 0.78f)
+                quadraticTo(w * 0.10f, h * 0.88f, w * 0.18f, h * 0.88f)
+                close()
+            }
+
+            // গোল্ডেন গ্রেডিয়েন্ট ফিল
+            drawPath(
+                path = crownPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFFDF00),
+                        Color(0xFFFFB300),
+                        Color(0xFFFF8F00)
+                    )
+                )
+            )
+
+            // উজ্জ্বল হলুদ বর্ডার
+            drawPath(
+                path = crownPath,
+                color = Color(0xFFFFEA00),
+                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // ২. ৩টি লাল রুবি জেমস্টোন (৩টি শীর্ষবিন্দুতে)
+            val rubyRadius = w * 0.085f
+            val rubyGoldBorder = 1.4.dp.toPx()
+            val rubyColor = Color(0xFFFF2A55)
+            val rimColor = Color(0xFFFFEA00)
+
+            // বাঁয়ের রুবি
+            drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.16f, h * 0.44f))
+            drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.16f, h * 0.44f))
+
+            // মাঝের প্রধান রুবি
+            drawCircle(color = rimColor, radius = rubyRadius * 1.15f + rubyGoldBorder, center = Offset(w * 0.50f, h * 0.26f))
+            drawCircle(color = rubyColor, radius = rubyRadius * 1.15f, center = Offset(w * 0.50f, h * 0.26f))
+
+            // ডানের রুবি
+            drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.84f, h * 0.44f))
+            drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.84f, h * 0.44f))
+        }
+
+        // ক্রাউনের ভেতরের সাদা ইটালিক "VIP" টেক্সট
+        Text(
+            text = "VIP",
+            color = Color.White,
+            fontSize = 8.5.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 2.5.dp)
+        )
+    }
+}
+
+// =========================================================================
+// 🎬 Short TV, Downloads, Me কাস্টম ভেক্টর আইকনসমূহ
 // =========================================================================
 
-/**
- * 🎬 ২ নম্বর ছবির হুবহু "Short" আইকন (পেছনে ২টি কার্ড স্লাইস + মাঝে প্লে বাটন কার্ড)
- */
 @Composable
 fun ShortTvCustomStackedIcon(
     tint: Color,
@@ -72,33 +151,22 @@ fun ShortTvCustomStackedIcon(
         val h = size.height
         val strokeWidth = 1.7.dp.toPx()
 
-        // বাঁ পাশের কার্ড স্লাইস
         val leftPath = Path().apply {
             moveTo(w * 0.22f, h * 0.22f)
             lineTo(w * 0.10f, h * 0.22f)
             lineTo(w * 0.10f, h * 0.78f)
             lineTo(w * 0.22f, h * 0.78f)
         }
-        drawPath(
-            path = leftPath,
-            color = tint,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
+        drawPath(leftPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-        // ডান পাশের কার্ড স্লাইস
         val rightPath = Path().apply {
             moveTo(w * 0.78f, h * 0.22f)
             lineTo(w * 0.90f, h * 0.22f)
             lineTo(w * 0.90f, h * 0.78f)
             lineTo(w * 0.78f, h * 0.78f)
         }
-        drawPath(
-            path = rightPath,
-            color = tint,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
+        drawPath(rightPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-        // মাঝখানের মূল ফ্রেম (রাউন্ডেড আয়তক্ষেত্র)
         drawRoundRect(
             color = tint,
             topLeft = Offset(w * 0.22f, h * 0.10f),
@@ -107,20 +175,16 @@ fun ShortTvCustomStackedIcon(
             style = Stroke(width = strokeWidth)
         )
 
-        // মাঝের প্লে ত্রিভুজ (Play Arrow)
         val playPath = Path().apply {
             moveTo(w * 0.44f, h * 0.38f)
             lineTo(w * 0.60f, h * 0.50f)
             lineTo(w * 0.44f, h * 0.62f)
             close()
         }
-        drawPath(path = playPath, color = tint, style = Fill)
+        drawPath(playPath, color = tint, style = Fill)
     }
 }
 
-/**
- * ⬇️ ১ নম্বর ছবির বাঁ পাশের হুবহু "Downloads" আইকন (নিচে ট্রে + ওপর থেকে ডাউন অ্যারো)
- */
 @Composable
 fun DownloadsCustomTrayIcon(
     tint: Color,
@@ -131,7 +195,6 @@ fun DownloadsCustomTrayIcon(
         val h = size.height
         val strokeWidth = 1.8.dp.toPx()
 
-        // ১. ডাউন অ্যারো দণ্ড
         drawLine(
             color = tint,
             start = Offset(w * 0.50f, h * 0.14f),
@@ -140,36 +203,23 @@ fun DownloadsCustomTrayIcon(
             cap = StrokeCap.Round
         )
 
-        // ২. অ্যারো হেড (Arrow Head)
         val arrowHead = Path().apply {
             moveTo(w * 0.35f, h * 0.44f)
             lineTo(w * 0.50f, h * 0.59f)
             lineTo(w * 0.65f, h * 0.44f)
         }
-        drawPath(
-            path = arrowHead,
-            color = tint,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
+        drawPath(arrowHead, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-        // ৩. নিচের ইউ-শেপ ট্রে (Open Tray)
         val trayPath = Path().apply {
             moveTo(w * 0.22f, h * 0.68f)
             lineTo(w * 0.22f, h * 0.84f)
             lineTo(w * 0.78f, h * 0.84f)
             lineTo(w * 0.78f, h * 0.68f)
         }
-        drawPath(
-            path = trayPath,
-            color = tint,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
+        drawPath(trayPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
-/**
- * 👤 ১ নম্বর ছবির ডান পাশের হুবহু "Me" আইকন (গোল মাথা + বাঁকানো বডি লাইন)
- */
 @Composable
 fun MeCustomUserIcon(
     tint: Color,
@@ -180,7 +230,6 @@ fun MeCustomUserIcon(
         val h = size.height
         val strokeWidth = 1.8.dp.toPx()
 
-        // গোল মাথা
         drawCircle(
             color = tint,
             radius = w * 0.17f,
@@ -188,7 +237,6 @@ fun MeCustomUserIcon(
             style = Stroke(width = strokeWidth)
         )
 
-        // নিচের আর্চ/বডি লাইন
         val bodyPath = Path().apply {
             moveTo(w * 0.16f, h * 0.85f)
             cubicTo(
@@ -197,16 +245,12 @@ fun MeCustomUserIcon(
                 w * 0.84f, h * 0.85f
             )
         }
-        drawPath(
-            path = bodyPath,
-            color = tint,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-        )
+        drawPath(bodyPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
     }
 }
 
 // =========================================================================
-// 🏷️ ডাবিং ও ভিআইপি ব্যাজসমূহ
+// 🏷️ ডাবিং ও ব্যাজসমূহ
 // =========================================================================
 @Composable
 fun LanguageDubBadge(
@@ -259,85 +303,13 @@ fun VipCrownBadge(
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        VipCrownVectorIcon(modifier = Modifier.fillMaxSize())
-    }
-}
-
-@Composable
-fun VipCrownVectorIcon(modifier: Modifier = Modifier) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            val crownPath = Path().apply {
-                moveTo(w * 0.22f, h * 0.86f)
-                quadraticTo(w * 0.50f, h * 0.90f, w * 0.78f, h * 0.86f)
-                quadraticTo(w * 0.84f, h * 0.65f, w * 0.82f, h * 0.42f)
-                quadraticTo(w * 0.68f, h * 0.52f, w * 0.50f, h * 0.22f)
-                quadraticTo(w * 0.32f, h * 0.52f, w * 0.18f, h * 0.42f)
-                quadraticTo(w * 0.16f, h * 0.65f, w * 0.22f, h * 0.86f)
-                close()
-            }
-
-            drawPath(
-                path = crownPath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFFFCA28), Color(0xFFFFB300), Color(0xFFFFA000)),
-                    startY = h * 0.20f,
-                    endY = h * 0.90f
-                )
-            )
-        }
-
-        Text(
-            text = "VIP",
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.align(Alignment.Center).offset(y = 2.dp)
-        )
+        VipCrownIllustratedIcon(modifier = Modifier.fillMaxSize())
     }
 }
 
 @Composable
 fun VipCrown3DIcon(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.size(width = 28.dp, height = 22.dp), contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            val crownPath = Path().apply {
-                moveTo(w * 0.15f, h * 0.40f)
-                lineTo(w * 0.18f, h * 0.85f)
-                quadraticTo(w * 0.50f, h * 0.95f, w * 0.82f, h * 0.85f)
-                lineTo(w * 0.85f, h * 0.40f)
-                lineTo(w * 0.68f, h * 0.55f)
-                lineTo(w * 0.50f, h * 0.22f)
-                lineTo(w * 0.32f, h * 0.55f)
-                close()
-            }
-
-            drawPath(
-                path = crownPath,
-                brush = Brush.verticalGradient(listOf(Color(0xFFFFEA00), Color(0xFFFFB300), Color(0xFFFF8F00)))
-            )
-            drawPath(
-                path = crownPath,
-                color = Color(0xFFFFF59D),
-                style = Stroke(width = 1.2.dp.toPx())
-            )
-        }
-
-        Text(
-            text = "VIP",
-            color = Color.White,
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            modifier = Modifier.align(Alignment.Center).offset(y = 2.dp)
-        )
-    }
+    VipCrownIllustratedIcon(modifier = modifier)
 }
 
 // =========================================================================
@@ -732,7 +704,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 নতুন ফ্রস্টেড গ্লাস বটম ন্যাভিগেশন বার (Home | Short | 👑 VIP | Downloads | Me)
+// 🧭 ফ্রস্টেড গ্লাস ৫-ট্যাব বটম ন্যাভিগেশন বার (ছবি অনুযায়ী ৩D VIP ক্রাউন সহ)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -743,21 +715,21 @@ fun PlayDramaFlixBottomNav(
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    // 🌟 ফ্রস্টেড সেমি-ট্রান্সপারেন্ট গ্লাস ব্যাকগ্রাউন্ড (কালো নেই, নিচের কার্ড ও লেখা আবছা দেখা যাবে)
+    // 🌟 ফ্রস্টেড সেমি-ট্রান্সপারেন্ট গ্লাস ব্যাকগ্রাউন্ড (নিচের কনটেন্ট হালকা ভেসে উঠবে)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0x88080C14), // হালকা অর্ধ-স্বচ্ছ কাঁচ ইফেক্ট
-                        Color(0xB3080C14)  // ব্যাকগ্রাউন্ডের লেখা পড়তে সাহায্য করার মতো মসৃণ গ্লাস
+                        Color(0x88080C14),
+                        Color(0xB3080C14)
                     )
                 )
             )
             .border(
                 width = 0.6.dp,
-                color = Color(0x2EFFFFFF), // সূক্ষ্ম ফ্রস্টেড গ্লাস বর্ডার
+                color = Color(0x2EFFFFFF),
                 shape = RectangleShape
             )
     ) {
@@ -765,7 +737,7 @@ fun PlayDramaFlixBottomNav(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .height(48.dp) // পারফেক্ট আধুনিক উচ্চতা
+                .height(48.dp)
                 .padding(horizontal = 4.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
@@ -773,9 +745,8 @@ fun PlayDramaFlixBottomNav(
             for (tab in BottomNavTab.entries) {
                 val isSelected = (tab == selectedTab)
 
-                // অ্যাক্টিভ হলে উজ্জ্বল সাদা/সায়ান, ইনঅ্যাক্টিভ হলে নরম স্লিম গ্রে
                 val iconTint = when {
-                    tab == BottomNavTab.VIP -> Color(0xFFFFB300) // ভিআইপির জন্য সোনালী
+                    tab == BottomNavTab.VIP -> Color(0xFFFFB300)
                     isSelected -> Color(0xFFFFFFFF)
                     else -> Color(0xFF8E95A5)
                 }
@@ -815,7 +786,7 @@ fun PlayDramaFlixBottomNav(
                                     )
                                 }
 
-                                // 🎬 ২. Short (আপনার ২ নম্বর ছবির হুবহু ভেক্টর ডিজাইন)
+                                // 🎬 ২. Short (২ নম্বর ছবির কাস্টম ভেক্টর আইকন)
                                 BottomNavTab.SHORT_TV -> {
                                     ShortTvCustomStackedIcon(
                                         tint = iconTint,
@@ -823,29 +794,14 @@ fun PlayDramaFlixBottomNav(
                                     )
                                 }
 
-                                // 👑 ৩. VIP (মাঝখানের আকর্ষণীয় প্রিমিয়াম গোল্ডেন ক্রাউন)
+                                // 👑 ৩. VIP (আপনার ছবির ৩টি লাল রুবি জেমস্টোন সহ ৩D গোল্ডেন ক্রাউন)
                                 BottomNavTab.VIP -> {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                Brush.radialGradient(
-                                                    listOf(Color(0x33FFB300), Color.Transparent)
-                                                )
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.WorkspacePremium,
-                                            contentDescription = "VIP",
-                                            tint = Color(0xFFFFB300),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
+                                    VipCrownIllustratedIcon(
+                                        modifier = Modifier.size(26.dp, 22.dp)
+                                    )
                                 }
 
-                                // ⬇️ ৪. Downloads (আপনার ১ নম্বর ছবির বাঁ পাশের হুবহু ভেক্টর ডিজাইন)
+                                // ⬇️ ৪. Downloads (১ নম্বর ছবির বাঁ পাশের কাস্টম ট্রে ও অ্যারো)
                                 BottomNavTab.DOWNLOADS -> {
                                     DownloadsCustomTrayIcon(
                                         tint = iconTint,
@@ -872,7 +828,7 @@ fun PlayDramaFlixBottomNav(
                                     }
                                 }
 
-                                // 👤 ৫. Me (আপনার ১ নম্বর ছবির ডান পাশের হুবহু ভেক্টর ডিজাইন)
+                                // 👤 ৫. Me (১ নম্বর ছবির ডান পাশের কাস্টম প্রোফাইল আর্চ)
                                 BottomNavTab.ME -> {
                                     MeCustomUserIcon(
                                         tint = iconTint,
