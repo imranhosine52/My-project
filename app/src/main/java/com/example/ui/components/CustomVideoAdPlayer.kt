@@ -12,7 +12,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
+import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -24,6 +24,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
@@ -34,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +51,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -55,7 +59,6 @@ import androidx.media3.ui.PlayerView
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.TrackAdEventRequest
 import com.example.data.remote.ApiClient
-import kotlin.OptIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -88,7 +91,7 @@ fun CustomVideoAdDialog(
     }
 
     var isAdPlaying by remember { mutableStateOf(true) }
-    var showPlayPauseControls by remember { mutableStateOf(false) } // 🎯 প্লে/পজ বাটন প্রদর্শনের স্টেট
+    var showPlayPauseControls by remember { mutableStateOf(false) }
     var currentAdPositionMs by remember { mutableLongStateOf(0L) }
     var totalAdDurationMs by remember { mutableLongStateOf(0L) }
 
@@ -107,6 +110,13 @@ fun CustomVideoAdDialog(
             stiffness = Spring.StiffnessMediumLow
         ),
         label = "player_height_anim"
+    )
+
+    // 🎯 ফিক্সড: প্লে/পজ বাটনের স্মুথ অ্যানিমেটেড আলফা (AnimatedVisibility স্কোপ এরর সমাধান)
+    val playPauseAlpha by animateFloatAsState(
+        targetValue = if (showPlayPauseControls || !isAdPlaying) 1f else 0f,
+        animationSpec = tween(180),
+        label = "play_pause_alpha"
     )
 
     // 📊 ১. ভিউ ইভেন্ট ট্র্যাকার
@@ -181,7 +191,7 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // প্লে/পজ বাটন ২.৫ সেকেন্ড পর স্বয়ংক্রিয়ভাবে অদৃশ্য হওয়া
+    // প্লে/পজ বাটন ২.৫ সেকেন্ড পর অদৃশ্য হওয়া
     LaunchedEffect(showPlayPauseControls, isAdPlaying) {
         if (showPlayPauseControls && isAdPlaying) {
             delay(2500L)
@@ -211,7 +221,7 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // 🎯 ব্রাউজার বা প্লে স্টোরে নেওয়ার মেথড
+    // 🎯 ক্লিক ট্র্যাকার এবং রিডাইরেকশন হ্যান্ডলার
     fun handleDestinationClick() {
         val target = ad.destinationTarget.trim()
         if (target.isBlank()) return
@@ -275,7 +285,7 @@ fun CustomVideoAdDialog(
                 .background(YouTubeDarkBg)
         ) {
             // =========================================================================
-            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম (প্লে/পজ বাটন সহ)
+            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম
             // =========================================================================
             Box(
                 modifier = Modifier
@@ -304,15 +314,16 @@ fun CustomVideoAdDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ⏯️ প্লেয়ারের সেন্ট্রাল প্লে/পজ বাটন
-                AnimatedVisibility(
-                    visible = showPlayPauseControls || !isAdPlaying,
-                    enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.8f),
-                    exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f),
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
+                // ⏯️ প্লেয়ারের সেন্ট্রাল প্লে/পজ বাটন (১০০% ক্র্যাশ-প্রুফ অ্যানিমেটেড আলফা)
+                if (playPauseAlpha > 0.02f) {
                     Box(
                         modifier = Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer {
+                                alpha = playPauseAlpha
+                                scaleX = 0.85f + (0.15f * playPauseAlpha)
+                                scaleY = 0.85f + (0.15f * playPauseAlpha)
+                            }
                             .size(56.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.65f))
@@ -608,7 +619,6 @@ fun CustomVideoAdDialog(
 
                 // =========================================================================
                 // 🌐 ৩.৪ ফুল-উইন্ডো ওয়েব পেজ (বাকি সম্পূর্ণ জায়গা জুড়ে থাকবে)
-                // পেজের যেকোনো জায়গায় ক্লিক করলে ক্রোম ব্রাউজারে লিংক ওপেন হবে
                 // =========================================================================
                 val targetUrl = ad.destinationTarget.trim()
                 val isHttpWeb = targetUrl.startsWith("http://") || targetUrl.startsWith("https://")
