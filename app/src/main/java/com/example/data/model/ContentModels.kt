@@ -14,13 +14,25 @@ data class ContentResponse(
 @JsonClass(generateAdapter = true)
 data class ContentItemDto(
     @Json(name = "id") val rawId: Any? = null,
-    @Json(name = "type") val type: String = "series", // "movie" | "series" | "shorts" | "anime"
+    @Json(name = "type") val type: String = "series",
+    
+    // 🎯 ১. সার্ভারের ছোট নাম (Display Name)
+    @Json(name = "display_name") val rawDisplayName: String? = null,
+    @Json(name = "name") val rawName: String? = null,
+    
+    // 🎯 ২. সার্ভারের দেশ (Country)
+    @Json(name = "country") val rawCountry: String? = null,
+    
+    // 🎯 ৩. সার্ভারের মূল টাইটেল ও অন্যান্য ফিল্ড
     @Json(name = "title") val title: String = "",
     @Json(name = "slug") val slug: String = "",
     @Json(name = "description") val description: String? = null,
     @Json(name = "meta_description") val metaDescription: String? = null,
+    
+    // 🎯 ৪. সার্ভারের ডাবিং ও ভাষা ফিল্ড
     @Json(name = "language") val language: String = "Bangla Dubbed",
     @Json(name = "dub_badge") val customDubBadge: String? = null,
+    
     @Json(name = "release_year") val releaseYear: String = "2026",
     @Json(name = "rating") val rawRating: Any? = "8.5",
     @Json(name = "views") val rawViews: Any? = 0,
@@ -36,6 +48,30 @@ data class ContentItemDto(
 ) {
     val id: String get() = rawId?.toString() ?: slug
 
+    // 📱 ছোট ও পরিচ্ছন্ন নাম (Display Name -> Name -> Title Fallback)
+    val displayName: String
+        get() = rawDisplayName?.takeIf { it.isNotBlank() }
+            ?: rawName?.takeIf { it.isNotBlank() }
+            ?: title.split("|", "-").firstOrNull()?.trim()
+            ?: title
+
+    // 🌍 দেশের নাম (সার্ভার থেকে সরাসরি পাওয়া যাবে)
+    val country: String
+        get() = rawCountry?.takeIf { it.isNotBlank() } ?: "China"
+
+    // 🏷️ ডাবিং ব্যাজ (সার্ভার থেকে যে ভাষাই পাঠাবে হুবহু সেটাই থাকবে - বাংলা, হিন্দি, ইংলিশ, তামিল ইত্যাদি)
+    val dubBadge: String
+        get() {
+            if (!customDubBadge.isNullOrBlank()) {
+                return customDubBadge.trim()
+            }
+            if (language.isNotBlank()) {
+                return language.trim()
+            }
+            return "Bangla Dub"
+        }
+
+    // রেটিং পার্সার
     val rating: Double
         get() = when (rawRating) {
             is Number -> rawRating.toDouble()
@@ -43,13 +79,7 @@ data class ContentItemDto(
             else -> 8.5
         }
 
-    val views: String
-        get() = when (rawViews) {
-            is Number -> "${rawViews} views"
-            is String -> rawViews
-            else -> "0 views"
-        }
-
+    // ভিউ কাউন্ট পার্সার
     val numericViews: Long
         get() = when (val v = rawViews) {
             is Number -> v.toLong()
@@ -64,18 +94,7 @@ data class ContentItemDto(
             else -> 0L
         }
 
-    val viewsDisplay: String
-        get() {
-            val n = numericViews
-            return when {
-                n >= 1_000_000 -> "${(n / 100_000) / 10.0}M"
-                n >= 1_000 -> "${(n / 100) / 10.0}K"
-                n > 0 -> "$n"
-                rawViews is String && (rawViews as String).isNotBlank() -> rawViews as String
-                else -> "100K"
-            }
-        }
-
+    // ক্যাটাগরি পার্সার
     val categories: List<String>
         get() = when (rawCategories) {
             is List<*> -> rawCategories.filterIsInstance<String>().flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotEmpty() }
@@ -83,6 +102,7 @@ data class ContentItemDto(
             else -> emptyList()
         }
 
+    // মোট এপিসোড সংখ্যা
     val totalEpisodes: Int
         get() {
             val num = when (rawTotalEpisodes) {
@@ -94,77 +114,16 @@ data class ContentItemDto(
         }
 
     val isSpotlight: Boolean get() = isFeatured || isHot
+    val isShorts: Boolean get() = type.equals("shorts", ignoreCase = true) || categories.any { it.contains("Shorts", true) }
+    val isAnime: Boolean get() = type.equals("anime", ignoreCase = true) || categories.any { it.contains("Anime", true) }
+    val isMovie: Boolean get() = !isShorts && !isAnime && (type.equals("movie", true) || categories.any { it.contains("Movie", true) })
+    val isDramaSeries: Boolean get() = !isShorts && !isAnime && !isMovie && (type.equals("series", true) || totalEpisodes > 1)
 
-    val isRecentlyAdded: Boolean
-        get() = isFeatured || releaseYear == "2026" || releaseYear == "2025" || title.contains("Guess Who I Am", ignoreCase = true)
-
-    val watchUrl: String get() = shareUrl ?: "https://playdramaflix.com/watch/$slug"
-
-    val isShorts: Boolean
-        get() = type.equals("shorts", ignoreCase = true) ||
-                categories.any { it.contains("Shorts", ignoreCase = true) } ||
-                title.contains("Shorts", ignoreCase = true) ||
-                slug.contains("shorts", ignoreCase = true)
-
-    val isAnime: Boolean
-        get() = type.equals("anime", ignoreCase = true) ||
-                categories.any { it.contains("Anime", ignoreCase = true) } ||
-                title.contains("Anime", ignoreCase = true) ||
-                slug.contains("anime", ignoreCase = true)
-
-    val isMovie: Boolean
-        get() = !isShorts && !isAnime && (
-                type.equals("movie", ignoreCase = true) ||
-                type.equals("film", ignoreCase = true) ||
-                categories.any { it.contains("Movie", ignoreCase = true) || it.contains("Film", ignoreCase = true) } ||
-                title.contains("Movie", ignoreCase = true)
-        )
-
-    val isDramaSeries: Boolean
-        get() = !isShorts && !isAnime && !isMovie && (
-                type.equals("series", ignoreCase = true) ||
-                type.equals("drama", ignoreCase = true) ||
-                totalEpisodes > 1
-        )
-
-    val isBanglaDub: Boolean
-        get() = (language.contains("Bangla", ignoreCase = true) ||
-                dubBadge.contains("Bangla", ignoreCase = true) ||
-                title.contains("Bangla", ignoreCase = true)) &&
-                !language.startsWith("Hindi", ignoreCase = true)
-
-    val isHindiDub: Boolean
-        get() = (language.contains("Hindi", ignoreCase = true) ||
-                dubBadge.contains("Hindi", ignoreCase = true) ||
-                title.contains("Hindi", ignoreCase = true)) &&
-                !language.startsWith("Bangla", ignoreCase = true)
-
-    val dubBadge: String
-        get() {
-            if (!customDubBadge.isNullOrBlank()) return customDubBadge
-            val lower = language.lowercase()
-            return when {
-                lower.contains("bangla") -> "Bangla Dub"
-                lower.contains("hindi") -> "Hindi Dub"
-                lower.contains("dual") -> "Dual Audio"
-                else -> "Bangla Dub"
-            }
-        }
+    val isBanglaDub: Boolean get() = dubBadge.contains("Bangla", true) || dubBadge.contains("Bengali", true)
+    val isHindiDub: Boolean get() = dubBadge.contains("Hindi", true)
 
     val synopsis: String
         get() = description?.takeIf { it.isNotBlank() } ?: customSynopsis ?: metaDescription ?: "Watch full episodes in HD on PlayDramaFlix."
-
-    val trailerUrl: String get() = shareUrl ?: ""
-    val quality: String get() = "1080p Full HD"
-    val viewsCount: Long get() = numericViews
-
-    val country: String
-        get() = when {
-            title.contains("Korea", ignoreCase = true) || categories.any { it.contains("k-drama", ignoreCase = true) || it.contains("korean", ignoreCase = true) } -> "South Korea"
-            title.contains("China", ignoreCase = true) || categories.any { it.contains("c-drama", ignoreCase = true) || it.contains("chinese", ignoreCase = true) } -> "China"
-            isAnime || categories.any { it.contains("Japan", ignoreCase = true) || it.contains("anime", ignoreCase = true) } -> "Japan"
-            else -> "Asia"
-        }
 }
 
 // ⚡ Cloudflare R2 Streaming Wrappers
@@ -179,7 +138,7 @@ data class ForWebDto(
     @Json(name = "player_url") val playerUrl: String? = null
 )
 
-// 📥 মাল্টি-কোয়ালিটি ডাউনলোড অপশন DTO (সার্ভার থেকে আসলে)
+// 📥 মাল্টি-কোয়ালিটি ডাউনলোড অপশন DTO
 @JsonClass(generateAdapter = true)
 data class DownloadOptionDto(
     @Json(name = "quality") val quality: String = "",
@@ -227,7 +186,7 @@ data class EpisodeDto(
     @Json(name = "season_number") val seasonNumber: Int = 1,
     @Json(name = "duration") val duration: String = "24m",
     @Json(name = "thumbnail") val thumbnail: String? = null,
-    @Json(name = "stream_url") val directStreamUrl: String? = null, // API এর master.m3u8
+    @Json(name = "stream_url") val directStreamUrl: String? = null,
     @Json(name = "app_stream_url") val appStreamUrl: String? = null,
     @Json(name = "video_url") val videoUrl: String? = null,
     @Json(name = "web_player_url") val webPlayerUrl: String? = null,
@@ -240,9 +199,6 @@ data class EpisodeDto(
     val episodeId: String get() = rawEpisodeId?.toString() ?: episodeNumber.toString()
     val displayTitle: String get() = rawTitle?.takeIf { it.isNotBlank() } ?: epTitle?.takeIf { it.isNotBlank() } ?: "Episode $episodeNumber"
 
-    /**
-     * ⚡ Cloudflare R2 Direct Stream / HLS URL Resolver
-     */
     fun resolveR2StreamUrl(dramaSlug: String): String {
         return directStreamUrl?.takeIf { it.isNotBlank() }
             ?: appStreamUrl?.takeIf { it.isNotBlank() }
@@ -255,33 +211,5 @@ data class EpisodeDto(
         return downloadOptions?.firstOrNull()?.url?.takeIf { it.isNotBlank() }
             ?: downloadUrl?.takeIf { it.isNotBlank() }
             ?: resolveR2StreamUrl(dramaSlug)
-    }
-
-    /**
-     * 🎯 ১০০% সত্য ও সার্ভার অথরিটেটিভ ডাউনলোড অপশন:
-     * সার্ভার যদি 'download_options' না পাঠায়, কোনো ফেক/ডামি অপশন বানাবে না।
-     */
-    fun getEffectiveDownloadOptions(dramaSlug: String): List<DownloadOptionDto> {
-        // ১. সার্ভার যদি download_options পাঠায়, তবে শুধুমাত্র সেটাই দেখাবে
-        if (!downloadOptions.isNullOrEmpty()) {
-            return downloadOptions.filter { it.url.isNotBlank() }
-        }
-
-        // ২. যদি সার্ভারে কেবল একটিমাত্র সাধারণ MP4 ডাউনলোড লিংক থাকে, তবে ১টি অপশনই দেখাবে
-        val singleUrl = downloadUrl?.takeIf { it.isNotBlank() && !it.endsWith(".m3u8", true) }
-            ?: resolveR2StreamUrl(dramaSlug).takeIf { !it.endsWith(".m3u8", true) }
-
-        if (!singleUrl.isNullOrBlank()) {
-            return listOf(
-                DownloadOptionDto(
-                    quality = "Direct Video (MP4)",
-                    size = "",
-                    url = singleUrl
-                )
-            )
-        }
-
-        // ৩. কোনো অপশন না থাকলে খালি লিস্ট রিটার্ন করবে
-        return emptyList()
     }
 }
