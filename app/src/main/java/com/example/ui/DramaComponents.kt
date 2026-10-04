@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
 // =========================================================================
 @Composable
 fun VipCrownIllustratedIcon(
-    modifier: Modifier = Modifier.size(28.dp, 24.dp)
+    modifier: Modifier = Modifier.size(26.dp, 22.dp)
 ) {
     Box(
         modifier = modifier,
@@ -71,7 +71,6 @@ fun VipCrownIllustratedIcon(
             val w = size.width
             val h = size.height
 
-            // ১. ক্রাউনের মূল সোনালী বডি
             val crownPath = Path().apply {
                 moveTo(w * 0.18f, h * 0.88f)
                 lineTo(w * 0.82f, h * 0.88f)
@@ -84,55 +83,42 @@ fun VipCrownIllustratedIcon(
                 close()
             }
 
-            // গোল্ডেন গ্রেডিয়েন্ট ফিল
             drawPath(
                 path = crownPath,
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFFDF00),
-                        Color(0xFFFFB300),
-                        Color(0xFFFF8F00)
-                    )
+                    colors = listOf(Color(0xFFFFDF00), Color(0xFFFFB300), Color(0xFFFF8F00))
                 )
             )
 
-            // উজ্জ্বল হলুদ বর্ডার
             drawPath(
                 path = crownPath,
                 color = Color(0xFFFFEA00),
-                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
-            // ২. ৩টি লাল রুবি জেমস্টোন (৩টি শীর্ষবিন্দুতে)
             val rubyRadius = w * 0.085f
-            val rubyGoldBorder = 1.4.dp.toPx()
+            val rubyGoldBorder = 1.2.dp.toPx()
             val rubyColor = Color(0xFFFF2A55)
             val rimColor = Color(0xFFFFEA00)
 
-            // বাঁয়ের রুবি
             drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.16f, h * 0.44f))
             drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.16f, h * 0.44f))
 
-            // মাঝের প্রধান রুবি
             drawCircle(color = rimColor, radius = rubyRadius * 1.15f + rubyGoldBorder, center = Offset(w * 0.50f, h * 0.26f))
             drawCircle(color = rubyColor, radius = rubyRadius * 1.15f, center = Offset(w * 0.50f, h * 0.26f))
 
-            // ডানের রুবি
             drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.84f, h * 0.44f))
             drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.84f, h * 0.44f))
         }
 
-        // ক্রাউনের ভেতরের সাদা ইটালিক "VIP" টেক্সট
         Text(
             text = "VIP",
             color = Color.White,
-            fontSize = 8.5.sp,
+            fontSize = 7.5.sp,
             fontWeight = FontWeight.Black,
             fontStyle = FontStyle.Italic,
             letterSpacing = 0.5.sp,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = 2.5.dp)
+            modifier = Modifier.align(Alignment.Center).offset(y = 2.dp)
         )
     }
 }
@@ -140,16 +126,15 @@ fun VipCrownIllustratedIcon(
 // =========================================================================
 // 🎬 Short TV, Downloads, Me কাস্টম ভেক্টর আইকনসমূহ
 // =========================================================================
-
 @Composable
 fun ShortTvCustomStackedIcon(
     tint: Color,
-    modifier: Modifier = Modifier.size(20.dp)
+    modifier: Modifier = Modifier.size(19.dp)
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1.7.dp.toPx()
+        val strokeWidth = 1.6.dp.toPx()
 
         val leftPath = Path().apply {
             moveTo(w * 0.22f, h * 0.22f)
@@ -171,7 +156,7 @@ fun ShortTvCustomStackedIcon(
             color = tint,
             topLeft = Offset(w * 0.22f, h * 0.10f),
             size = Size(w * 0.56f, h * 0.80f),
-            cornerRadius = CornerRadius(3.5.dp.toPx(), 3.5.dp.toPx()),
+            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
             style = Stroke(width = strokeWidth)
         )
 
@@ -188,12 +173,12 @@ fun ShortTvCustomStackedIcon(
 @Composable
 fun DownloadsCustomTrayIcon(
     tint: Color,
-    modifier: Modifier = Modifier.size(20.dp)
+    modifier: Modifier = Modifier.size(19.dp)
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1.8.dp.toPx()
+        val strokeWidth = 1.7.dp.toPx()
 
         drawLine(
             color = tint,
@@ -223,12 +208,12 @@ fun DownloadsCustomTrayIcon(
 @Composable
 fun MeCustomUserIcon(
     tint: Color,
-    modifier: Modifier = Modifier.size(20.dp)
+    modifier: Modifier = Modifier.size(19.dp)
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1.8.dp.toPx()
+        val strokeWidth = 1.7.dp.toPx()
 
         drawCircle(
             color = tint,
@@ -256,7 +241,7 @@ fun MeCustomUserIcon(
 fun LanguageDubBadge(
     dubText: String,
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 7.dp
+    cornerRadius: Dp = 6.dp
 ) {
     val isHindi = dubText.contains("Hindi", ignoreCase = true)
     val cleanText = when {
@@ -271,23 +256,16 @@ fun LanguageDubBadge(
 
     Box(
         modifier = modifier
-            .clip(
-                RoundedCornerShape(
-                    topStart = 0.dp,
-                    topEnd = cornerRadius,
-                    bottomStart = 5.dp,
-                    bottomEnd = 0.dp
-                )
-            )
+            .clip(RoundedCornerShape(topStart = 0.dp, topEnd = cornerRadius, bottomStart = 5.dp, bottomEnd = 0.dp))
             .background(badgeBg)
-            .padding(horizontal = 5.dp, vertical = 2.dp)
+            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
     ) {
         Text(
             text = cleanText,
             color = badgeTextCol,
-            fontSize = 9.sp,
+            fontSize = 8.5.sp,
             fontWeight = FontWeight.Black,
-            lineHeight = 11.sp
+            lineHeight = 10.sp
         )
     }
 }
@@ -299,7 +277,7 @@ fun VipCrownBadge(
 ) {
     Box(
         modifier = modifier
-            .size(width = 38.dp, height = 28.dp)
+            .size(width = 30.dp, height = 24.dp)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
@@ -313,18 +291,17 @@ fun VipCrown3DIcon(modifier: Modifier = Modifier) {
 }
 
 // =========================================================================
-// 🔝 টপ ন্যাভিগেশন বার
+// 🔝 আল্ট্রা-স্লিম ও কমপ্যাক্ট টপ ন্যাভিগেশন বার (আপডেট আইকন সহ)
 // =========================================================================
 @Composable
 fun TopNavigationBar(
     categories: List<String>,
     selectedCategoryIndex: Int,
-    notificationCount: Int = 3,
     onCategorySelected: (Int) -> Unit,
-    onNotificationClick: () -> Unit,
     onSearchClick: () -> Unit = {},
     onVoiceSearchClick: () -> Unit = {},
     onVipClick: () -> Unit = {},
+    onUpdateCheckClick: () -> Unit = {}, // 👈 নোটিফিকেশনের বদলে আপডেট চেকার
     modifier: Modifier = Modifier
 ) {
     val searchKeywords = remember {
@@ -334,7 +311,6 @@ fun TopNavigationBar(
             "Search Extraordinary You...",
             "Search Hindi Dubbed...",
             "Search Korean Drama...",
-            "Search Mr. Bad...",
             "Search Anime Series..."
         )
     }
@@ -342,7 +318,7 @@ fun TopNavigationBar(
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(2600L)
+            delay(2800L)
             currentKeywordIndex = (currentKeywordIndex + 1) % searchKeywords.size
         }
     }
@@ -352,49 +328,60 @@ fun TopNavigationBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFA0D0F14), Color(0xD90D0F14), Color(0x000D0F14))
+                    colors = listOf(
+                        Color(0xF2080C14),
+                        Color(0xD9080C14),
+                        Color(0x00080C14)
+                    )
                 )
             )
             .statusBarsPadding()
-            .padding(top = 8.dp, bottom = 4.dp)
+            .padding(top = 2.dp, bottom = 2.dp) // 🎯 অতি সূক্ষ্ম টপ প্যাডিং
     ) {
+        // ১. উপরের রো: লোগো + সার্চ বার + ভিআইপি + আপডেট আইকন
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // মিনিম্যালিস্ট লোগো
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable { onCategorySelected(0) }.padding(end = 6.dp)
+                modifier = Modifier
+                    .clickable { onCategorySelected(0) }
+                    .padding(end = 6.dp)
             ) {
-                Text("PD", color = Color(0xFF00D2FF), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                Text("Flix", color = Color(0xFFFF9900), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                Text("PD", color = Color(0xFF00D2FF), fontSize = 15.5.sp, fontWeight = FontWeight.Black)
+                Text("Flix", color = Color(0xFFFF9900), fontSize = 15.5.sp, fontWeight = FontWeight.Black)
             }
 
+            // ডেস্কটপ-স্টাইল কমপ্যাক্ট সার্চ বক্স (উচ্চতা মাত্র ৩০dp)
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0x2EFFFFFF))
-                    .border(0.7.dp, Color(0x38FFFFFF), RoundedCornerShape(50))
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x28FFFFFF))
+                    .border(0.6.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
                     .clickable { onSearchClick() }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 AnimatedContent(
                     targetState = searchKeywords[currentKeywordIndex],
                     transitionSpec = {
-                        (slideInVertically { height -> height / 2 } + fadeIn(tween(300)))
-                            .togetherWith(slideOutVertically { height -> -height / 2 } + fadeOut(tween(300)))
+                        (slideInVertically { height -> height / 2 } + fadeIn(tween(250)))
+                            .togetherWith(slideOutVertically { height -> -height / 2 } + fadeOut(tween(250)))
                     },
-                    label = "searchKeywordAnimation",
+                    label = "searchKeywordAnim",
                     modifier = Modifier.weight(1f)
                 ) { keyword ->
                     Text(
                         text = keyword,
-                        color = Color(0xFFB0B6C4),
-                        fontSize = 12.sp,
+                        color = Color(0xFFA6AFBF),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -403,76 +390,87 @@ fun TopNavigationBar(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Mic,
-                        contentDescription = "Voice Search",
+                        contentDescription = "Voice",
                         tint = Color(0xFF00E676),
-                        modifier = Modifier.size(17.dp).clip(CircleShape).clickable { onVoiceSearchClick() }
+                        modifier = Modifier.size(14.dp).clip(CircleShape).clickable { onVoiceSearchClick() }
                     )
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
                         tint = Color(0xFFCCD0DB),
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
 
             Spacer(modifier = Modifier.width(6.dp))
-            VipCrownBadge(onClick = onVipClick)
-            Spacer(modifier = Modifier.width(6.dp))
 
+            // ভিআইপি আইকন
+            VipCrownBadge(onClick = onVipClick)
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // 🚀 অ্যাপ আপডেট আইকন বাটন (নোটিফিকেশন রিমুভ করে যুক্ত করা হলো)
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
-                    .background(Color(0x2EFFFFFF))
-                    .border(0.8.dp, Color(0x1FFFFFFF), CircleShape)
-                    .clickable { onNotificationClick() },
+                    .background(Color(0x28FFFFFF))
+                    .border(0.6.dp, Color(0x33FFFFFF), CircleShape)
+                    .clickable { onUpdateCheckClick() },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Notifications, contentDescription = "Notifications", tint = Color.White, modifier = Modifier.size(17.dp))
-                if (notificationCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 2.dp, y = (-2).dp)
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFFF2A4B))
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Outlined.SystemUpdate,
+                    contentDescription = "Check for Update",
+                    tint = Color(0xFF00E5FF),
+                    modifier = Modifier.size(15.dp)
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(3.dp)) // 🎯 সার্চ বার ও ক্যাটাগরির মাঝের গ্যাপ কমানো হয়েছে
 
+        // ২. ক্যাটাগরি ট্যাব রো (একদম কমপ্যাক্ট ফন্ট ও টাইট স্পেসিং)
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             categories.forEachIndexed { index, tab ->
                 val isSelected = (index == selectedCategoryIndex)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { onCategorySelected(index) }.padding(vertical = 2.dp)
+                    modifier = Modifier
+                        .clickable { onCategorySelected(index) }
+                        .padding(vertical = 1.dp)
                 ) {
                     Text(
                         text = tab,
-                        color = if (isSelected) Color.White else Color(0x99FFFFFF),
-                        fontSize = if (isSelected) 16.sp else 14.sp,
+                        color = if (isSelected) Color.White else Color(0x88FFFFFF),
+                        fontSize = if (isSelected) 13.5.sp else 12.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
-                    Spacer(modifier = Modifier.height(3.dp))
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
                     if (isSelected) {
                         Box(
-                            modifier = Modifier.width(20.dp).height(2.5.dp).clip(RoundedCornerShape(50)).background(Color.White)
+                            modifier = Modifier
+                                .width(14.dp)
+                                .height(2.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(Color(0xFF00E5FF))
                         )
                     } else {
-                        Spacer(modifier = Modifier.height(2.5.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                     }
                 }
             }
@@ -704,7 +702,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ফ্রস্টেড গ্লাস ৫-ট্যাব বটম ন্যাভিগেশন বার (ছবি অনুযায়ী ৩D VIP ক্রাউন সহ)
+// 🧭 ফ্রস্টেড গ্লাস ৫-ট্যাব বটম ন্যাভিগেশন বার
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -715,16 +713,12 @@ fun PlayDramaFlixBottomNav(
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    // 🌟 ফ্রস্টেড সেমি-ট্রান্সপারেন্ট গ্লাস ব্যাকগ্রাউন্ড (নিচের কনটেন্ট হালকা ভেসে উঠবে)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0x88080C14),
-                        Color(0xB3080C14)
-                    )
+                    colors = listOf(Color(0x88080C14), Color(0xB3080C14))
                 )
             )
             .border(
@@ -737,7 +731,7 @@ fun PlayDramaFlixBottomNav(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .height(48.dp)
+                .height(46.dp)
                 .padding(horizontal = 4.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
@@ -772,48 +766,40 @@ fun PlayDramaFlixBottomNav(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             when (tab) {
-                                // 🏠 ১. Home
                                 BottomNavTab.HOME -> {
                                     Icon(
                                         imageVector = if (isSelected) Icons.Default.Home else Icons.Outlined.Home,
                                         contentDescription = "Home",
                                         tint = iconTint,
-                                        modifier = Modifier.size(21.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
-
-                                // 🎬 ২. Short (২ নম্বর ছবির কাস্টম ভেক্টর আইকন)
                                 BottomNavTab.SHORT_TV -> {
                                     ShortTvCustomStackedIcon(
                                         tint = iconTint,
-                                        modifier = Modifier.size(21.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
-
-                                // 👑 ৩. VIP (আপনার ছবির ৩টি লাল রুবি জেমস্টোন সহ ৩D গোল্ডেন ক্রাউন)
                                 BottomNavTab.VIP -> {
                                     VipCrownIllustratedIcon(
-                                        modifier = Modifier.size(26.dp, 22.dp)
+                                        modifier = Modifier.size(24.dp, 20.dp)
                                     )
                                 }
-
-                                // ⬇️ ৪. Downloads (১ নম্বর ছবির বাঁ পাশের কাস্টম ট্রে ও অ্যারো)
                                 BottomNavTab.DOWNLOADS -> {
                                     DownloadsCustomTrayIcon(
                                         tint = iconTint,
-                                        modifier = Modifier.size(21.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
-
                                     if (activeDownloadCount > 0) {
                                         Box(
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
-                                                .offset(x = 6.dp, y = (-4).dp)
-                                                .size(13.dp)
+                                                .offset(x = 5.dp, y = (-4).dp)
+                                                .size(12.dp)
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF00E676)),
                                             contentAlignment = Alignment.Center
@@ -821,24 +807,22 @@ fun PlayDramaFlixBottomNav(
                                             Text(
                                                 text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
                                                 color = Color.Black,
-                                                fontSize = 8.sp,
+                                                fontSize = 7.5.sp,
                                                 fontWeight = FontWeight.Black
                                             )
                                         }
                                     }
                                 }
-
-                                // 👤 ৫. Me (১ নম্বর ছবির ডান পাশের কাস্টম প্রোফাইল আর্চ)
                                 BottomNavTab.ME -> {
                                     MeCustomUserIcon(
                                         tint = iconTint,
-                                        modifier = Modifier.size(21.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(2.5.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
                             text = when (tab) {
@@ -846,7 +830,7 @@ fun PlayDramaFlixBottomNav(
                                 else -> tab.label
                             },
                             color = textColor,
-                            fontSize = 10.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1
                         )
