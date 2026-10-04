@@ -227,7 +227,43 @@ fun ShortsPlayerScreen(
     val isUserVip = playerState.isVip || authState.isVip
 
     // =========================================================================
-    // 📢 ১. সার্ভার থেকে ডায়নামিক কাস্টম অ্যাড ও রিলস স্ক্রোল ইন্টারভাল লোড
+    // 🚀 ১. ExoPlayer ডিক্লেয়ারেশন (সবার শীর্ষে স্থানান্তরিত যাতে কোনো Unresolved এরর না আসে)
+    // =========================================================================
+    val exoPlayer = remember {
+        val trackSelector = DefaultTrackSelector(context).apply {
+            setParameters(buildUponParameters().setAllowMultipleAdaptiveSelections(true))
+        }
+
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(20000)
+            .setUserAgent("Mozilla/5.0 PlayDramaFlix Mobile")
+
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+        val instantLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(2000, 45000, 1000, 1500)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(instantLoadControl)
+            .build().apply {
+                playWhenReady = true
+                repeatMode = Player.REPEAT_MODE_OFF
+                setAudioAttributes(
+                    AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).setUsage(C.USAGE_MEDIA).build(),
+                    true
+                )
+            }
+    }
+
+    // =========================================================================
+    // 📢 ২. সার্ভার থেকে ডায়নামিক কাস্টম অ্যাড ও রিলস স্ক্রোল ইন্টারভাল লোড
     // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
@@ -328,7 +364,7 @@ fun ShortsPlayerScreen(
     val currentEpNum = currentEp.episodeNumber
 
     // =========================================================================
-    // 🎯 ২. সার্ভার নির্ধারিত সংখ্যক রিলস স্ক্রোলের পর অ্যাড ট্রিগার
+    // 🎯 ৩. সার্ভার নির্ধারিত সংখ্যক রিলস স্ক্রোলের পর অ্যাড ট্রিগার
     // =========================================================================
     LaunchedEffect(activePageIndex) {
         if (activePageIndex > 0) {
@@ -365,40 +401,6 @@ fun ShortsPlayerScreen(
             .distinctBy { it.slug }
             .filter { it.slug != slug }
             .take(12)
-    }
-
-    // 🚀 ExoPlayer
-    val exoPlayer = remember {
-        val trackSelector = DefaultTrackSelector(context).apply {
-            setParameters(buildUponParameters().setAllowMultipleAdaptiveSelections(true))
-        }
-
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(20000)
-            .setUserAgent("Mozilla/5.0 PlayDramaFlix Mobile")
-
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-
-        val instantLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2000, 45000, 1000, 1500)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-
-        ExoPlayer.Builder(context)
-            .setTrackSelector(trackSelector)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(instantLoadControl)
-            .build().apply {
-                playWhenReady = true
-                repeatMode = Player.REPEAT_MODE_OFF
-                setAudioAttributes(
-                    AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).setUsage(C.USAGE_MEDIA).build(),
-                    true
-                )
-            }
     }
 
     fun exitPlayerCleanly() {
