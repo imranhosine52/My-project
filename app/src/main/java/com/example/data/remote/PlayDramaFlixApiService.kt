@@ -6,11 +6,18 @@ import retrofit2.http.*
 
 interface PlayDramaFlixApiService {
 
+    // =========================================================================
+    // 🎬 কন্টেন্ট ও ড্রামা ফেচিং (দেশ, ক্যাটাগরি, ধরন ও সর্টিং ফিল্টার সহ)
+    // =========================================================================
     @GET("contents")
     suspend fun getContents(
-        @Query("category") category: String? = null,
-        @Query("language") language: String? = null,
+        @Query("country") country: String? = null,     // 👈 সার্ভার দেশভিত্তিক ফিল্টার (Korea, China, Japan...)
+        @Query("type") type: String? = null,           // 👈 কন্টেন্ট টাইপ (series, shorts, movie)
+        @Query("category") category: String? = null,   // 👈 ক্যাটাগরি ফিল্টার
+        @Query("language") language: String? = null,   // 👈 ডাবিং ল্যাঙ্গুয়েজ ফিল্টার
+        @Query("sort") sort: String? = null,           // 👈 সর্টিং (popular, rating, latest)
         @Query("search") search: String? = null,
+        @Query("q") q: String? = null,                 // 👈 লাইভ সার্চ কুয়েরি
         @Query("page") page: Int? = 1
     ): Response<ContentResponse>
 
@@ -132,14 +139,14 @@ interface PlayDramaFlixApiService {
         @Body request: LikeToggleRequest
     ): Response<LikeToggleResponse>
 
-    // 3. Fetch Live Interaction Status (Views, Likes, Comments Count) (GET /api/v1/interaction/status)
+    // 3. Fetch Live Interaction Status (GET /api/v1/interaction/status)
     @GET("interaction/status")
     suspend fun getInteractionStatus(
         @Query("content_id") contentId: Any,
         @Query("episode_id") episodeId: Any? = null
     ): Response<InteractionStatusResponse>
 
-    // 4. Fetch Comments List & Nested Replies (GET /api/v1/comments)
+    // 4. Fetch Comments List (GET /api/v1/comments)
     @GET("comments")
     suspend fun getComments(
         @Query("content_id") contentId: Any,
@@ -184,7 +191,7 @@ interface PlayDramaFlixApiService {
         @Body request: CommentShareApiRequest
     ): Response<CommentShareApiResponse>
 
-    // 6. Remote Version Check & Force Update (GET /api/v1/app/version-check)
+    // 6. Remote Version Check (GET /api/v1/app/version-check)
     @GET("app/version-check")
     suspend fun checkAppVersion(
         @Query("current_version") currentVersion: String
@@ -223,7 +230,7 @@ interface PlayDramaFlixApiService {
     @GET("https://playdramaflix.com/api/v1/ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 
-    // 9. USER ACTIVITY REST API (LIKES & COMMENTS)
+    // 9. User Activity (Likes & Comments)
     @GET("activity")
     suspend fun getUserActivity(
         @Query("user_id") userId: Any,
@@ -236,7 +243,7 @@ interface PlayDramaFlixApiService {
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
-    // 10. কাস্টম ভিডিও বিজ্ঞাপন কনফিগ
+    // 10. Custom Video Ad Configuration
     @GET("custom-ads")
     suspend fun getCustomAdsConfig(): Response<CustomAdsConfigResponse>
 }
