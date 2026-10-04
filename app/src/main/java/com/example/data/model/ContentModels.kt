@@ -23,13 +23,13 @@ data class ContentItemDto(
     // 🎯 ২. সার্ভারের দেশ (Country)
     @Json(name = "country") val rawCountry: String? = null,
     
-    // 🎯 ৩. সার্ভারের মূল টাইটেল ও অন্যান্য ফিল্ড
+    // 🎯 ৩. টাইটেল ও অন্যান্য ফিল্ড
     @Json(name = "title") val title: String = "",
     @Json(name = "slug") val slug: String = "",
     @Json(name = "description") val description: String? = null,
     @Json(name = "meta_description") val metaDescription: String? = null,
     
-    // 🎯 ৪. সার্ভারের ডাবিং ও ভাষা ফিল্ড
+    // 🎯 ৪. ডাবিং ও ভাষা ফিল্ড
     @Json(name = "language") val language: String = "Bangla Dubbed",
     @Json(name = "dub_badge") val customDubBadge: String? = null,
     
@@ -48,18 +48,18 @@ data class ContentItemDto(
 ) {
     val id: String get() = rawId?.toString() ?: slug
 
-    // 📱 ছোট ও পরিচ্ছন্ন নাম (Display Name -> Name -> Title Fallback)
+    // 📱 ছোট ও পরিচ্ছন্ন নাম
     val displayName: String
         get() = rawDisplayName?.takeIf { it.isNotBlank() }
             ?: rawName?.takeIf { it.isNotBlank() }
             ?: title.split("|", "-").firstOrNull()?.trim()
             ?: title
 
-    // 🌍 দেশের নাম (সার্ভার থেকে সরাসরি পাওয়া যাবে)
+    // 🌍 দেশের নাম
     val country: String
         get() = rawCountry?.takeIf { it.isNotBlank() } ?: "China"
 
-    // 🏷️ ডাবিং ব্যাজ (সার্ভার থেকে যে ভাষাই পাঠাবে হুবহু সেটাই থাকবে - বাংলা, হিন্দি, ইংলিশ, তামিল ইত্যাদি)
+    // 🏷️ ডাইনামিক ডাবিং ব্যাজ
     val dubBadge: String
         get() {
             if (!customDubBadge.isNullOrBlank()) {
@@ -71,7 +71,6 @@ data class ContentItemDto(
             return "Bangla Dub"
         }
 
-    // রেটিং পার্সার
     val rating: Double
         get() = when (rawRating) {
             is Number -> rawRating.toDouble()
@@ -79,7 +78,6 @@ data class ContentItemDto(
             else -> 8.5
         }
 
-    // ভিউ কাউন্ট পার্সার
     val numericViews: Long
         get() = when (val v = rawViews) {
             is Number -> v.toLong()
@@ -94,7 +92,9 @@ data class ContentItemDto(
             else -> 0L
         }
 
-    // ক্যাটাগরি পার্সার
+    // 🎯 ফিক্স: ViewModel এর জন্য viewsCount প্রোপার্টি
+    val viewsCount: Long get() = numericViews
+
     val categories: List<String>
         get() = when (rawCategories) {
             is List<*> -> rawCategories.filterIsInstance<String>().flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotEmpty() }
@@ -102,7 +102,6 @@ data class ContentItemDto(
             else -> emptyList()
         }
 
-    // মোট এপিসোড সংখ্যা
     val totalEpisodes: Int
         get() {
             val num = when (rawTotalEpisodes) {
