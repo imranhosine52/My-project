@@ -3,6 +3,7 @@ package com.example
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             DramaFlixTheme {
                 MainAppContent(
+                    activity = this,
                     viewModel = viewModel,
                     pendingNotificationSlug = pendingNotificationSlug.value,
                     pendingNotificationIsShorts = pendingNotificationIsShorts.value,
@@ -365,6 +367,7 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 private fun MainAppContent(
+    activity: Activity,
     viewModel: DramaFlixViewModel,
     pendingNotificationSlug: String?,
     pendingNotificationIsShorts: Boolean,
@@ -394,7 +397,6 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
-    // 🎯 ৫টি মূল ট্যাবের সাথে স্ক্রিন রেজলভার
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> BottomNavTab.HOME
@@ -415,6 +417,8 @@ private fun MainAppContent(
     }
 
     val handleBackNavigation: () -> Unit = {
+        // স্ক্রিন ব্যাক করার সময় ওরিয়েন্টেশন সোজা (Portrait) করা
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (navigationBackStack.isNotEmpty()) {
             val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
             currentScreen = previousScreen
@@ -427,8 +431,16 @@ private fun MainAppContent(
         }
     }
 
+    // =========================================================================
+    // 🎯 সুরক্ষিত সেন্ট্রাল নেভিগেশন ইঞ্জিন (VIP ও ব্রাউজার ফুল সাপোর্ট সহ)
+    // =========================================================================
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
+            // ১. প্লেয়ার স্ক্রিন থেকে বের হলে ওরিয়েন্টেশন সোজা করা
+            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+
             navigationBackStack.add(currentScreen)
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
@@ -514,7 +526,6 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
-    // 🎯 প্লেয়ার পেজগুলোতে (Player, Shorts, LocalPlayer) বটম ন্যাভিগেশন বার পুরোপুরি বন্ধ থাকবে
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
@@ -552,7 +563,6 @@ private fun MainAppContent(
                 }
             }
         ) { _ ->
-            // 🌟 মসৃণ ফ্লুইড ট্রানজিশন (Smooth Screen Fade Animation)
             AnimatedContent(
                 targetState = currentScreen,
                 transitionSpec = {
