@@ -118,7 +118,7 @@ fun SearchScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =============================================================
-            // 🔝 ১. নোটিফিকেশন পেজের মতো প্রিমিয়াম গ্রেডিয়েন্ট টপ হেডার
+            // 🔝 ১. প্রিমিয়াম গ্রেডিয়েন্ট টপ হেডার ও সার্চ বক্স
             // =============================================================
             Box(
                 modifier = Modifier
@@ -136,7 +136,7 @@ fun SearchScreen(
                     .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 4.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // 🔍 প্রিমিয়াম সার্চ টাইপিং বক্স
+                    // 🔍 সার্চ টাইপিং বক্স
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -200,7 +200,7 @@ fun SearchScreen(
                             )
                         }
 
-                        // স্টাইলিশ মাইক বাটন
+                        // মাইক বাটন
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
@@ -251,7 +251,7 @@ fun SearchScreen(
                 }
             }
 
-            // রেজাল্ট কাউন্টার ও ক্লিয়ার ফিল্টার
+            // রেজাল্ট কাউন্টার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -282,7 +282,7 @@ fun SearchScreen(
             }
 
             // =============================================================
-            // 🎬 ড্রামা লিস্ট (ব্যাজ মুক্ত পোস্টার ও ব্লু-গ্রিন Play বাটন)
+            // 🎬 ২. ড্রামা লিস্ট
             // =============================================================
             if (searchState.searchResults.isEmpty()) {
                 Box(
@@ -307,7 +307,7 @@ fun SearchScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Try searching with another title or use the voice search.",
+                            text = "Try searching with another title or use voice search.",
                             color = Color(0xFF94A3B8),
                             fontSize = 12.5.sp,
                             textAlign = TextAlign.Center
@@ -338,7 +338,7 @@ fun SearchScreen(
 }
 
 // -----------------------------------------------------------------------------
-// 🖼️ হরিজন্টাল ড্রামা কার্ড (ক্লিন পোস্টার + ব্লু-গ্রিন Play বাটন)
+// 🖼️ হরিজন্টাল ড্রামা কার্ড (Display Name ও Country সহ)
 // -----------------------------------------------------------------------------
 @Composable
 private fun SearchDramaHorizontalRowCard(
@@ -363,7 +363,7 @@ private fun SearchDramaHorizontalRowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 🖼️ বামে পোস্টার থাম্বনেইল (Bangla/Hindi ব্যাজ সম্পূর্ণ রিমুভ করা হয়েছে)
+            // 🖼️ বামে পোস্টার
             Box(
                 modifier = Modifier
                     .width(68.dp)
@@ -376,20 +376,20 @@ private fun SearchDramaHorizontalRowCard(
                         .data(drama.posterUrl ?: drama.bannerUrl)
                         .crossfade(true)
                         .build(),
-                    contentDescription = drama.title,
+                    contentDescription = drama.displayName,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
             }
 
-            // 📝 মাঝখানে টাইটেল, মেটাডাটা ও রেটিং
+            // 📝 টাইটেল, মেটাডাটা ও রেটিং
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // টাইটেল
+                // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
                 Text(
-                    text = drama.title,
+                    text = drama.displayName,
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -397,10 +397,10 @@ private fun SearchDramaHorizontalRowCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // মেটাডাটা রো (আইকন + সাল • ক্যাটাগরি • দেশ)
+                // মেটাডাটা রো (সাল • ক্যাটাগরি • দেশ)
                 val metaParts = mutableListOf<String>()
                 if (drama.releaseYear.isNotBlank()) metaParts.add(drama.releaseYear)
-                if (drama.categories.isNotEmpty()) metaParts.addAll(drama.categories.take(3))
+                if (drama.categories.isNotEmpty()) metaParts.addAll(drama.categories.take(2))
                 if (drama.country.isNotBlank()) metaParts.add(drama.country)
                 val metaString = metaParts.joinToString(" • ")
 
@@ -423,7 +423,7 @@ private fun SearchDramaHorizontalRowCard(
                     )
                 }
 
-                // রেটিং (★ 7.5)
+                // রেটিং
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -434,7 +434,7 @@ private fun SearchDramaHorizontalRowCard(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    val displayRating = if (drama.rating > 0) String.format("%.1f", drama.rating) else "7.1"
+                    val displayRating = if (drama.rating > 0) String.format("%.1f", drama.rating) else "8.5"
                     Text(
                         text = displayRating,
                         color = GoldRating,
@@ -444,7 +444,7 @@ private fun SearchDramaHorizontalRowCard(
                 }
             }
 
-            // 🌟 ব্লু ও গ্রিন প্রিমিয়াম গ্রেডিয়েন্ট [ ▶ Play ] বাটন
+            // 🌟 [ ▶ Play ] বাটন
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
