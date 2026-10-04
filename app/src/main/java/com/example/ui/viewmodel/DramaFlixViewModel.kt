@@ -21,18 +21,13 @@ import java.util.Date
 import java.util.Locale
 
 // =========================================================================
-// 🧭 বটম নেভিগেশন এনাম (🎯 Premium এর জায়গায় REELS করা হলো)
+// 🧭 বটম নেভিগেশন এনাম (ক্লিন ৪টি মূল ট্যাব)
 // =========================================================================
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
     SHORT_TV("Short TV"),
-    REELS("Reels"), // 👈 প্রিমিয়ামের পরিবর্তে রিলস ট্যাব
     DOWNLOADS("Downloads"),
-    ME("Me");
-
-    companion object {
-        val PREMIUM get() = REELS // ব্যাকওয়ার্ড কম্প্যাটিবিলিটি সেফটি
-    }
+    ME("Me")
 }
 
 data class AuthUiState(
