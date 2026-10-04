@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,6 +39,7 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.ui.LanguageDubBadge
 import java.util.Locale
+import java.util.Random
 
 // 🎨 হোমপেজের হুবহু ব্যাকগ্রাউন্ড ও কালার প্যালেট
 private val HomeBackgroundDark = Color(0xFF090A0F)
@@ -55,9 +57,10 @@ fun DramaSeriesCategoryScreen(
     onNavigateToPlayer: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // =========================================================================
-    // 🎯 ফিল্টার স্টেটসমূহ
-    // =========================================================================
+    // 🎯 রোটেশন / শাফেল সিড ট্র্যাকার (প্রতিবার পরিবর্তনের সাথে সাথে অবস্থান চেঞ্জ করার জন্য)
+    var shuffleSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+
+    // ফিল্টার স্টেটসমূহ
     var selectedCountry by rememberSaveable { mutableStateOf("All") }
     var selectedYear by rememberSaveable { mutableStateOf("All") }
     var selectedLanguage by rememberSaveable { mutableStateOf("All") }
@@ -67,7 +70,7 @@ fun DramaSeriesCategoryScreen(
         listOf("All", "China", "Korea", "Japan", "Thailand", "Turkey", "Bangladesh", "India", "Asia")
     }
 
-    // 🎯 ২০১০ থেকে ২০২৭ সাল পর্যন্ত তালিকা
+    // 🎯 ২০১০ থেকে ২০২৭ সাল পর্যন্ত
     val yearOptions = remember {
         listOf(
             "All", "2027", "2026", "2025", "2024", "2023", "2022", "2021",
@@ -85,14 +88,15 @@ fun DramaSeriesCategoryScreen(
     }
 
     // =========================================================================
-    // ⚡ রিয়েল-টাইম সার্ভার ডাটা ফিল্টারিং লজিক (১০০% সার্ভার ডেটা)
+    // ⚡ ডাইনামিক ফিল্টারিং ও কার্ড পজিশন রোটেটিং ইঞ্জিন
     // =========================================================================
     val filteredAndSortedDramas = remember(
         items,
         selectedCountry,
         selectedYear,
         selectedLanguage,
-        selectedSort
+        selectedSort,
+        shuffleSeed
     ) {
         var result = items.filter { it.isDramaSeries || it.type.equals("series", true) }
 
@@ -105,7 +109,7 @@ fun DramaSeriesCategoryScreen(
             }
         }
 
-        // ২. সাল ফিল্টার (২০১০-২০২৭ সরাসরি ম্যাচিং)
+        // ২. সাল ফিল্টার (২০১০-২০২৭)
         if (selectedYear != "All") {
             result = result.filter { drama ->
                 drama.releaseYear.contains(selectedYear)
@@ -127,16 +131,23 @@ fun DramaSeriesCategoryScreen(
             }
         }
 
-        // ৪. সর্টিং
+        // ৪. সর্টিং এবং ডাইনামিক পজিশন শিফটিং (ForYou মোডে কার্ড নিচ থেকে উপরে শাফেল হবে)
         when (selectedSort) {
             "Hottest" -> result.sortedByDescending { it.numericViews }
             "Latest" -> result.sortedByDescending { it.releaseYear.filter { ch -> ch.isDigit() }.toIntOrNull() ?: 0 }
             "Rating" -> result.sortedByDescending { it.rating }
-            else -> result
+            else -> {
+                // 🎯 ForYou মোডে প্রতিবার কার্ডের অবস্থান সুন্দরভাবে রোটেট/শাফেল হবে
+                if (result.size > 2) {
+                    result.shuffled(Random(shuffleSeed))
+                } else {
+                    result
+                }
+            }
         }
     }
 
-    // 🎯 ১ লাইনে ৪টি করে কার্ড (Chunked by 4)
+    // ৪টি করে কার্ড প্রতি সারিতে
     val gridChunks = remember(filteredAndSortedDramas) {
         filteredAndSortedDramas.chunked(4)
     }
@@ -152,7 +163,7 @@ fun DramaSeriesCategoryScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // =========================================================================
-        // 🎛️ ১. কম্প্যাক্ট ৪-স্তরের ফিল্টার বক্স
+        // 🎛️ ১. ৪-স্তরের ফিল্টার বার
         // =========================================================================
         item {
             Card(
@@ -169,32 +180,44 @@ fun DramaSeriesCategoryScreen(
                         .padding(vertical = 8.dp, horizontal = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // ১. দেশ ফিল্টার
+                    // দেশ ফিল্টার
                     CompactFilterScrollRow(
                         options = countryOptions,
                         selectedOption = selectedCountry,
-                        onOptionSelected = { selectedCountry = it }
+                        onOptionSelected = {
+                            selectedCountry = it
+                            shuffleSeed = System.currentTimeMillis() // 👈 অবস্থান রোটেশন
+                        }
                     )
 
-                    // ২. সাল ফিল্টার (২০২৭ - ২০১০)
+                    // সাল ফিল্টার
                     CompactFilterScrollRow(
                         options = yearOptions,
                         selectedOption = selectedYear,
-                        onOptionSelected = { selectedYear = it }
+                        onOptionSelected = {
+                            selectedYear = it
+                            shuffleSeed = System.currentTimeMillis() // 👈 অবস্থান রোটেশন
+                        }
                     )
 
-                    // ৩. ডাবিং ভাষা ফিল্টার
+                    // ডাবিং ভাষা ফিল্টার
                     CompactFilterScrollRow(
                         options = languageOptions,
                         selectedOption = selectedLanguage,
-                        onOptionSelected = { selectedLanguage = it }
+                        onOptionSelected = {
+                            selectedLanguage = it
+                            shuffleSeed = System.currentTimeMillis() // 👈 অবস্থান রোটেশন
+                        }
                     )
 
-                    // ৪. সর্টিং ফিল্টার
+                    // সর্টিং ফিল্টার
                     CompactFilterScrollRow(
                         options = sortOptions,
                         selectedOption = selectedSort,
-                        onOptionSelected = { selectedSort = it }
+                        onOptionSelected = {
+                            selectedSort = it
+                            shuffleSeed = System.currentTimeMillis() // 👈 অবস্থান রোটেশন
+                        }
                     )
                 }
             }
@@ -323,7 +346,7 @@ private fun CompactFilterScrollRow(
 }
 
 // =========================================================================
-// 🖼️ ৪-কলাম কম্প্যাক্ট কার্ড (হালকা রেটিং ইফেক্ট সহ)
+// 🖼️ ৪-কলাম কম্প্যাক্ট কার্ড
 // =========================================================================
 @Composable
 fun CompactDesktopDramaCard(
@@ -338,7 +361,6 @@ fun CompactDesktopDramaCard(
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
-        // পোস্টার থাম্বনেইল বক্স
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -357,7 +379,6 @@ fun CompactDesktopDramaCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // নিচের খুব হালকা ডার্ক শ্যাডো গ্র্যাডিয়েন্ট
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -372,13 +393,13 @@ fun CompactDesktopDramaCard(
                     )
             )
 
-            // ডাবিং ব্যাজ (উপরে ডানে)
+            // ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // এপিসোড সংখ্যা (নিচে বামে)
+            // এপিসোড সংখ্যা
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "HD"
             Text(
                 text = epCount,
@@ -390,7 +411,7 @@ fun CompactDesktopDramaCard(
                     .padding(horizontal = 4.dp, vertical = 3.dp)
             )
 
-            // 🎯 রেটিং: নিচে ডানে (কোনো সলিড বক্স ছাড়া, শুধু হালকা নরম টেক্সট)
+            // রেটিং (হালকা ইফেক্ট)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -415,7 +436,6 @@ fun CompactDesktopDramaCard(
 
         Spacer(modifier = Modifier.height(2.5.dp))
 
-        // ছোট ও পরিচ্ছন্ন নাম
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
