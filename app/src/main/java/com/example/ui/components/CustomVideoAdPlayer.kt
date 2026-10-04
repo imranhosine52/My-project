@@ -47,8 +47,18 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.data.model.CustomVideoAdDto
+import com.example.data.model.TrackAdEventRequest
+import com.example.data.remote.ApiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
+
+// 🎨 ইউটিউব অ্যাড কালার প্যালেট
+private val YouTubeAdYellow = Color(0xFFFFCC00)
+private val YouTubeSkipDarkBg = Color(0xCC000000)
+private val YouTubeCardBg = Color(0xDD181818)
 
 @Composable
 fun CustomVideoAdDialog(
@@ -69,10 +79,21 @@ fun CustomVideoAdDialog(
     var remainingSecondsToSkip by remember { mutableIntStateOf(skipThresholdSec) }
     val isSkipButtonUnlocked = (remainingSecondsToSkip <= 0 && canBeSkipped)
 
-    // 🚀 বিজ্ঞাপনের ভিডিও চালানোর জন্য ডেডিকেটেড ExoPlayer
+    // 📊 ১. ভিউ ইভেন্ট ট্র্যাকার (বিজ্ঞাপন শুরু হওয়া মাত্র সার্ভারে ১ বার ভিউ পাঠানো)
+    LaunchedEffect(ad.id) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                ApiClient.apiService.trackCustomAdEvent(
+                    TrackAdEventRequest(adId = ad.id, event = "view")
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    // 🚀 বিজ্ঞাপনের ভিডিওর জন্য ফাস্ট-লোডিং ExoPlayer
     val adPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(1500, 15000, 1000, 1500)
+            .setBufferDurationsMs(1000, 15000, 500, 1000)
             .build()
 
         ExoPlayer.Builder(context)
@@ -90,7 +111,7 @@ fun CustomVideoAdDialog(
             }
     }
 
-    // ভিডিও লোড করা
+    // ভিডিও লোড ও প্লে
     LaunchedEffect(ad.videoUrl) {
         if (ad.videoUrl.isNotBlank()) {
             try {
@@ -101,7 +122,6 @@ fun CustomVideoAdDialog(
                 adPlayer.prepare()
                 adPlayer.play()
             } catch (_: Exception) {
-                // ভিডিও লোড না হলে সরাসরি স্কিপ করে দেওয়া
                 onAdFinishedOrSkipped()
             }
         } else {
@@ -109,14 +129,13 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // প্লেয়ার লিসেনার (ভিডিও শেষ হলে স্বয়ংক্রিয় সমাপ্তি)
+    // প্লেয়ার স্টেট লিসেনার
     DisposableEffect(adPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalAdDurationMs = adPlayer.duration.coerceAtLeast(0L)
                 } else if (state == Player.STATE_ENDED) {
-                    // বিজ্ঞাপন দেখা সম্পন্ন
                     onAdFinishedOrSkipped()
                 }
             }
@@ -134,7 +153,7 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // ⏱️ স্কিপ বাটন কাউন্টডাউন টাইমার লুপ
+    // ⏱️ ইউটিউব স্কিপ কাউন্টডাউন টাইমার
     LaunchedEffect(isAdPlaying, remainingSecondsToSkip) {
         if (canBeSkipped && remainingSecondsToSkip > 0) {
             while (remainingSecondsToSkip > 0) {
@@ -146,29 +165,35 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // টাইমলাইন প্রগ্রেস
+    // প্রগ্রেস পজিশন ট্র্যাকার
     LaunchedEffect(isAdPlaying) {
         while (isAdPlaying) {
             currentAdPositionMs = adPlayer.currentPosition.coerceAtLeast(0L)
             val d = adPlayer.duration
             if (d > 0) totalAdDurationMs = d
-            delay(200L)
+            delay(100L)
         }
     }
 
-    // 🎯 স্মার্ট ডেস্টিনেশন হ্যান্ডলার (বাটনে চাপ দিলে কোথায় যাবে)
+    // 🎯 ক্লিক ইভেন্ট ট্র্যাকার ও নেভিগেশন
     fun handleCtaClick() {
         val target = ad.destinationTarget.trim()
         if (target.isBlank()) return
 
+        // 📊 সার্ভারে ক্লিক ইভেন্ট পাঠানো
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                ApiClient.apiService.trackCustomAdEvent(
+                    TrackAdEventRequest(adId = ad.id, event = "click")
+                )
+            } catch (_: Exception) {}
+        }
+
         when {
-            // ১. অ্যাপের ভেতরের পেজ (যেমন: VIP স্ক্রিন বা চ্যাট)
             ad.isInternalApp -> {
                 onAdFinishedOrSkipped()
                 onNavigateInternalScreen(target)
             }
-
-            // ২. সরাসরি গুগল প্লে স্টোর লিংক
             ad.isPlayStore -> {
                 try {
                     val playIntent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
@@ -176,7 +201,6 @@ fun CustomVideoAdDialog(
                     }
                     context.startActivity(playIntent)
                 } catch (_: Exception) {
-                    // প্লে স্টোর অ্যাপ না থাকলে ব্রাউজারে ফলব্যাক
                     val cleanWeb = if (target.startsWith("market://details?id=")) {
                         "https://play.google.com/store/apps/details?id=" + target.removePrefix("market://details?id=")
                     } else target
@@ -184,8 +208,6 @@ fun CustomVideoAdDialog(
                 }
                 onAdFinishedOrSkipped()
             }
-
-            // ৩. বাইরের ওয়েবসাইট (দারাজ বা স্পন্সর পণ্য)
             else -> {
                 onOpenExternalUrl(target)
                 onAdFinishedOrSkipped()
@@ -193,12 +215,12 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // বিজ্ঞাপন চলাকালীন ব্যাক বাটন চাপলে স্কিপ টাইম না হওয়া পর্যন্ত ব্যাক হবে না
+    // বিজ্ঞাপন চলাকালীন ব্যাক প্রেস গার্ড
     BackHandler {
         if (isSkipButtonUnlocked) {
             onAdFinishedOrSkipped()
-        } else {
-            Toast.makeText(context, "Please wait ${remainingSecondsToSkip}s to skip ad.", Toast.LENGTH_SHORT).show()
+        } else if (canBeSkipped) {
+            Toast.makeText(context, "You can skip ad in ${remainingSecondsToSkip}s", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -235,7 +257,7 @@ fun CustomVideoAdDialog(
             )
 
             // =========================================================================
-            // 🔝 ২. ওপরের ব্যানার: "Ad" ব্যাজ ও কাউন্টডাউন / Skip বাটন
+            // 🔝 ২. ইউটিউব টপ বার: [ Ad · 1 of 1 ] ও রিমেইনিং সেকেন্ডস
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -247,154 +269,188 @@ fun CustomVideoAdDialog(
                         )
                     )
                     .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // "Ad" বা "Sponsored" ট্যাগ
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // হলুদ "Ad" ব্যাজ
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFFFFB300)
+                        shape = RoundedCornerShape(3.dp),
+                        color = YouTubeAdYellow
                     ) {
                         Text(
-                            text = "AD",
+                            text = "Ad",
                             color = Color.Black,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
                         )
                     }
 
+                    // রিমেইনিং সময়
+                    val currentSec = (currentAdPositionMs / 1000L).toInt()
+                    val totalSec = (totalAdDurationMs / 1000L).toInt().coerceAtLeast(1)
+                    val remainingSec = (totalSec - currentSec).coerceAtLeast(0)
+
                     Text(
-                        text = "Sponsored",
-                        color = Color(0xFFCCD0DB),
+                        text = "· 0:${String.format(Locale.US, "%02d", remainingSec)}",
+                        color = Color.White,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
-                // 🎯 ইউটিউবের মতো [ Skip Ad in 5s... ] অথবা [ Skip Ad ❯ ] বাটন
+                // স্পনসর নাম
+                Text(
+                    text = ad.title.take(24),
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // =========================================================================
+            // ⏭️ ৩. ইউটিউবের হুবহু স্কিপ অ্যাড বাটন (ডানপাশে নিচে ফ্লোটিং)
+            // =========================================================================
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 16.dp, bottom = 32.dp)
+            ) {
                 if (canBeSkipped) {
                     if (isSkipButtonUnlocked) {
-                        // ৫ সেকেন্ড শেষ ➔ স্কিপ বাটন আনলকড
+                        // 🎯 স্কিপ বাটন আনলক হলে ইউটিউবের হুবহু [ Skip Ad ❯| ] বাটন
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            border = BorderStroke(1.dp, Color.White),
+                            shape = RoundedCornerShape(4.dp),
+                            color = YouTubeSkipDarkBg,
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.8f)),
                             modifier = Modifier.clickable { onAdFinishedOrSkipped() }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
                                     text = "Skip Ad",
                                     color = Color.White,
-                                    fontSize = 12.5.sp,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
+                                    imageVector = Icons.Default.SkipNext,
+                                    contentDescription = "Skip",
                                     tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
                     } else {
-                        // কাউন্টডাউন চলছে
+                        // ⏳ স্কিপ হওয়ার আগ পর্যন্ত কাউন্টডাউন
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.50f),
-                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.3f))
+                            shape = RoundedCornerShape(4.dp),
+                            color = YouTubeSkipDarkBg,
+                            border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.25f))
                         ) {
                             Text(
-                                text = "Skip in ${remainingSecondsToSkip}s",
+                                text = "You can skip ad in $remainingSecondsToSkip",
                                 color = Color(0xFFE2E8F0),
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                             )
                         }
+                    }
+                } else {
+                    // নন-স্কিপেবল অ্যাড
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = YouTubeSkipDarkBg
+                    ) {
+                        Text(
+                            text = "Video will play after ad",
+                            color = Color(0xFFCCCCCC),
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
                     }
                 }
             }
 
             // =========================================================================
-            // 🛒 ৩. নিচের ব্যানার: পণ্যের নাম এবং কাস্টম বাটন (Shop Now / Install / VIP)
+            // 🛒 ৪. ইউটিউব স্টাইল বটম-লেফট স্পনসর কার্ড (CTA Card)
             // =========================================================================
-            Column(
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = YouTubeCardBg,
+                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.15f)),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
-                        )
-                    )
+                    .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(start = 16.dp, bottom = 26.dp)
+                    .widthIn(max = 260.dp)
+                    .clickable { handleCtaClick() }
             ) {
-                // পণ্যের শিরোনাম
-                Text(
-                    text = ad.title,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                // 🎯 অ্যাডমিন কাস্টমাইজড বাটন (কালার ও লেখা এপিআই থেকে আসবে)
-                Button(
-                    onClick = { handleCtaClick() },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ad.parsedCtaColor),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = ad.title,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Sponsored · Visit site",
+                            color = Color(0xFFAAAAAA),
+                            fontSize = 10.5.sp,
+                            maxLines = 1
+                        )
+                    }
+
+                    // কাস্টম রঙের অ্যাকশন বাটন
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = ad.parsedCtaColor
                     ) {
                         Text(
                             text = ad.ctaText,
                             color = Color.Black,
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = if (ad.isExternalWeb || ad.isPlayStore) Icons.AutoMirrored.Filled.OpenInNew else Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(16.dp)
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
-
-                // পাতলা প্রগ্রেস বার
-                val progressFraction = if (totalAdDurationMs > 0) {
-                    (currentAdPositionMs.toFloat() / totalAdDurationMs.toFloat()).coerceIn(0f, 1f)
-                } else 0f
-
-                LinearProgressIndicator(
-                    progress = { progressFraction },
-                    color = ad.parsedCtaColor,
-                    trackColor = Color.White.copy(alpha = 0.2f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(1.5.dp))
-                )
             }
+
+            // =========================================================================
+            // 🟡 ৫. ইউটিউবের হুবহু হলুদ টাইমলাইন প্রগ্রেস বার (একদম নিচে)
+            // =========================================================================
+            val progressFraction = if (totalAdDurationMs > 0) {
+                (currentAdPositionMs.toFloat() / totalAdDurationMs.toFloat()).coerceIn(0f, 1f)
+            } else 0f
+
+            LinearProgressIndicator(
+                progress = { progressFraction },
+                color = YouTubeAdYellow, // 👈 ইউটিউবের হলুদ লাইন
+                trackColor = Color.White.copy(alpha = 0.25f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .align(Alignment.BottomCenter)
+            )
         }
     }
 }
