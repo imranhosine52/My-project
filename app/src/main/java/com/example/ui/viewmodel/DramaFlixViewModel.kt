@@ -26,6 +26,7 @@ import java.util.Locale
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
     SHORT_TV("Short TV"),
+    VIP("VIP"),            // 👈 মাঝখানের VIP ট্যাব
     DOWNLOADS("Downloads"),
     ME("Me")
 }
