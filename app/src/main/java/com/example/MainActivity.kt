@@ -394,6 +394,7 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
+    // 🎯 ৫টি মূল ট্যাবের সাথে স্ক্রিন রেজলভার
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> BottomNavTab.HOME
@@ -551,7 +552,7 @@ private fun MainAppContent(
                 }
             }
         ) { _ ->
-            // 🌟 মসৃণ ফ্লুইড ট্রানজিশন (Smooth Screen Fade & Slide Animation)
+            // 🌟 মসৃণ ফ্লুইড ট্রানজিশন (Smooth Screen Fade Animation)
             AnimatedContent(
                 targetState = currentScreen,
                 transitionSpec = {
@@ -568,8 +569,7 @@ private fun MainAppContent(
                                 initialCategory = targetScreen.category,
                                 onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
                                 onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
-                                onNavigateToSearch = { navigateTo(Screen.Search, null) },
-                                onNavigateToNotification = { navigateTo(Screen.Notification, null) }
+                                onNavigateToSearch = { navigateTo(Screen.Search, null) }
                             )
                         }
                         is Screen.ShortsPlayer -> {
