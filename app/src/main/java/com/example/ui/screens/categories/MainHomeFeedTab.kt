@@ -10,6 +10,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -36,6 +39,9 @@ import com.example.ui.SectionHeader
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.HomeUiState
+import java.util.Locale
+
+private val GoldRating = Color(0xFFFFB300)
 
 @Composable
 fun MainHomeFeedTab(
@@ -246,7 +252,7 @@ fun MainHomeFeedTab(
 }
 
 // =========================================================================
-// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড (Display Name ও ডাইনামিক ডাবিং ব্যাজ সহ)
+// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড (হালকা রেটিং ও Display Name সহ)
 // =========================================================================
 @Composable
 fun HomePosterCardHorizontal(
@@ -292,27 +298,50 @@ fun HomePosterCardHorizontal(
                     )
             )
 
-            // 🎯 ডাইনামিক ডাবিং ব্যাজ (সার্ভারের আসল ভাষা অনুযায়ী)
+            // ডাইনামিক ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
+            // এপিসোড সংখ্যা (নিচে বাঁয়ে)
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "Full HD"
             Text(
                 text = epCount,
                 color = Color.White,
-                fontSize = 9.sp,
+                fontSize = 8.5.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = 6.dp, bottom = 4.dp)
             )
+
+            // 🎯 হালকা রেটিং (নিচে ডানে - কোনো সলিড বক্স ছাড়া)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 6.dp, bottom = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(9.dp)
+                )
+                Text(
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // 🎯 ছোট ও পরিচ্ছন্ন নাম
+        // ছোট ও পরিচ্ছন্ন নাম
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
@@ -325,7 +354,7 @@ fun HomePosterCardHorizontal(
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড (Display Name ও ডাইনামিক ডাবিং ব্যাজ সহ)
+// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড (হালকা রেটিং ও Display Name সহ)
 // =========================================================================
 @Composable
 fun HomeGridDramaCard(
@@ -372,27 +401,50 @@ fun HomeGridDramaCard(
                     )
             )
 
-            // 🎯 ডাইনামিক ডাবিং ব্যাজ
+            // ডাইনামিক ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
+            // এপিসোড সংখ্যা (নিচে বাঁয়ে)
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "Full HD"
             Text(
                 text = epCount,
                 color = Color.White,
-                fontSize = 8.5.sp,
+                fontSize = 8.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(horizontal = 5.dp, vertical = 4.dp)
             )
+
+            // 🎯 হালকা রেটিং (নিচে ডানে)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 5.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(8.5.dp)
+                )
+                Text(
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // 🎯 ছোট ও পরিচ্ছন্ন নাম
+        // ছোট ও পরিচ্ছন্ন নাম
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
