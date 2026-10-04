@@ -35,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -54,7 +53,6 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import coil.compose.AsyncImage
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.TrackAdEventRequest
 import com.example.data.remote.ApiClient
@@ -70,7 +68,7 @@ private val YouTubeCardDark = Color(0xFF1E1E1E)
 private val YouTubeAdYellow = Color(0xFFFFCC00)
 private val YouTubeSkipButtonBg = Color(0xCC111111)
 private val YouTubeSecondaryBtnBg = Color(0xFF272727)
-private val YouTubeInstallPurple = Color(0xFFD0BCFF) // স্ক্রিনশটের পার্পল/কাস্টম ইন্সটল কালার
+private val YouTubeInstallPurple = Color(0xFFD0BCFF)
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -82,6 +80,12 @@ fun CustomVideoAdDialog(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    // 🎯 ফিক্স: buttonText কে পুরো কম্পোজেবলের শুরুতে আনা হয়েছে যাতে যেকোনো স্কোপ থেকে পাওয়া যায়
+    val buttonText = remember(ad.ctaText) {
+        ad.ctaText.ifBlank { "Install" }
+    }
+
     var isAdPlaying by remember { mutableStateOf(true) }
     var currentAdPositionMs by remember { mutableLongStateOf(0L) }
     var totalAdDurationMs by remember { mutableLongStateOf(0L) }
@@ -252,7 +256,7 @@ fun CustomVideoAdDialog(
                 .background(YouTubeDarkBg)
         ) {
             // =========================================================================
-            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম (স্ক্রিনশটের হুবহু প্লেয়ার অংশ)
+            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম
             // =========================================================================
             Box(
                 modifier = Modifier
@@ -396,7 +400,7 @@ fun CustomVideoAdDialog(
             }
 
             // =========================================================================
-            // 📑 ২. নিচের অংশ: ইউটিউবের হুবহু অ্যাড ডিটেইলস ও কাস্টম অ্যাকশন পেজ
+            // 📑 ২. নিচের অংশ: অ্যাড ডিটেইলস ও কাস্টম অ্যাকশন পেজ
             // =========================================================================
             Column(
                 modifier = Modifier
@@ -406,7 +410,7 @@ fun CustomVideoAdDialog(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // ২.১ Sponsored হেডার এবং অপশনস (Like, Share, Close)
+                // ২.১ Sponsored হেডার এবং অপশনস
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -454,7 +458,6 @@ fun CustomVideoAdDialog(
                             modifier = Modifier.size(20.dp)
                         )
 
-                        // ✕ বিজ্ঞাপন বন্ধ করার বাটন
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
@@ -477,7 +480,6 @@ fun CustomVideoAdDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // ব্র্যান্ডের স্কয়ার রাউন্ডেড লোগো
                     Box(
                         modifier = Modifier
                             .size(48.dp)
@@ -515,15 +517,13 @@ fun CustomVideoAdDialog(
                 }
 
                 // =========================================================================
-                // 🔘 ২.৩ অ্যাডমিন প্যানেল থেকে কাস্টমাইজড ডুয়াল অ্যাকশন বাটন
-                // [ Learn more ]  [ Install / Order now / Visit website ]
+                // 🔘 ২.৩ ডুয়াল অ্যাকশন বাটন [ Learn more ] [ buttonText ]
                 // =========================================================================
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // ১. সেকেন্ডারি বাটন: [ Learn more ]
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = YouTubeSecondaryBtnBg,
@@ -541,10 +541,6 @@ fun CustomVideoAdDialog(
                             )
                         }
                     }
-
-                    // ২. প্রাইমারি ডায়নামিক বাটন: [ Install / Order now / Visit website / VIP ]
-                    // অ্যাডমিন প্যানেলে যা লেখা থাকবে হুবহু সেটাই প্রদর্শিত হবে
-                    val buttonText = ad.ctaText.ifBlank { "Install" }
 
                     Surface(
                         shape = RoundedCornerShape(20.dp),
@@ -565,7 +561,7 @@ fun CustomVideoAdDialog(
                     }
                 }
 
-                // ২.৪ স্ক্রিনশটের মতো রেটিং এবং ডাউনলোড সংখ্যা
+                // ২.৪ রেটিং এবং ডাউনলোড সংখ্যা
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -600,9 +596,7 @@ fun CustomVideoAdDialog(
                 HorizontalDivider(color = Color(0xFF222222), thickness = 0.8.dp)
 
                 // =========================================================================
-                // 🌐 ২.৫ ওয়েব পেজ / লাইভ প্রিভিউ সেকশন
-                // যদি ওয়েবসাইটের লিংক থাকে তবে সরাসরি নিচে ব্রাউজ করা যাবে
-                // আর যদি লিংক না থাকে তবে সুন্দর ব্যানার প্রিভিউ কার্ড দেখাবে
+                // 🌐 ২.৫ ওয়েব পেজ / ব্যানার প্রিভিউ সেকশন
                 // =========================================================================
                 val targetUrl = ad.destinationTarget.trim()
                 val isHttpWeb = targetUrl.startsWith("http://") || targetUrl.startsWith("https://")
@@ -649,7 +643,6 @@ fun CustomVideoAdDialog(
                         )
                     }
                 } else {
-                    // direct download বা Play Store হলে ইউটিউব ব্যানার কার্ড
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = YouTubeCardDark,
