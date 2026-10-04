@@ -57,7 +57,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // =========================================================================
-// 🏷️ ১ নম্বর ছবির হুবহু ডার্ক-গ্লাস ডাবিং ব্যাজ (কম্প্যাক্ট ও হালকা কালো ইফেক্ট)
+// 🏷️ ১ নম্বর ছবির হুবহু টেক্সট-সাইজ চিকন ডার্ক-গ্লাস ডাবিং ব্যাজ
 // =========================================================================
 @Composable
 fun LanguageDubBadge(
@@ -72,19 +72,22 @@ fun LanguageDubBadge(
         else -> "Bangla"
     }
 
-    Surface(
-        shape = RoundedCornerShape(4.dp),
-        color = Color.Black.copy(alpha = 0.65f), // 👈 ১ নম্বর ছবির মতো স্বচ্ছ ডার্ক গ্লাস
-        border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.18f)),
-        modifier = modifier.padding(top = 4.dp, end = 4.dp)
+    // 🎯 টেক্সটের সাইজ অনুযায়ী একদম চিকন ও স্লিম গ্লাস বক্স
+    Box(
+        modifier = modifier
+            .padding(top = 4.dp, end = 4.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .border(0.4.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(3.dp))
+            .padding(horizontal = 4.dp, vertical = 1.dp)
     ) {
         Text(
             text = cleanText,
-            color = Color(0xFFF1F5F9), // উজ্জ্বল সাদা ফন্ট
-            fontSize = 8.5.sp, // অনেক ছোট ও স্লিম
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp),
-            letterSpacing = 0.2.sp
+            color = Color.White.copy(alpha = 0.95f),
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 10.sp,
+            letterSpacing = 0.1.sp
         )
     }
 }
@@ -172,6 +175,7 @@ fun VipCrown3DIcon(modifier: Modifier = Modifier) {
 // =========================================================================
 // 🎬 Short TV, Downloads, Me কাস্টম ভেক্টর আইকনসমূহ
 // =========================================================================
+
 @Composable
 fun ShortTvCustomStackedIcon(
     tint: Color,
@@ -296,7 +300,7 @@ fun VipCrownBadge(
 }
 
 // =========================================================================
-// 🔝 আল্ট্রা-স্লিম টপ বার
+// 🔝 আল্ট্রা-স্লিম টপ ন্যাভিগেশন বার
 // =========================================================================
 @Composable
 fun TopNavigationBar(
@@ -518,7 +522,7 @@ fun HotSpotlightHeroCard(
             .clip(RoundedCornerShape(14.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF1B2338), Color(0xFF121522), Color(0xFF0D0F17))))
             .border(0.8.dp, Color(0xFF222838), RoundedCornerShape(14.dp))
-            .padding(14.dp)
+            .padding(12.dp)
     ) {
         Column {
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
@@ -528,46 +532,46 @@ fun HotSpotlightHeroCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Surface(shape = RoundedCornerShape(5.dp), color = GoldVip) {
-                                Text("HOT SPOTLIGHT", color = GoldButtonText, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp))
+                            Surface(shape = RoundedCornerShape(4.dp), color = GoldVip) {
+                                Text("HOT SPOTLIGHT", color = GoldButtonText, fontSize = 8.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
                             }
-                            Surface(shape = RoundedCornerShape(5.dp), color = SurfaceVariantDark) {
-                                Text(drama.releaseYear.ifBlank { "2026" }, color = TextSecondary, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp))
+                            Surface(shape = RoundedCornerShape(4.dp), color = SurfaceVariantDark) {
+                                Text(drama.releaseYear.ifBlank { "2026" }, color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
                             }
-                            Surface(shape = RoundedCornerShape(5.dp), color = Color(0xFF282415), border = BorderStroke(0.8.dp, GoldVip.copy(alpha = 0.5f))) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp)) {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(11.dp))
-                                    Text(if (drama.rating > 0) drama.rating.toString() else "8.5", color = GoldVip, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                            Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFF282415), border = BorderStroke(0.6.dp, GoldVip.copy(alpha = 0.5f))) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(10.dp))
+                                    Text(if (drama.rating > 0) drama.rating.toString() else "8.5", color = GoldVip, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(drama.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(modifier = Modifier.height(8.dp))
+                        Text(drama.title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                             (listOf("All", drama.dubBadge) + drama.categories.take(2)).filter { it.isNotBlank() }.forEach { tag ->
-                                Surface(shape = RoundedCornerShape(5.dp), color = SurfaceVariantDark.copy(alpha = 0.8f)) {
-                                    Text(tag, color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp))
+                                Surface(shape = RoundedCornerShape(4.dp), color = SurfaceVariantDark.copy(alpha = 0.8f)) {
+                                    Text(tag, color = TextSecondary, fontSize = 8.5.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onWatchClick(drama) },
                                 shape = RoundedCornerShape(50),
                                 colors = ButtonDefaults.buttonColors(containerColor = GoldVip, contentColor = GoldButtonText),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                                modifier = Modifier.height(34.dp)
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = GoldButtonText, modifier = Modifier.size(16.dp))
-                                    Text("Watch Now", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = GoldButtonText, modifier = Modifier.size(15.dp))
+                                    Text("Watch Now", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
 
@@ -575,13 +579,13 @@ fun HotSpotlightHeroCard(
                                 onClick = { onDetailsClick(drama) },
                                 shape = RoundedCornerShape(50),
                                 colors = ButtonDefaults.buttonColors(containerColor = SurfaceVariantDark, contentColor = TextPrimary),
-                                border = BorderStroke(1.dp, BorderDark),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                modifier = Modifier.height(34.dp)
+                                border = BorderStroke(0.8.dp, BorderDark),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Default.Info, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
-                                    Text("Details", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
+                                    Text("Details", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -589,11 +593,11 @@ fun HotSpotlightHeroCard(
 
                     Box(
                         modifier = Modifier
-                            .width(112.dp)
-                            .height(156.dp)
+                            .width(108.dp)
+                            .height(150.dp)
                             .graphicsLayer { translationY = floatY }
                             .clip(RoundedCornerShape(8.dp))
-                            .border(width = 1.2.dp, color = Color(0xFF2E384D), shape = RoundedCornerShape(8.dp))
+                            .border(width = 1.dp, color = Color(0xFF2E384D), shape = RoundedCornerShape(8.dp))
                             .clickable { onWatchClick(drama) }
                     ) {
                         AsyncImage(
@@ -606,16 +610,16 @@ fun HotSpotlightHeroCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 spotlightDramas.forEachIndexed { index, _ ->
                     val isSelected = pagerState.currentPage == index
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 2.dp)
-                            .height(3.5.dp)
-                            .width(if (isSelected) 16.dp else 4.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .height(3.dp)
+                            .width(if (isSelected) 14.dp else 3.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(if (isSelected) Color(0xFF388BFF) else SurfaceVariantDark)
                             .clickable { coroutineScope.launch { pagerState.animateScrollToPage(index) } }
                     )
@@ -673,9 +677,6 @@ fun HorizontalDramaRow(
     }
 }
 
-// =========================================================================
-// 🎬 ক্লিন ও স্লিম হরিজন্টাল কার্ড (কোনো শাইনিং বর্ডার নেই)
-// =========================================================================
 @Composable
 fun DramaPosterCardHorizontal(
     drama: ContentItemDto,
@@ -691,7 +692,7 @@ fun DramaPosterCardHorizontal(
                 .fillMaxWidth()
                 .height(162.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp)) // 👈 ক্লিন সাবটেল বর্ডার
+                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp))
                 .background(SurfaceDark)
         ) {
             AsyncImage(
@@ -707,7 +708,6 @@ fun DramaPosterCardHorizontal(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))))
             )
 
-            // ১ নম্বর ছবির ডার্ক গ্লাস ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge.ifBlank { drama.language },
                 modifier = Modifier.align(Alignment.TopEnd)
