@@ -70,7 +70,6 @@ fun VipCrownIllustratedIcon(
             val w = size.width
             val h = size.height
 
-            // ক্রাউনের মূল সোনালী বডি
             val crownPath = Path().apply {
                 moveTo(w * 0.18f, h * 0.88f)
                 lineTo(w * 0.82f, h * 0.88f)
@@ -83,45 +82,34 @@ fun VipCrownIllustratedIcon(
                 close()
             }
 
-            // গোল্ডেন গ্রেডিয়েন্ট ফিল
             drawPath(
                 path = crownPath,
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFFDF00),
-                        Color(0xFFFFB300),
-                        Color(0xFFFF8F00)
-                    )
+                    colors = listOf(Color(0xFFFFDF00), Color(0xFFFFB300), Color(0xFFFF8F00))
                 )
             )
 
-            // উজ্জ্বল হলুদ বর্ডার
             drawPath(
                 path = crownPath,
                 color = Color(0xFFFFEA00),
                 style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
-            // ৩টি লাল রুবি জেমস্টোন (৩টি শীর্ষবিন্দুতে)
             val rubyRadius = w * 0.085f
             val rubyGoldBorder = 1.2.dp.toPx()
             val rubyColor = Color(0xFFFF2A55)
             val rimColor = Color(0xFFFFEA00)
 
-            // বাঁয়ের রুবি
             drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.16f, h * 0.44f))
             drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.16f, h * 0.44f))
 
-            // মাঝের প্রধান রুবি
             drawCircle(color = rimColor, radius = rubyRadius * 1.15f + rubyGoldBorder, center = Offset(w * 0.50f, h * 0.26f))
             drawCircle(color = rubyColor, radius = rubyRadius * 1.15f, center = Offset(w * 0.50f, h * 0.26f))
 
-            // ডানের রুবি
             drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.84f, h * 0.44f))
             drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.84f, h * 0.44f))
         }
 
-        // ক্রাউনের ভেতরের সাদা ইটালিক "VIP" টেক্সট
         Text(
             text = "VIP",
             color = Color.White,
@@ -132,6 +120,20 @@ fun VipCrownIllustratedIcon(
             modifier = Modifier.align(Alignment.Center).offset(y = 2.dp)
         )
     }
+}
+
+// 🎯 ব্যাকওয়ার্ড কম্প্যাটিবিলিটি হেল্পার (যাতে কোনো ফাইলে এরর না আসে)
+@Composable
+fun VipCrownVectorIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFFF6D38B)
+) {
+    VipCrownIllustratedIcon(modifier = modifier)
+}
+
+@Composable
+fun VipCrown3DIcon(modifier: Modifier = Modifier) {
+    VipCrownIllustratedIcon(modifier = modifier)
 }
 
 // =========================================================================
@@ -297,13 +299,8 @@ fun VipCrownBadge(
     }
 }
 
-@Composable
-fun VipCrown3DIcon(modifier: Modifier = Modifier) {
-    VipCrownIllustratedIcon(modifier = modifier)
-}
-
 // =========================================================================
-// 🔝 আল্ট্রা-স্লিম ও কমপ্যাক্ট টপ ন্যাভিগেশন বার (আপডেট আইকন সহ)
+// 🔝 আল্ট্রা-স্লিম ও কমপ্যাক্ট টপ ন্যাভিগেশন বার
 // =========================================================================
 @Composable
 fun TopNavigationBar(
@@ -350,7 +347,6 @@ fun TopNavigationBar(
             .statusBarsPadding()
             .padding(top = 2.dp, bottom = 2.dp)
     ) {
-        // ১. উপরের রো: লোগো + সার্চ বার + ভিআইপি + আপডেট আইকন
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -418,9 +414,7 @@ fun TopNavigationBar(
             }
 
             Spacer(modifier = Modifier.width(6.dp))
-
             VipCrownBadge(onClick = onVipClick)
-
             Spacer(modifier = Modifier.width(4.dp))
 
             Box(
@@ -443,7 +437,6 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // ২. ক্যাটাগরি ট্যাব রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
