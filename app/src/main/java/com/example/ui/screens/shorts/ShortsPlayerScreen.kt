@@ -1,6 +1,7 @@
 @file:OptIn(
-    UnstableApi::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
 )
 
 package com.example.ui.screens.shorts
@@ -16,7 +17,6 @@ import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -39,10 +39,8 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -90,6 +88,7 @@ import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlin.OptIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -185,6 +184,11 @@ private fun PureSkipButton(
 }
 
 @SuppressLint("SetJavaScriptEnabled")
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
+)
 @Composable
 fun ShortsPlayerScreen(
     slug: String,
@@ -222,6 +226,9 @@ fun ShortsPlayerScreen(
     val isUserLoggedIn = authState.isLoggedIn
     val isUserVip = playerState.isVip || authState.isVip
 
+    // =========================================================================
+    // 📢 ১. সার্ভার থেকে ডায়নামিক কাস্টম অ্যাড ও রিলস স্ক্রোল ইন্টারভাল লোড
+    // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
     var watchedEpisodesCounter by rememberSaveable { mutableIntStateOf(0) }
@@ -245,7 +252,11 @@ fun ShortsPlayerScreen(
     val customShortsAds = remember(customAdsConfig) {
         customAdsConfig?.ads?.filter { it.placement == "shorts" || it.placement == "all" } ?: emptyList()
     }
-    val shortsAdInterval = customAdsConfig?.shortsRules?.intervalEpisodes ?: 3
+
+    // 🎯 সার্ভার থেকে আসা সোয়াইপ ইন্টারভাল (ডিফল্ট: ৩ টি রিলস পর পর)
+    val shortsAdInterval = remember(customAdsConfig) {
+        customAdsConfig?.shortsRules?.intervalEpisodes?.coerceAtLeast(1) ?: 3
+    }
 
     val isCurrentDramaLoaded = (playerState.content?.slug == slug)
 
@@ -257,7 +268,6 @@ fun ShortsPlayerScreen(
             ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
     }
 
-    // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
     val cleanShortTitle = remember(content) {
         content.displayName
     }
@@ -317,13 +327,17 @@ fun ShortsPlayerScreen(
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(activePageIndex) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
 
-    // ৩ পর্ব পর পর অ্যাড চেকার
+    // =========================================================================
+    // 🎯 ২. সার্ভার নির্ধারিত সংখ্যক রিলস স্ক্রোলের পর অ্যাড ট্রিগার
+    // =========================================================================
     LaunchedEffect(activePageIndex) {
         if (activePageIndex > 0) {
             watchedEpisodesCounter++
             if (!isUserVip && customAdsConfig?.customAdsEnabled == true && customShortsAds.isNotEmpty()) {
                 if (watchedEpisodesCounter % shortsAdInterval == 0) {
-                    activeCustomVideoAd = customShortsAds.random()
+                    val candidateAd = customShortsAds.random()
+                    exoPlayer.pause()
+                    activeCustomVideoAd = candidateAd
                 }
             }
         }
@@ -655,7 +669,7 @@ fun ShortsPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // 🔝 ১. ওপরের কালো ব্যাকগ্রাউন্ড বার (Ep নম্বর ও ডাউনলোড বাটন সহ)
+            // 🔝 ১. ওপরের বার
             if (!isImmersiveFullscreen) {
                 Surface(
                     color = Color.Black,
@@ -741,9 +755,6 @@ fun ShortsPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // =============================================================
-                // 🎯 ৩. পেজারের ভেতরের কন্টেন্ট (স্ক্রল করার সময় স্মুথভাবে উপরে যাবে)
-                // =============================================================
                 VerticalPager(
                     state = verticalPagerState,
                     modifier = Modifier.fillMaxSize(),
@@ -793,7 +804,6 @@ fun ShortsPlayerScreen(
                                 )
                             }
                     ) {
-                        // 🎯 সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save) পেজের সাথে স্ক্রল হবে
                         if (!isImmersiveFullscreen && !isHalfDrawerOpen && page == activePageIndex) {
                             ShortsActionColumn(
                                 context = context,
@@ -816,7 +826,6 @@ fun ShortsPlayerScreen(
                             )
                         }
 
-                        // 🎯 টাইটেল, ডেসক্রিপশন ও টাইমলাইন পেজের সাথে স্মুথভাবে স্ক্রল হবে
                         if (!isImmersiveFullscreen && !isHalfDrawerOpen && page == activePageIndex) {
                             ShortsVideoFloatingOverlay(
                                 content = content.copy(
@@ -944,7 +953,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // ⬛ ৪. সলিড কালো ব্যাকগ্রাউন্ড বার (Ep নম্বর, স্পিড ও কোয়ালিটি)
+            // ⬛ ৪. সলিড কালো ব্যাকগ্রাউন্ড বার
             if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                 ShortsSolidBlackBottomBar(
                     currentEpNum = currentEpNum,
@@ -962,7 +971,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📢 ৫. কাস্টম ভিডিও অ্যাড ডায়ালগ
+        // 📢 ৫. ইউটিউব স্প্লিট কাস্টম ভিডিও অ্যাড
         // =========================================================================
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
