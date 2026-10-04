@@ -8,37 +8,35 @@ import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.TopNavigationBar
 import com.example.ui.screens.categories.*
+import com.example.ui.screens.profile.components.VersionScannerDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.AppAnalyticsTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.absoluteValue
 
 @Composable
 fun HomeScreen(
@@ -47,7 +45,6 @@ fun HomeScreen(
     onNavigateToPlayer: (String) -> Unit,
     onNavigateToVip: () -> Unit,
     onNavigateToSearch: () -> Unit,
-    onNavigateToNotification: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -58,9 +55,10 @@ fun HomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // =========================================================================
-    // 🔄 ১. স্ক্রিনে আসার সাথে সাথে নতুন পোস্ট চেক (forceRefresh = true)
-    // =========================================================================
+    // 🚀 লাইভ অ্যাপ আপডেট স্ক্যানার পপ-আপ কন্ট্রোল
+    var showVersionScannerDialog by remember { mutableStateOf(false) }
+    val installedVersion = remember { viewModel.getInstalledAppVersion() }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.loadHomeContent(forceRefresh = true)
         viewModel.refreshVipStatusAndProfile()
@@ -81,7 +79,6 @@ fun HomeScreen(
         )
     }
 
-    // 🎯 স্মার্ট ক্যাটাগরি ফাইন্ডার
     fun resolveCategoryIndex(target: String): Int {
         val directIndex = categories.indexOf(target)
         if (directIndex != -1) return directIndex
@@ -119,9 +116,7 @@ fun HomeScreen(
         pageCount = { categories.size }
     )
 
-    // =========================================================================
-    // 📊 লাইভ ক্যাটাগরি পেজ ট্র্যাকিং
-    // =========================================================================
+    // 📊 অ্যানালিটিক্স স্ক্রিন ট্র্যাকার
     LaunchedEffect(categoryPagerState.currentPage) {
         val activeCategory = categories.getOrElse(categoryPagerState.currentPage) { "Home" }
         val screenLabel = if (activeCategory == "Home") "Home Screen" else "Category: $activeCategory"
@@ -129,11 +124,14 @@ fun HomeScreen(
         AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
     }
 
-    // 🎯 ক্যাটাগরি ট্যাব পরিবর্তনের সাথে সাথে অ্যানিমেটেড স্ক্রোল
+    // 🎯 স্মুথ ট্যাব অ্যানিমেশন
     LaunchedEffect(initialCategory) {
         val targetIdx = resolveCategoryIndex(initialCategory)
         if (categoryPagerState.currentPage != targetIdx) {
-            categoryPagerState.animateScrollToPage(targetIdx)
+            categoryPagerState.animateScrollToPage(
+                page = targetIdx,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
         }
     }
 
@@ -181,17 +179,14 @@ fun HomeScreen(
         } else {
             val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-            // =========================================================================
-            // 🔄 ২. পুল-টু-রিফ্রেশ (forceRefresh = true দিয়ে নতুন পোস্ট লোড)
-            // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     coroutineScope.launch {
                         isRefreshing = true
-                        viewModel.loadHomeContent(forceRefresh = true) // 👈 সার্ভার থেকে ফ্রেশ ডাটা টানবে
+                        viewModel.loadHomeContent(forceRefresh = true)
                         viewModel.refreshVipStatusAndProfile()
-                        delay(600)
+                        delay(500)
                         isRefreshing = false
                     }
                 },
@@ -202,162 +197,127 @@ fun HomeScreen(
                     state = categoryPagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
-                    when (categories.getOrElse(page) { "Home" }) {
-                        "Home" -> MainHomeFeedTab(
-                            homeState = homeState,
-                            isVip = authState.isVip,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer,
-                            onNavigateToVip = onNavigateToVip,
-                            onNavigateToSearch = onNavigateToSearch,
-                            onSelectCategoryTab = { index ->
-                                coroutineScope.launch { categoryPagerState.animateScrollToPage(index) }
+                    // 🌟 মাখনের মতো মসৃণ পেজ ট্রানজিশন ইফেক্ট (Alpha & Scale Animation)
+                    val pageOffset = ((categoryPagerState.currentPage - page) + categoryPagerState.currentPageOffsetFraction).absoluteValue
+                    val pageAlpha = lerp(0.55f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+                    val pageScale = lerp(0.96f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+
+                    // 🎯 কনটেন্ট মার্জিন একদম উপরে তুলে দেওয়া হয়েছে
+                    val compactTopMargin = (statusBarTop - 24.dp).coerceAtLeast(0.dp)
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = pageAlpha
+                                scaleX = pageScale
+                                scaleY = pageScale
                             }
-                        )
+                    ) {
+                        when (categories.getOrElse(page) { "Home" }) {
+                            "Home" -> MainHomeFeedTab(
+                                homeState = homeState,
+                                isVip = authState.isVip,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer,
+                                onNavigateToVip = onNavigateToVip,
+                                onNavigateToSearch = onNavigateToSearch,
+                                onSelectCategoryTab = { index ->
+                                    coroutineScope.launch {
+                                        categoryPagerState.animateScrollToPage(
+                                            page = index,
+                                            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                                        )
+                                    }
+                                }
+                            )
 
-                        "New" -> RecentlyAddedCategoryScreen(
-                            items = homeState.recentlyAdded,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "New" -> RecentlyAddedCategoryScreen(
+                                items = homeState.recentlyAdded,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Popular" -> PopularSeriesCategoryScreen(
-                            items = homeState.popularDramas,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Popular" -> PopularSeriesCategoryScreen(
+                                items = homeState.popularDramas,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Short TV" -> ShortsDramaCategoryScreen(
-                            items = homeState.shortsContent,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Short TV" -> ShortsDramaCategoryScreen(
+                                items = homeState.shortsContent,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Series" -> DramaSeriesCategoryScreen(
-                            items = homeState.dramaSeriesContent,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Series" -> DramaSeriesCategoryScreen(
+                                items = homeState.dramaSeriesContent,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Anime" -> AnimeSeriesCategoryScreen(
-                            items = homeState.animeContent,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Anime" -> AnimeSeriesCategoryScreen(
+                                items = homeState.animeContent,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Movies" -> MoviesCategoryScreen(
-                            items = homeState.movieContent,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Movies" -> MoviesCategoryScreen(
+                                items = homeState.movieContent,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Bangla Dub" -> BanglaDubCategoryScreen(
-                            items = homeState.banglaDubbed,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Bangla Dub" -> BanglaDubCategoryScreen(
+                                items = homeState.banglaDubbed,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        "Hindi Dub" -> HindiDubCategoryScreen(
-                            items = homeState.hindiDubbed,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            "Hindi Dub" -> HindiDubCategoryScreen(
+                                items = homeState.hindiDubbed,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
 
-                        else -> AllTitlesCategoryScreen(
-                            items = homeState.popularDramas,
-                            statusBarTop = statusBarTop,
-                            onNavigateToPlayer = onNavigateToPlayer
-                        )
+                            else -> AllTitlesCategoryScreen(
+                                items = homeState.popularDramas,
+                                statusBarTop = compactTopMargin,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
+                        }
                     }
                 }
             }
 
-            // 🔝 ফিক্সড টপ ন্যাভিগেশন বার
+            // 🔝 কমপ্যাক্ট আল্ট্রা-স্লিম টপ বার
             TopNavigationBar(
                 categories = categories,
                 selectedCategoryIndex = categoryPagerState.currentPage,
                 onCategorySelected = { index ->
-                    coroutineScope.launch { categoryPagerState.animateScrollToPage(index) }
+                    coroutineScope.launch {
+                        categoryPagerState.animateScrollToPage(
+                            page = index,
+                            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                        )
+                    }
                 },
                 onSearchClick = onNavigateToSearch,
                 onVoiceSearchClick = { startVoiceSearch() },
                 onVipClick = onNavigateToVip,
-                onNotificationClick = onNavigateToNotification,
+                onUpdateCheckClick = { showVersionScannerDialog = true },
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
-    }
-}
 
-// =========================================================================
-// 👑 ৩D গোল্ডেন VIP ক্রাউন আইকন
-// =========================================================================
-@Composable
-fun Golden3DVipCrownIcon(
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(46.dp, 36.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFFFEA00),
-                            Color(0xFFFF9100),
-                            Color(0xFFFF6D00)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = Color(0xFFFFF176),
-                    shape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "VIP",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-                fontStyle = FontStyle.Italic,
-                letterSpacing = 0.5.sp
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .offset(y = (-4).dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF1744))
-                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(11.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF1744))
-                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF1744))
-                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
+        // =========================================================================
+        // 🛰️ লাইভ অ্যাপ আপডেট ও ভার্সন স্ক্যানার ডায়ালগ
+        // =========================================================================
+        if (showVersionScannerDialog) {
+            VersionScannerDialog(
+                viewModel = viewModel,
+                installedVersion = installedVersion,
+                onDismiss = { showVersionScannerDialog = false }
             )
         }
     }
