@@ -3,7 +3,7 @@
 package com.example.ui.screens
 
 import android.content.Context
-import android.net.Uri // 👈 ফিক্সড: Uri ইমপোর্ট যুক্ত করা হয়েছে
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,9 +32,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
-import com.example.data.model.CreatorPageDto
-import com.example.data.model.UserProfileMetricsDto
-import com.example.data.repository.ReelsRepository
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.profile.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -43,7 +40,6 @@ import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00E676)
 private val GoldVip = Color(0xFFFFB300)
-private val TelegramBlue = Color(0xFF2AABEE)
 private val CardBorderStroke = Color(0xFF1D2434)
 
 @Composable
@@ -54,12 +50,10 @@ fun ProfileScreen(
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
     onNavigateToCommunityChat: () -> Unit = {},
-    onSwitchToCreatorStudio: (CreatorPageDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val reelsRepository = remember { ReelsRepository(context) }
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
 
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
@@ -80,40 +74,11 @@ fun ProfileScreen(
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
 
-    var myCreatorPage by remember { mutableStateOf<CreatorPageDto?>(null) }
-    var liveProfileMetrics by remember { mutableStateOf<UserProfileMetricsDto?>(null) }
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var isUploadingCover by remember { mutableStateOf(false) }
 
     var localAvatarOverride by remember { mutableStateOf<String?>(null) }
     var localCoverOverride by remember { mutableStateOf<String?>(null) }
-
-    val currentUserIdInt = remember(authState.userProfile) {
-        authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-    }
-
-    fun refreshRealMetrics() {
-        if (authState.isLoggedIn && currentUserIdInt > 0) {
-            coroutineScope.launch {
-                val metricsRes = reelsRepository.getUserProfileMetrics(currentUserIdInt)
-                liveProfileMetrics = metricsRes.getOrNull()
-            }
-        }
-    }
-
-    fun refreshCreatorPageStatus() {
-        if (authState.isLoggedIn) {
-            coroutineScope.launch {
-                val res = viewModel.repository.getMyCreatorPage()
-                myCreatorPage = res.getOrNull()?.page
-                refreshRealMetrics()
-            }
-        }
-    }
-
-    LaunchedEffect(authState.isLoggedIn, currentUserIdInt) {
-        refreshCreatorPageStatus()
-    }
 
     val directCoverPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -121,19 +86,10 @@ fun ProfileScreen(
         if (uri != null) {
             isUploadingCover = true
             coroutineScope.launch {
-                val result = reelsRepository.uploadUserCover(uri, fallbackUserId = currentUserIdInt)
+                localCoverOverride = uri.toString()
+                authPrefs.edit().putString("user_cover", uri.toString()).apply()
                 isUploadingCover = false
-                if (result.isSuccess) {
-                    val newCoverUrl = result.getOrNull()
-                    if (!newCoverUrl.isNullOrBlank()) {
-                        localCoverOverride = newCoverUrl
-                        authPrefs.edit().putString("user_cover", newCoverUrl).apply()
-                    }
-                    refreshRealMetrics()
-                    Toast.makeText(context, "✓ Cover photo updated successfully!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, result.exceptionOrNull()?.message ?: "Cover upload failed", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(context, "✓ Cover photo updated!", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -150,7 +106,6 @@ fun ProfileScreen(
                     isRefreshing = true
                     viewModel.refreshVipStatusAndProfile()
                     viewModel.loadVipSubscriptionPlans()
-                    refreshCreatorPageStatus()
                     delay(400)
                     isRefreshing = false
                 }
@@ -170,16 +125,14 @@ fun ProfileScreen(
                 ProfileHeaderCard(
                     isLoggedIn = authState.isLoggedIn,
                     userProfile = authState.userProfile,
-                    liveMetrics = liveProfileMetrics,
-                    creatorPage = myCreatorPage,
-                    isVip = vipState.isVip || liveProfileMetrics?.isVip == true,
+                    isVip = vipState.isVip,
                     vipDaysLeft = vipState.daysRemaining,
                     isUploadingAvatar = isUploadingAvatar,
                     isUploadingCover = isUploadingCover,
                     currentAvatarUrlOverride = localAvatarOverride,
                     currentCoverUrlOverride = localCoverOverride,
                     onAvatarClick = {
-                        val currentAvatar = localAvatarOverride ?: liveProfileMetrics?.effectiveAvatar ?: authState.userProfile?.avatar
+                        val currentAvatar = localAvatarOverride ?: authState.userProfile?.avatar
                         if (!currentAvatar.isNullOrBlank()) {
                             showFullAvatarPreview = true
                         } else {
@@ -188,63 +141,10 @@ fun ProfileScreen(
                     },
                     onCoverClick = { directCoverPicker.launch("image/*") },
                     onEditClick = { showEditProfileSheet = true },
-                    onSwitchToCreatorStudio = onSwitchToCreatorStudio,
                     onLogInClick = { showAuthDialog = true }
                 )
 
-                // =========================================================================
-                // 🌟 ২. ক্রিয়েটর চ্যানেল ম্যানেজমেন্ট (Chrome Custom Tabs দিয়ে ওপেন হবে)
-                // =========================================================================
-                ModernMenuGroupCard {
-                    val page = myCreatorPage
-                    when {
-                        page != null && page.isApproved -> {
-                            ModernMenuRowItem(
-                                icon = Icons.Default.Verified,
-                                title = page.pageName,
-                                subtitle = "@${page.handle} • Switch to Creator Studio",
-                                badge = "ACTIVE 🌟",
-                                badgeColor = ActionGreen,
-                                iconTint = ActionGreen,
-                                onClick = { onSwitchToCreatorStudio(page) }
-                            )
-                        }
-                        page != null && page.isPending -> {
-                            ModernMenuRowItem(
-                                icon = Icons.Default.HourglassTop,
-                                title = "Channel Under Review",
-                                subtitle = "@${page.handle} • View application status",
-                                badge = "PENDING ⏳",
-                                badgeColor = Color(0xFFFFB300),
-                                iconTint = Color(0xFFFFB300),
-                                onClick = {
-                                    val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$currentUserIdInt"
-                                    UnifiedAdManager.openChromeCustomTab(context, applyUrl)
-                                }
-                            )
-                        }
-                        else -> {
-                            ModernMenuRowItem(
-                                icon = Icons.Default.Storefront,
-                                title = "Create Creator Channel",
-                                subtitle = "Apply for verified channel to publish Reels & Series",
-                                badge = "+ APPLY",
-                                badgeColor = Color(0xFF00E5FF),
-                                iconTint = Color(0xFF00E5FF),
-                                onClick = {
-                                    if (!authState.isLoggedIn) {
-                                        showAuthDialog = true
-                                    } else {
-                                        val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$currentUserIdInt"
-                                        UnifiedAdManager.openChromeCustomTab(context, applyUrl)
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // অফিসিয়াল ওয়েবসাইট ব্যানার
+                // ২. অফিসিয়াল ওয়েবসাইট ব্যানার
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF082B1B),
@@ -341,7 +241,7 @@ fun ProfileScreen(
                         ModernMenuRowItem(
                             icon = Icons.Default.ManageAccounts,
                             title = "Edit Profile & Photo",
-                            subtitle = "Update your cloud avatar and name",
+                            subtitle = "Update your name and photo",
                             iconTint = ActionGreen,
                             onClick = { showEditProfileSheet = true }
                         )
@@ -410,25 +310,11 @@ fun ProfileScreen(
                 isLoading = isUploadingAvatar,
                 onSave = { newName, newAvatarUri ->
                     isUploadingAvatar = true
-                    coroutineScope.launch {
-                        if (newAvatarUri != null) {
-                            val uploadRes = reelsRepository.uploadUserAvatar(newAvatarUri, fallbackUserId = currentUserIdInt)
-                            if (uploadRes.isSuccess) {
-                                val newUrl = uploadRes.getOrNull()
-                                if (!newUrl.isNullOrBlank()) {
-                                    localAvatarOverride = newUrl
-                                    authPrefs.edit().putString("user_avatar", newUrl).apply()
-                                }
-                            }
-                        }
-
-                        viewModel.updateUserProfileData(context, newName, newAvatarUri) {
-                            isUploadingAvatar = false
-                            showEditProfileSheet = false
-                            viewModel.refreshVipStatusAndProfile()
-                            refreshRealMetrics()
-                            Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
-                        }
+                    viewModel.updateUserProfileData(context, newName, newAvatarUri) {
+                        isUploadingAvatar = false
+                        showEditProfileSheet = false
+                        viewModel.refreshVipStatusAndProfile()
+                        Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onDismiss = { showEditProfileSheet = false }
@@ -436,7 +322,7 @@ fun ProfileScreen(
         }
 
         if (showFullAvatarPreview) {
-            val fullAvatar = localAvatarOverride ?: liveProfileMetrics?.effectiveAvatar ?: authState.userProfile?.avatar
+            val fullAvatar = localAvatarOverride ?: authState.userProfile?.avatar
             if (!fullAvatar.isNullOrBlank()) {
                 Dialog(
                     onDismissRequest = { showFullAvatarPreview = false },
