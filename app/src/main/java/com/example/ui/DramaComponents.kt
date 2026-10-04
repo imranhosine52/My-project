@@ -31,7 +31,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -71,6 +70,7 @@ fun VipCrownIllustratedIcon(
             val w = size.width
             val h = size.height
 
+            // ক্রাউনের মূল সোনালী বডি
             val crownPath = Path().apply {
                 moveTo(w * 0.18f, h * 0.88f)
                 lineTo(w * 0.82f, h * 0.88f)
@@ -83,34 +83,45 @@ fun VipCrownIllustratedIcon(
                 close()
             }
 
+            // গোল্ডেন গ্রেডিয়েন্ট ফিল
             drawPath(
                 path = crownPath,
                 brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFFFDF00), Color(0xFFFFB300), Color(0xFFFF8F00))
+                    colors = listOf(
+                        Color(0xFFFFDF00),
+                        Color(0xFFFFB300),
+                        Color(0xFFFF8F00)
+                    )
                 )
             )
 
+            // উজ্জ্বল হলুদ বর্ডার
             drawPath(
                 path = crownPath,
                 color = Color(0xFFFFEA00),
                 style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
+            // ৩টি লাল রুবি জেমস্টোন (৩টি শীর্ষবিন্দুতে)
             val rubyRadius = w * 0.085f
             val rubyGoldBorder = 1.2.dp.toPx()
             val rubyColor = Color(0xFFFF2A55)
             val rimColor = Color(0xFFFFEA00)
 
+            // বাঁয়ের রুবি
             drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.16f, h * 0.44f))
             drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.16f, h * 0.44f))
 
+            // মাঝের প্রধান রুবি
             drawCircle(color = rimColor, radius = rubyRadius * 1.15f + rubyGoldBorder, center = Offset(w * 0.50f, h * 0.26f))
             drawCircle(color = rubyColor, radius = rubyRadius * 1.15f, center = Offset(w * 0.50f, h * 0.26f))
 
+            // ডানের রুবি
             drawCircle(color = rimColor, radius = rubyRadius + rubyGoldBorder, center = Offset(w * 0.84f, h * 0.44f))
             drawCircle(color = rubyColor, radius = rubyRadius, center = Offset(w * 0.84f, h * 0.44f))
         }
 
+        // ক্রাউনের ভেতরের সাদা ইটালিক "VIP" টেক্সট
         Text(
             text = "VIP",
             color = Color.White,
@@ -126,15 +137,16 @@ fun VipCrownIllustratedIcon(
 // =========================================================================
 // 🎬 Short TV, Downloads, Me কাস্টম ভেক্টর আইকনসমূহ
 // =========================================================================
+
 @Composable
 fun ShortTvCustomStackedIcon(
     tint: Color,
-    modifier: Modifier = Modifier.size(19.dp)
+    modifier: Modifier = Modifier.size(20.dp)
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1.6.dp.toPx()
+        val strokeWidth = 1.7.dp.toPx()
 
         val leftPath = Path().apply {
             moveTo(w * 0.22f, h * 0.22f)
@@ -156,7 +168,7 @@ fun ShortTvCustomStackedIcon(
             color = tint,
             topLeft = Offset(w * 0.22f, h * 0.10f),
             size = Size(w * 0.56f, h * 0.80f),
-            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+            cornerRadius = CornerRadius(3.5.dp.toPx(), 3.5.dp.toPx()),
             style = Stroke(width = strokeWidth)
         )
 
@@ -173,12 +185,12 @@ fun ShortTvCustomStackedIcon(
 @Composable
 fun DownloadsCustomTrayIcon(
     tint: Color,
-    modifier: Modifier = Modifier.size(19.dp)
+    modifier: Modifier = Modifier.size(20.dp)
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1.7.dp.toPx()
+        val strokeWidth = 1.8.dp.toPx()
 
         drawLine(
             color = tint,
@@ -208,12 +220,12 @@ fun DownloadsCustomTrayIcon(
 @Composable
 fun MeCustomUserIcon(
     tint: Color,
-    modifier: Modifier = Modifier.size(19.dp)
+    modifier: Modifier = Modifier.size(20.dp)
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1.7.dp.toPx()
+        val strokeWidth = 1.8.dp.toPx()
 
         drawCircle(
             color = tint,
@@ -301,7 +313,7 @@ fun TopNavigationBar(
     onSearchClick: () -> Unit = {},
     onVoiceSearchClick: () -> Unit = {},
     onVipClick: () -> Unit = {},
-    onUpdateCheckClick: () -> Unit = {}, // 👈 নোটিফিকেশনের বদলে আপডেট চেকার
+    onUpdateCheckClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val searchKeywords = remember {
@@ -336,7 +348,7 @@ fun TopNavigationBar(
                 )
             )
             .statusBarsPadding()
-            .padding(top = 2.dp, bottom = 2.dp) // 🎯 অতি সূক্ষ্ম টপ প্যাডিং
+            .padding(top = 2.dp, bottom = 2.dp)
     ) {
         // ১. উপরের রো: লোগো + সার্চ বার + ভিআইপি + আপডেট আইকন
         Row(
@@ -345,7 +357,6 @@ fun TopNavigationBar(
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // মিনিম্যালিস্ট লোগো
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -356,7 +367,6 @@ fun TopNavigationBar(
                 Text("Flix", color = Color(0xFFFF9900), fontSize = 15.5.sp, fontWeight = FontWeight.Black)
             }
 
-            // ডেস্কটপ-স্টাইল কমপ্যাক্ট সার্চ বক্স (উচ্চতা মাত্র ৩০dp)
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -409,12 +419,10 @@ fun TopNavigationBar(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // ভিআইপি আইকন
             VipCrownBadge(onClick = onVipClick)
 
             Spacer(modifier = Modifier.width(4.dp))
 
-            // 🚀 অ্যাপ আপডেট আইকন বাটন (নোটিফিকেশন রিমুভ করে যুক্ত করা হলো)
             Box(
                 modifier = Modifier
                     .size(28.dp)
@@ -433,9 +441,9 @@ fun TopNavigationBar(
             }
         }
 
-        Spacer(modifier = Modifier.height(3.dp)) // 🎯 সার্চ বার ও ক্যাটাগরির মাঝের গ্যাপ কমানো হয়েছে
+        Spacer(modifier = Modifier.height(3.dp))
 
-        // ২. ক্যাটাগরি ট্যাব রো (একদম কমপ্যাক্ট ফন্ট ও টাইট স্পেসিং)
+        // ২. ক্যাটাগরি ট্যাব রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
