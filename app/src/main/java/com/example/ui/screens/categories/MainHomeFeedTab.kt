@@ -54,8 +54,9 @@ fun MainHomeFeedTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = statusBarTop + 68.dp, bottom = 60.dp), // 🎯 স্লিম মার্জিন
-        verticalArrangement = Arrangement.spacedBy(10.dp) // 🎯 ডেস্কটপ-স্টাইল টাইট স্পেসিং
+        // 🎯 ফিক্সড: statusBarTop + 84.dp দেওয়া হয়েছে যেন ব্যানারটি টপ বারের ঠিক নিচ থেকে শুরু হয় (ওভারল্যাপ ছাড়া)
+        contentPadding = PaddingValues(top = statusBarTop + 84.dp, bottom = 60.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ১. Spotlight Hero Carousel
         if (homeState.spotlightDramas.isNotEmpty()) {
@@ -258,15 +259,15 @@ fun HomePosterCardHorizontal(
 
     Column(
         modifier = modifier
-            .width(118.dp) // 👈 ডেস্কটপ-স্টাইল স্লিম প্রস্থ
+            .width(118.dp)
             .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(162.dp) // 👈 স্লিম উচ্চতা
+                .height(162.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp)) // 👈 পরিচ্ছন্ন স্থির বর্ডার
+                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp))
                 .background(Color(0xFF141720))
         ) {
             AsyncImage(
@@ -324,7 +325,7 @@ fun HomePosterCardHorizontal(
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড (কোনো শাইনিং বর্ডার নেই + ডার্ক গ্লাস ব্যাজ)
+// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড
 // =========================================================================
 @Composable
 fun HomeGridDramaCard(
@@ -344,7 +345,7 @@ fun HomeGridDramaCard(
                 .fillMaxWidth()
                 .aspectRatio(0.70f)
                 .clip(RoundedCornerShape(8.dp))
-                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp)) // 👈 স্থির বর্ডার
+                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp))
                 .background(Color(0xFF141720))
         ) {
             AsyncImage(
