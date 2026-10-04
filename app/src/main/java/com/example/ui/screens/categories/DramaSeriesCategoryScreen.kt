@@ -36,13 +36,13 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.ui.LanguageDubBadge
 
-// 🎨 হোমপেজের হুবহু ব্যাকগ্রাউন্ড ও কালার প্যালেট
+// 🎨 ফিক্সড কালার কনস্ট্যান্টসমূহ
 private val HomeBackgroundDark = Color(0xFF090A0F)
 private val FilterBoxBackground = Color(0xFF10141F)
 private val CardBorderColor = Color(0xFF1E2638)
-private val ActivePillColor = Color(0xFF232B3E)
-private val ActivePillTextColor = Color(0xFFFFFFFF)
-private val InactivePillTextColor = Color(0xFF8E95A5)
+private val ActivePillBg = Color(0xFF232B3E)
+private val ActivePillText = Color(0xFFFFFFFF)
+private val InactivePillText = Color(0xFF8E95A5)
 
 @Composable
 fun DramaSeriesCategoryScreen(
@@ -51,9 +51,7 @@ fun DramaSeriesCategoryScreen(
     onNavigateToPlayer: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // =========================================================================
     // 🎯 ফিল্টার স্টেটসমূহ
-    // =========================================================================
     var selectedCountry by rememberSaveable { mutableStateOf("All") }
     var selectedYear by rememberSaveable { mutableStateOf("All") }
     var selectedLanguage by rememberSaveable { mutableStateOf("All") }
@@ -75,9 +73,7 @@ fun DramaSeriesCategoryScreen(
         listOf("ForYou", "Hottest", "Latest", "Rating")
     }
 
-    // =========================================================================
-    // ⚡ রিয়েল-টাইম সার্ভার ডাটা ফিল্টারিং লজিক (১০০% সার্ভার ডেটা)
-    // =========================================================================
+    // ⚡ রিয়েল-টাইম সার্ভার ডাটা ফিল্টারিং লজিক
     val filteredAndSortedDramas = remember(
         items,
         selectedCountry,
@@ -117,7 +113,7 @@ fun DramaSeriesCategoryScreen(
             }
         }
 
-        // ৩. ডাবিং ল্যাঙ্গুয়েজ ফিল্টার
+        // ৩. ডাবিং ভাষা ফিল্টার
         if (selectedLanguage != "All") {
             result = result.filter { drama ->
                 val badge = drama.dubBadge.lowercase()
@@ -173,28 +169,24 @@ fun DramaSeriesCategoryScreen(
                         .padding(vertical = 8.dp, horizontal = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // ১. দেশ ফিল্টার
                     CompactFilterScrollRow(
                         options = countryOptions,
                         selectedOption = selectedCountry,
                         onOptionSelected = { selectedCountry = it }
                     )
 
-                    // ২. সাল ফিল্টার
                     CompactFilterScrollRow(
                         options = yearOptions,
                         selectedOption = selectedYear,
                         onOptionSelected = { selectedYear = it }
                     )
 
-                    // ৩. ডাবিং ভাষা ফিল্টার
                     CompactFilterScrollRow(
                         options = languageOptions,
                         selectedOption = selectedLanguage,
                         onOptionSelected = { selectedLanguage = it }
                     )
 
-                    // ৪. সর্টিং ফিল্টার
                     CompactFilterScrollRow(
                         options = sortOptions,
                         selectedOption = selectedSort,
@@ -244,7 +236,7 @@ fun DramaSeriesCategoryScreen(
         }
 
         // =========================================================================
-        // 🔲 ৩. ৩-কলাম কম্প্যাক্ট গ্রিড (হোম পেজের হুবহু সাইজ ও গ্লাস ব্যাজ সহ)
+        // 🔲 ৩. ৩-কলাম কম্প্যাক্ট গ্রিড
         // =========================================================================
         if (filteredAndSortedDramas.isEmpty()) {
             item {
@@ -289,7 +281,7 @@ fun DramaSeriesCategoryScreen(
 }
 
 // =========================================================================
-// 🔘 ছোট ও স্লিম অনুভূমিক ফিল্টার চিপস
+// 🔘 ফিক্সড ফিল্টার চিপস রো (ActivePillText ভ্যারিয়েবল ফিক্সড)
 // =========================================================================
 @Composable
 private fun CompactFilterScrollRow(
@@ -310,14 +302,14 @@ private fun CompactFilterScrollRow(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (isSelected) ActivePillColor else Color.Transparent)
+                    .background(if (isSelected) ActivePillBg else Color.Transparent)
                     .clickable { onOptionSelected(option) }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = option,
-                    color = if (isSelected) ActivePillText else InactivePillTextColor,
+                    color = if (isSelected) ActivePillText else InactivePillText,
                     fontSize = 11.5.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
@@ -327,7 +319,7 @@ private fun CompactFilterScrollRow(
 }
 
 // =========================================================================
-// 🖼️ ৩-কলাম কম্প্যাক্ট কার্ড (হোমপেজের মতো ডার্ক গ্লাস ব্যাজ ও ছোট টাইটেল সহ)
+// 🖼️ ৩-কলাম কম্প্যাক্ট কার্ড
 // =========================================================================
 @Composable
 fun CompactDesktopDramaCard(
@@ -342,7 +334,6 @@ fun CompactDesktopDramaCard(
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
-        // পোস্টার থাম্বনেইল বক্স
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -361,7 +352,6 @@ fun CompactDesktopDramaCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // নিচের ডার্ক শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -376,13 +366,12 @@ fun CompactDesktopDramaCard(
                     )
             )
 
-            // 🎯 হোম পেজের হুবহু ডার্ক-গ্লাস ডাবিং ব্যাজ (সার্ভার থেকে আসা যেকোনো ভাষা দেখাবে)
+            // ডাইনামিক ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // এপিসোড সংখ্যা
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
             Text(
                 text = epCount,
@@ -397,7 +386,6 @@ fun CompactDesktopDramaCard(
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // 🎯 পরিচ্ছন্ন ছোট নাম (Display Name)
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
