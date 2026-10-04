@@ -1,4 +1,4 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+@file:kotlin.OptIn(androidx.media3.common.util.UnstableApi::class)
 
 package com.example.ui.components
 
@@ -12,8 +12,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -50,7 +48,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -58,7 +55,6 @@ import androidx.media3.ui.PlayerView
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.TrackAdEventRequest
 import com.example.data.remote.ApiClient
-import kotlin.OptIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -73,6 +69,15 @@ private val YouTubeSkipButtonBg = Color(0xCC111111)
 private val YouTubeSecondaryBtnBg = Color(0xFF272727)
 private val YouTubeInstallPurple = Color(0xFFD0BCFF)
 
+// ⏱️ মিনিটের ফরম্যাটে সময় দেখানোর হেল্পার (যেমন: 01:25)
+private fun formatAdTime(millis: Long): String {
+    if (millis <= 0L) return "00:00"
+    val totalSeconds = millis / 1000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun CustomVideoAdDialog(
@@ -86,7 +91,6 @@ fun CustomVideoAdDialog(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
 
-    // 🎯 অ্যাডমিন প্যানেল থেকে আসা বাটন টেক্সট
     val buttonText = remember(ad.ctaText) {
         ad.ctaText.ifBlank { "Install" }
     }
@@ -110,8 +114,8 @@ fun CustomVideoAdDialog(
     val animatedPlayerHeight by animateDpAsState(
         targetValue = when {
             isPlayerExpanded -> screenHeight * 0.62f
-            isAdVideoVertical -> screenHeight * 0.54f // টিকটক সাইজে খাড়া থাকবে
-            else -> 220.dp                           // ইউটিউব সাইজে ১৬:৯ থাকবে
+            isAdVideoVertical -> screenHeight * 0.54f // টিকটক মোডে খাড়া সাইজ
+            else -> 220.dp                           // ইউটিউব মোডে ১৬:৯ সাইজ
         },
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -178,7 +182,6 @@ fun CustomVideoAdDialog(
     DisposableEffect(adPlayer) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
-                // 🎯 স্বয়ংক্রিয়ভাবে ভিডিওর রেজোলিউশন চিনে সাইজ ঠিক করা
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     isAdVideoVertical = videoSize.height > videoSize.width
                 }
@@ -223,6 +226,7 @@ fun CustomVideoAdDialog(
         }
     }
 
+    // টাইমলাইন আপডেট লুপ
     LaunchedEffect(isAdPlaying) {
         while (isAdPlaying) {
             currentAdPositionMs = adPlayer.currentPosition.coerceAtLeast(0L)
@@ -232,14 +236,11 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // =========================================================================
-    // 🎯 ১০০% কার্যকর বাটন ক্লিক হ্যান্ডলার (ব্রাউজার / প্লে-স্টোর / ভিআইপি নেভিগেশন)
-    // =========================================================================
+    // 🎯 ব্রাউজার বা প্লে স্টোরে নেওয়ার অ্যাকশন হ্যান্ডলার
     fun executeAdAction(customTarget: String? = null) {
         val rawTarget = (customTarget ?: ad.destinationTarget).trim()
         val target = if (rawTarget.isBlank()) "https://playdramaflix.com" else rawTarget
 
-        // ১. সার্ভারে ক্লিক ইভেন্ট পাঠানো
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 ApiClient.apiService.trackCustomAdEvent(
@@ -248,16 +249,12 @@ fun CustomVideoAdDialog(
             } catch (_: Exception) {}
         }
 
-        // ২. নির্দিষ্ট গন্তব্যে নিয়ে যাওয়া
         try {
             when {
-                // অ্যাপের ভেতর ভিআইপি স্ক্রিন
                 target.contains("vip", ignoreCase = true) || ad.isInternalApp -> {
                     onAdFinishedOrSkipped()
                     onNavigateInternalScreen(target)
                 }
-
-                // গুগল প্লে স্টোর
                 target.startsWith("market://") || ad.isPlayStore -> {
                     val playIntent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -265,8 +262,6 @@ fun CustomVideoAdDialog(
                     context.startActivity(playIntent)
                     onAdFinishedOrSkipped()
                 }
-
-                // সরাসরি ওয়েবসাইট লিংক
                 else -> {
                     val formattedWeb = if (!target.startsWith("http://") && !target.startsWith("https://")) {
                         "https://$target"
@@ -309,7 +304,7 @@ fun CustomVideoAdDialog(
                 .background(YouTubeDarkBg)
         ) {
             // =========================================================================
-            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম (TikTok বা YouTube সাইজ অনুযায়ী অ্যাডাপ্ট হবে)
+            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম
             // =========================================================================
             Box(
                 modifier = if (isAdVideoVertical) {
@@ -406,25 +401,38 @@ fun CustomVideoAdDialog(
                     }
                 }
 
-                // 🏷️ নিচে বাঁয়ে: [ Sponsored ⓘ ]
+                // =============================================================
+                // 🏷️ নিচে বাঁয়ে: [ Ad ] এবং সম্পূর্ণ বিজ্ঞাপনের মিনিট টাইমলাইন (00:05 / 01:30)
+                // =============================================================
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Surface(
+                        shape = RoundedCornerShape(3.dp),
+                        color = YouTubeAdYellow
+                    ) {
+                        Text(
+                            text = "Ad",
+                            color = Color.Black,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        )
+                    }
+
+                    // 🎯 সম্পূর্ণ ভিডিও কয় মিনিটের এবং কতটুকু চলেছে তা মিনিটে প্রদর্শন
+                    val currentFormatted = formatAdTime(currentAdPositionMs)
+                    val totalFormatted = formatAdTime(totalAdDurationMs)
+
                     Text(
-                        text = "Sponsored",
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 11.sp,
+                        text = "$currentFormatted / $totalFormatted",
+                        color = Color.White,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(13.dp)
                     )
                 }
 
@@ -495,7 +503,7 @@ fun CustomVideoAdDialog(
             }
 
             // =========================================================================
-            // ↕️ ২. ড্র্যাগেবল হ্যান্ডেল বার (টিকটক মোডে উপরে/নিচে টেনে ছোট-বড় করার জন্য)
+            // ↕️ ২. ড্র্যাগেবল হ্যান্ডেল বার
             // =========================================================================
             if (isAdVideoVertical) {
                 Box(
@@ -604,15 +612,13 @@ fun CustomVideoAdDialog(
                 }
 
                 // =========================================================================
-                // 🔘 ৩.৩ কার্যকরী ডুয়াল অ্যাকশন বাটন
-                // [ Learn more ] ---------------- [ Get VIP Now / Install ]
+                // 🔘 ৩.৩ কার্যকরী ডুয়াল অ্যাকশন বাটন [ Learn more ] [ buttonText ]
                 // =========================================================================
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // বাটন ১: [ Learn more ] -> ব্রাউজারে নিয়ে যাবে
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = YouTubeSecondaryBtnBg,
@@ -631,7 +637,6 @@ fun CustomVideoAdDialog(
                         }
                     }
 
-                    // বাটন ২: [ Get VIP Now / Install / কাস্টম বাটন ] -> টার্গেটে নিয়ে যাবে
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = ad.parsedCtaColor.takeIf { it != Color(0xFF00E676) } ?: YouTubeInstallPurple,
@@ -652,7 +657,7 @@ fun CustomVideoAdDialog(
                 }
 
                 // =========================================================================
-                // 🌐 ৩.৪ ফুল-উইন্ডো ওয়েব পেজ (পেজের ওপর ভুল ক্লিক হবে না, ইউজার স্ক্রোল করতে পারবে)
+                // 🌐 ৩.৪ ফুল-উইন্ডো ওয়েব পেজ (পেজের ওপর ভুল ক্লিক হবে না)
                 // =========================================================================
                 val targetUrl = ad.destinationTarget.trim()
                 val isHttpWeb = targetUrl.startsWith("http://") || targetUrl.startsWith("https://")
@@ -717,7 +722,7 @@ fun CustomVideoAdDialog(
                                 Text(
                                     text = "Tap '$buttonText' or 'Learn more' to explore in Google Chrome / Play Store",
                                     color = Color(0xFFAAAAAA),
-                                    fontSize = 12.sp
+                                    fontSize = 12.5.sp
                                 )
                             }
                         }
