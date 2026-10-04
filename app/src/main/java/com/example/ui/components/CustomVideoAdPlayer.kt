@@ -12,13 +12,13 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -48,7 +48,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -84,12 +83,12 @@ fun CustomVideoAdDialog(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
 
-    // 🎯 ডাইনামিক বাটন টেক্সট (অ্যাডমিন প্যানেল থেকে আসবে)
     val buttonText = remember(ad.ctaText) {
         ad.ctaText.ifBlank { "Install" }
     }
 
     var isAdPlaying by remember { mutableStateOf(true) }
+    var showPlayPauseControls by remember { mutableStateOf(false) } // 🎯 প্লে/পজ বাটন প্রদর্শনের স্টেট
     var currentAdPositionMs by remember { mutableLongStateOf(0L) }
     var totalAdDurationMs by remember { mutableLongStateOf(0L) }
 
@@ -182,6 +181,14 @@ fun CustomVideoAdDialog(
         }
     }
 
+    // প্লে/পজ বাটন ২.৫ সেকেন্ড পর স্বয়ংক্রিয়ভাবে অদৃশ্য হওয়া
+    LaunchedEffect(showPlayPauseControls, isAdPlaying) {
+        if (showPlayPauseControls && isAdPlaying) {
+            delay(2500L)
+            showPlayPauseControls = false
+        }
+    }
+
     // কাউন্টডাউন টাইমার
     LaunchedEffect(isAdPlaying, remainingSecondsToSkip) {
         if (canBeSkipped && remainingSecondsToSkip > 0) {
@@ -268,13 +275,18 @@ fun CustomVideoAdDialog(
                 .background(YouTubeDarkBg)
         ) {
             // =========================================================================
-            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম (ড্র্যাগ করে বড়/ছোট করা যাবে)
+            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম (প্লে/পজ বাটন সহ)
             // =========================================================================
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(animatedPlayerHeight)
                     .background(Color.Black)
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            showPlayPauseControls = !showPlayPauseControls
+                        }
+                    }
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -291,6 +303,36 @@ fun CustomVideoAdDialog(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // ⏯️ প্লেয়ারের সেন্ট্রাল প্লে/পজ বাটন
+                AnimatedVisibility(
+                    visible = showPlayPauseControls || !isAdPlaying,
+                    enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.8f),
+                    exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .clickable {
+                                if (adPlayer.isPlaying) {
+                                    adPlayer.pause()
+                                } else {
+                                    adPlayer.play()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isAdPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause Ad",
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                }
 
                 // 🔝 উপরে ডানে: [ Visit advertiser ↗ ]
                 Surface(
@@ -450,7 +492,7 @@ fun CustomVideoAdDialog(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // ৩.১ স্পনসর হেডার ও ক্লোজ বাটন (লাইক, শেয়ার ও ৩-ডট মুছে দেওয়া হয়েছে)
+                // ৩.১ স্পনসর হেডার ও ক্লোজ বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -477,7 +519,7 @@ fun CustomVideoAdDialog(
                     )
                 }
 
-                // ৩.২ ব্র্যান্ড লোগো, নাম ও প্লে-স্টোর ব্যাজ
+                // ৩.২ ব্র্যান্ড লোগো, নাম ও প্ল্যাটফর্ম টাইটেল
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -580,7 +622,6 @@ fun CustomVideoAdDialog(
                         .border(0.8.dp, Color(0xFF282828), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                 ) {
                     if (isHttpWeb) {
-                        // লাইভ ওয়েব পেজ ভিউ
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
@@ -620,7 +661,6 @@ fun CustomVideoAdDialog(
                                 }
                         )
                     } else {
-                        // যদি ওয়েব পেজ না থাকে, আকর্ষণীয় অফিশিয়াল ভেরিফাইড পার্টনার পেজ
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
