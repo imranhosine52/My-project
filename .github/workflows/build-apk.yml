@@ -23,6 +23,10 @@ on:
           - release
           - debug
 
+# 🔑 GitHub Release তৈরির জন্য রাইট পারমিশন প্রদান
+permissions:
+  contents: write
+
 jobs:
   build:
     name: 🚀 Build APK
@@ -34,8 +38,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ☕ Java JDK 21 (v4 থেকে v5 এ আপগ্রেড করা হয়েছে - নোটিশ দূর হবে)
       - name: ☕ Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
