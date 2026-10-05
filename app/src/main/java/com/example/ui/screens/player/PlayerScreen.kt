@@ -94,7 +94,7 @@ import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import kotlin.OptIn // 👈 ফিক্সড: আসল কোটলিন অপ্ট-ইন ইমপোর্ট করা হয়েছে
+import kotlin.OptIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -235,18 +235,24 @@ fun PlayerScreen(
     val requiredAdClicks = remember(adConfig) {
         adConfig.rules?.timerSeconds?.let { (it / 5).coerceIn(1, 3) } ?: 2
     }
-    var currentAdClickStep by remember { mutableIntStateOf(0) }
 
-    // ১ মিনিটের আনলক মেথড (৬০ সেকেন্ড)
+    // 🎯 কতটি ক্লিক সম্পন্ন হয়েছে তার লাইভ কাউন্টার (শুরুতে ০)
+    var completedAdClicks by remember(currentActiveSlug, playerState.lockedEpisodeTarget?.episodeNumber) {
+        mutableIntStateOf(0)
+    }
+
+    // 🎆 বাজি ফোটানোর অ্যানিমেশন স্টেট
+    var showFireworksCelebration by remember { mutableStateOf(false) }
+
+    // ১ মিনিটের আনলক মেথড
     fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // 👈 ১ মিনিট (৬০,০০০ ms)
+        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // ১ মিনিট (৬০ সেকেন্ড)
         val storageKey = "unlock_expiry_${currentActiveSlug}_ep${ep.episodeNumber}"
 
         prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
 
         viewModel.selectEpisode(ep.copy(isLocked = false))
-        Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} unlocked for 1 minute! Enjoy.", Toast.LENGTH_LONG).show()
 
         coroutineScope.launch {
             delay(60_000L)
@@ -256,27 +262,29 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 মাল্টি-ক্লিক অ্যাড হ্যান্ডলার (স্টেপ বাই স্টেপ অগ্রগতি)
     fun handleMultiClickAdUnlock(ep: EpisodeDto) {
-        currentAdClickStep++
-        val opened = UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
+        UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
+        completedAdClicks++ // ১ ধাপ বাড়লো
 
-        if (currentAdClickStep >= requiredAdClicks) {
-            currentAdClickStep = 0
+        if (completedAdClicks >= requiredAdClicks) {
+            completedAdClicks = 0
             viewModel.dismissEpisodeUnlockModal()
+            showFireworksCelebration = true // 🎆 শেষ ক্লিকে রঙিন বাজি ফুটবে!
             unlockEpisodeForOneMinute(ep)
         } else {
-            val remainingClicks = requiredAdClicks - currentAdClickStep
+            val remainingClicks = requiredAdClicks - completedAdClicks
             Toast.makeText(
                 context,
-                "✓ Click $currentAdClickStep completed! Complete $remainingClicks more click to unlock.",
-                Toast.LENGTH_LONG
+                "✓ Ad $completedAdClicks completed! Complete $remainingClicks more to unlock.",
+                Toast.LENGTH_SHORT
             ).show()
         }
     }
 
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
-        currentAdClickStep = 0
+        completedAdClicks = 0
 
         val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.displayName
@@ -649,7 +657,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // ⏱️ ৩. ডায়নামিক মিনিট ইন্টারভাল অ্যাড ট্রিগার
+    // ⏱️ ৩. অ্যাডমিন প্যানেল নির্ধারিত ডায়নামিক মিনিট ইন্টারভাল অ্যাড ট্রিগার
     // =========================================================================
     LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
@@ -1046,7 +1054,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 🎯 ফিক্সড: stickyHeader এরর দূর করতে নির্ভরযোগ্য item ব্লক ব্যবহার করা হয়েছে
                                 item {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
@@ -1228,7 +1235,7 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🎬 ৪. ইউটিউব স্প্লিট অ্যাড উইন্ডো
+        // 🎬 ৪. ইউটিউব স্প্লিট কাস্টম ভিডিও বিজ্ঞাপন উইন্ডো
         // =========================================================================
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
@@ -1349,14 +1356,16 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🔒 ৫. ১ মিনিট আনলক ভ্যালিডিটি ও মাল্টি-ক্লিক ডিরেক্ট লিংক ডায়ালগ
+        // 🔒 ৫. স্টেপ কাউন্টার আনলক ডায়ালগ
         // =========================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
+                completedSteps = completedAdClicks, // 👈 লাইভ প্রোগ্রেস সিঙ্ক
+                totalSteps = requiredAdClicks,
                 onDismiss = {
-                    currentAdClickStep = 0
+                    completedAdClicks = 0
                     viewModel.dismissEpisodeUnlockModal()
                 },
                 onWatchAd = {
@@ -1366,6 +1375,16 @@ fun PlayerScreen(
                     viewModel.dismissEpisodeUnlockModal()
                     onNavigateToVip()
                 }
+            )
+        }
+
+        // =========================================================================
+        // 🎆 ৬. আনলক সম্পন্ন হওয়ার রঙিন বাজি বিস্ফোরণ অ্যানিমেশন (Fireworks)
+        // =========================================================================
+        if (showFireworksCelebration) {
+            CelebrationFireworksOverlay(
+                onDismiss = { showFireworksCelebration = false },
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
