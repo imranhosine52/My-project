@@ -58,7 +58,6 @@ fun ProfileScreen(
     viewModel: DramaFlixViewModel,
     onNavigateToVip: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
-    onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
     onNavigateToCommunityChat: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -83,13 +82,13 @@ fun ProfileScreen(
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
 
-    // 🎯 ইন-অ্যাপ ওয়েবভিউ ইনভয়েস স্টেট
+    // ইন-অ্যাপ ওয়েবভিউ ইনভয়েস স্টেট
     var showInAppInvoiceWebView by remember { mutableStateOf(false) }
 
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var localAvatarOverride by remember { mutableStateOf<String?>(null) }
 
-    // ইমেজ ক্রপার স্টেট (সরাসরি প্রোফাইল ছবিতে ট্যাপের জন্য)
+    // ইমেজ ক্রপার স্টেট
     var rawSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var showImageCropDialog by remember { mutableStateOf(false) }
 
@@ -188,7 +187,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // ৪. কমিউনিটি চ্যাট ও ওয়াচলিস্ট সেকশন
+                // ৪. কমিউনিটি চ্যাট ও ওয়াচলিস্ট সেকশন (নোটিফিকেশন অপশন সরানো হয়েছে)
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Forum,
@@ -209,14 +208,6 @@ fun ProfileScreen(
                         iconTint = Color(0xFFFF4081),
                         onClick = onNavigateToWatchlist
                     )
-                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
-                    ModernMenuRowItem(
-                        icon = Icons.Default.Notifications,
-                        title = "Notifications & Alerts",
-                        subtitle = "Updates on newly released episodes",
-                        iconTint = Color(0xFFFFB300),
-                        onClick = onNavigateToNotification
-                    )
                 }
 
                 // ৫. লোকাল মিডিয়া প্লেয়ার
@@ -232,7 +223,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // ৬. সেটিংস ও ইনভয়েস (🎯 ইনভয়েস ১০০% ইন-অ্যাপ ওয়েবভিউতে ওপেন হবে)
+                // ৬. সেটিংস ও ইনভয়েস
                 ModernMenuGroupCard {
                     if (authState.isLoggedIn) {
                         ModernMenuRowItem(
@@ -245,7 +236,6 @@ fun ProfileScreen(
                         HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
                     }
 
-                    // 🎯 ইন-অ্যাপ ওয়েবভিউ ইনভয়েস
                     ModernMenuRowItem(
                         icon = Icons.Default.ReceiptLong,
                         title = "Payment & Invoices",
@@ -303,9 +293,7 @@ fun ProfileScreen(
             }
         }
 
-        // =============================================================
-        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
-        // =============================================================
+        // ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
         if (showInAppInvoiceWebView) {
             val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
             InAppInvoiceWebViewDialog(
@@ -431,138 +419,6 @@ fun ProfileScreen(
                 viewModel = viewModel,
                 onDismiss = { showAuthDialog = false }
             )
-        }
-    }
-}
-
-/**
- * 🧾 ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
- */
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun InAppInvoiceWebViewDialog(
-    userId: String,
-    onDismiss: () -> Unit
-) {
-    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$userId"
-    var isLoading by remember { mutableStateOf(true) }
-    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
-    ) {
-        Scaffold(
-            topBar = {
-                Surface(
-                    color = Color(0xFF06080E),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color.White
-                                )
-                            }
-                            Text(
-                                text = "Invoices & History",
-                                color = Color.White,
-                                fontSize = 16.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(onClick = { webViewInstance?.reload() }) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refresh",
-                                    tint = Color(0xFFFFB300),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            IconButton(onClick = onDismiss) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = Color(0xFF94A3B8),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            containerColor = Color(0xFF06080E)
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .background(Color(0xFF06080E))
-            ) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            webViewInstance = this
-                            CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-
-                            settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                databaseEnabled = true
-                                cacheMode = WebSettings.LOAD_DEFAULT
-                                useWideViewPort = true
-                                loadWithOverviewMode = true
-                                setSupportZoom(false)
-                            }
-                            setBackgroundColor(android.graphics.Color.parseColor("#06080E"))
-
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    isLoading = true
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    isLoading = false
-                                }
-                            }
-                            webChromeClient = WebChromeClient()
-                            loadUrl(invoiceUrl)
-                        }
-                    }
-                )
-
-                if (isLoading) {
-                    LinearProgressIndicator(
-                        color = Color(0xFFFFB300),
-                        trackColor = Color(0xFF1E2536),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .align(Alignment.TopCenter)
-                    )
-                }
-            }
         }
     }
 }
