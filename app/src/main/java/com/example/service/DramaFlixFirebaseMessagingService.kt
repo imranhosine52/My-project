@@ -35,20 +35,35 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("FCM_TOKEN", "New FCM token generated: $token")
-        
+
         try {
-            val repository = (application as? DramaFlixApplication)?.repository 
+            val repository = (application as? DramaFlixApplication)?.repository
                 ?: PlayDramaFlixRepository(applicationContext)
-                
+
             CoroutineScope(Dispatchers.IO).launch {
                 repository.registerDevice(token)
             }
-            
+
+            // ১. সাধারণ সকল ইউজারদের টপিকসমূহ
             val topics = listOf("all_users", "all", "general", "dramaflix", "new_posts")
             for (topic in topics) {
                 FirebaseMessaging.getInstance().subscribeToTopic(topic)
             }
 
+            // ২. 🎯 স্মার্ট টপিক সেগ্রিগেশন (VIP বনাম Free ইউজার)
+            val authPrefs = getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+            val isUserVip = authPrefs.getBoolean("is_vip", false) ||
+                    (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
+
+            if (isUserVip) {
+                FirebaseMessaging.getInstance().subscribeToTopic("vip_users")
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("free_users")
+            } else {
+                FirebaseMessaging.getInstance().subscribeToTopic("free_users")
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("vip_users")
+            }
+
+            // ৩. চ্যাট গ্রুপ নোটিফিকেশন টপিক
             val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
             if (!chatPrefs.getBoolean("is_group_muted", false)) {
                 FirebaseMessaging.getInstance().subscribeToTopic("community_group_notifications")
@@ -64,9 +79,22 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
+        val clickAction = data["click_action"] ?: ""
+
+        val authPrefs = getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+        val isUserVip = authPrefs.getBoolean("is_vip", false) ||
+                (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
 
         // =========================================================================
-        // 🚫 ১. নিজের পাঠানো চ্যাট মেসেজের নোটিফিকেশন ফিল্টার
+        // 👑 🚫 ১. VIP ইউজারদের জন্য VIP Promo নোটিফিকেশন ক্লায়েন্ট সাইডে শতভাগ ব্লক
+        // =========================================================================
+        if (isUserVip && (notifType == "vip_promo" || clickAction == "OPEN_VIP_CHECKOUT")) {
+            Log.d("FCM_MSG", "🔇 Blocked VIP promo notification because user already has active VIP subscription.")
+            return // 👈 নোটিফিকেশন ডিসপ্লে না করে সরাসরি থামিয়ে দেওয়া হলো
+        }
+
+        // =========================================================================
+        // 🚫 ২. নিজের পাঠানো চ্যাট মেসেজের নোটিফিকেশন ফিল্টার
         // =========================================================================
         val isChatNotification = notifType in listOf("community_chat", "group_chat", "chat_reply", "chat")
 
@@ -75,7 +103,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             val incomingSenderEmail = (data["sender_email"] ?: data["senderEmail"] ?: data["email"] ?: "").trim().lowercase()
             val incomingSenderName = (data["sender_name"] ?: data["senderName"] ?: "").trim()
 
-            val authPrefs = getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
             val myUserId = authPrefs.getString("user_id", "")?.trim() ?: ""
             val myAccountId = authPrefs.getString("account_id", "")?.trim() ?: ""
             val myEmail = authPrefs.getString("user_email", "")?.trim()?.lowercase() ?: ""
@@ -111,7 +138,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        // 🔕 ২. মিউট অপশন চেক
+        // 🔕 ৩. মিউট অপশন চেক
         val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
         val isGroupMuted = chatPrefs.getBoolean("is_group_muted", false)
 
@@ -141,7 +168,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["thumb_url"]
             ?: data["banner"]
 
-        // ড্রামার স্লাগ শনাক্তকরণ
+        // ৪. ড্রামার স্লাগ শনাক্তকরণ
         var slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
