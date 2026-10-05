@@ -64,9 +64,6 @@ private fun formatVideoTime(millis: Long): String {
     }
 }
 
-/**
- * 🎬 স্কিপ আইকন (-10s / +10s)
- */
 @Composable
 private fun SleekChatSkipIcon(
     isForward: Boolean,
@@ -114,9 +111,6 @@ private fun SleekChatSkipIcon(
     }
 }
 
-/**
- * 🎬 সম্পূর্ণ ফুল-স্ক্রিন চ্যাট ভিডিও প্লেয়ার
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatVideoPlayerDialog(
@@ -132,7 +126,7 @@ fun ChatVideoPlayerDialog(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPositionMs by remember { mutableLongStateOf(0L) }
     var areControlsVisible by remember { mutableStateOf(true) }
-    var resizeModeIndex by remember { mutableIntStateOf(0) } // 0: FIT, 1: ZOOM
+    var resizeModeIndex by remember { mutableIntStateOf(0) }
 
     val rewindRotation = remember { Animatable(0f) }
     val forwardRotation = remember { Animatable(0f) }
@@ -149,7 +143,8 @@ fun ChatVideoPlayerDialog(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
-                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                    val d = exoPlayer.duration
+                    if (d > 0) totalDurationMs = d
                 }
             }
 
@@ -164,7 +159,7 @@ fun ChatVideoPlayerDialog(
         }
     }
 
-    // ⚡ রিয়েল-টাইম পজিশন ও টোটাল টাইম ট্র্যাকার (প্রতি ১০০ মিলিসেকেন্ডে আপডেট)
+    // ⚡ রিয়েল-টাইম পজিশন ও টোটাল টাইম ট্র্যাকার
     LaunchedEffect(exoPlayer) {
         while (isActive) {
             if (!isUserSeeking) {
@@ -178,10 +173,10 @@ fun ChatVideoPlayerDialog(
         }
     }
 
-    // কন্ট্রোলস অটো-হাইড (৩.৫ সেকেন্ড পর)
+    // কন্ট্রোলস হাইড টাইমার (ইউজার ইন্টারঅ্যাকশন ছাড়া ৫ সেকেন্ড পর অটো হাইড)
     LaunchedEffect(areControlsVisible, isPlaying, isUserSeeking) {
         if (areControlsVisible && isPlaying && !isUserSeeking) {
-            delay(3500L)
+            delay(5000L)
             areControlsVisible = false
         }
     }
@@ -286,7 +281,6 @@ fun ChatVideoPlayerDialog(
                     horizontalArrangement = Arrangement.spacedBy(46.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // -১০ সেকেন্ড
                     IconButton(
                         onClick = {
                             val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
@@ -304,7 +298,6 @@ fun ChatVideoPlayerDialog(
                         SleekChatSkipIcon(isForward = false, color = Color.White)
                     }
 
-                    // Play / Pause
                     IconButton(
                         onClick = {
                             if (exoPlayer.isPlaying) {
@@ -325,7 +318,6 @@ fun ChatVideoPlayerDialog(
                         )
                     }
 
-                    // +১০ সেকেন্ড
                     IconButton(
                         onClick = {
                             val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(exoPlayer.duration)
@@ -346,7 +338,7 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // ⏳ ৪. ২ নম্বর ছবির হুবহু বটম টাইমলাইন বার (উপরে তোলা এবং এক লাইনে সাজানো)
+            // ⏳ ৪. স্থায়ী ও স্পষ্ট টাইমলাইন বার (কত মিনিটে প্লে হচ্ছে ও কত মিনিট বাকি)
             // =========================================================================
             AnimatedVisibility(
                 visible = areControlsVisible,
@@ -356,8 +348,7 @@ fun ChatVideoPlayerDialog(
             ) {
                 val currentMs = if (isUserSeeking) seekPositionMs else currentPositionMs
 
-                Surface(
-                    color = Color.Transparent,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
@@ -369,16 +360,16 @@ fun ChatVideoPlayerDialog(
                                 )
                             )
                         )
-                        // 🎯 নিচের জেসচার বার থেকে স্পষ্ট উপরে ৩০dp সেফ প্যাডিং দেওয়া হয়েছে
-                        .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 32.dp)
+                        // 🎯 ল্যান্ডস্কেপ ও পোর্ট্রেট উভয় মোডেই স্ক্রিন থেকে উপরে সুরক্ষিত প্যাডিং
+                        .navigationBarsPadding()
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 22.dp)
                 ) {
-                    // ২ নম্বর ছবির মতো একক অনুভূমিক লাইন: [ 00:03 ] -----●----------------- [ 01:10 ] [ ⛶ ]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // ১. বর্তমান সময়
+                        // ১. বর্তমান সময় (কত মিনিট চলছে)
                         Text(
                             text = formatVideoTime(currentMs),
                             color = Color.White,
@@ -386,7 +377,7 @@ fun ChatVideoPlayerDialog(
                             fontWeight = FontWeight.Bold
                         )
 
-                        // ২. ২ নম্বর ছবির হুবহু সায়ান স্লাইডার
+                        // ২. সায়ান প্রোগ্রেস স্লাইডার
                         Slider(
                             value = if (totalDurationMs > 0) currentMs.toFloat() else 0f,
                             onValueChange = {
@@ -402,27 +393,27 @@ fun ChatVideoPlayerDialog(
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF00E5FF),
                                 activeTrackColor = Color(0xFF00E5FF),
-                                inactiveTrackColor = Color(0xFF6B7280).copy(alpha = 0.6f)
+                                inactiveTrackColor = Color.White.copy(alpha = 0.35f)
                             ),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(26.dp)
+                                .height(28.dp)
                         )
 
-                        // ৩. মোট সময়
+                        // ৩. মোট সময় (টোটাল ভিডিও কত মিনিটের)
                         Text(
                             text = formatVideoTime(totalDurationMs),
-                            color = Color.White,
+                            color = Color.White.copy(alpha = 0.85f),
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold
                         )
 
-                        // ৪. ফুলস্ক্রিন / রিসাইজ বাটন
+                        // ৪. অ্যাসপেক্ট রেশিও সুইচ বাটন
                         IconButton(
                             onClick = {
                                 resizeModeIndex = if (resizeModeIndex == 0) 1 else 0
                             },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(30.dp)
                         ) {
                             Icon(
                                 imageVector = if (resizeModeIndex == 1) Icons.Default.CropFree else Icons.Default.Fullscreen,
@@ -436,7 +427,7 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // 🟢 ৫. কন্ট্রোলস হাইড থাকলেও নিচে সবসময় দৃশ্যমান হালকা প্রগ্রেস লাইন
+            // 🟢 ৫. কন্ট্রোলস হাইড থাকলেও নিচে সবসময় দৃশ্যমান হালকা প্রোগ্রেস লাইন
             // =========================================================================
             if (!areControlsVisible) {
                 val progressFraction = if (totalDurationMs > 0) {
@@ -447,7 +438,8 @@ fun ChatVideoPlayerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 18.dp, start = 14.dp, end = 14.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 6.dp, start = 14.dp, end = 14.dp)
                         .height(3.dp)
                         .clip(RoundedCornerShape(1.5.dp))
                         .background(Color.White.copy(alpha = 0.25f))
