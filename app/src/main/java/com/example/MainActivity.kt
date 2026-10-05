@@ -1,7 +1,7 @@
 package com.example
 
 import android.Manifest
-import android.app.Activity // 👈 ফিক্সড: Activity ইমপোর্ট যুক্ত করা হয়েছে
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -69,7 +69,6 @@ sealed class Screen {
     object Vip : Screen()
     object Watchlist : Screen()
     object Profile : Screen()
-    object Notification : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
@@ -511,7 +510,6 @@ private fun MainAppContent(
             is Screen.Profile -> "Profile Screen"
             is Screen.Downloads -> "Downloads Screen"
             is Screen.Search -> "Search Screen"
-            is Screen.Notification -> "Notifications Screen"
             is Screen.CommunityChat -> "Community Live Chat"
             is Screen.LocalGallery -> "Local Media Gallery"
             is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
@@ -525,10 +523,10 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
+    // 🎯 নোটিফিকেশন স্ক্রিন অপসারণের পর বটম বার হাইডের তালিকা
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
-            currentScreen is Screen.Notification ||
             currentScreen is Screen.LocalGallery ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat
@@ -623,16 +621,8 @@ private fun MainAppContent(
                                 viewModel = viewModel,
                                 onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                                 onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
-                                onNavigateToNotification = { navigateTo(Screen.Notification, null) },
                                 onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
                                 onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) }
-                            )
-                        }
-                        is Screen.Notification -> {
-                            NotificationScreen(
-                                viewModel = viewModel,
-                                onBackClick = { handleBackNavigation() },
-                                onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug, false) }
                             )
                         }
                         is Screen.LocalGallery -> {
@@ -666,6 +656,9 @@ private fun MainAppContent(
             }
         }
 
+        // =========================================================================
+        // 💬 ফ্লোটিং চ্যাট উইজেট (লগইন চেকার সহ নিখুঁত পজিশন)
+        // =========================================================================
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat
@@ -677,10 +670,12 @@ private fun MainAppContent(
                 currentUserEmail = authState.userProfile?.email,
                 currentUserAvatar = authState.userProfile?.avatar,
                 isVip = isVip,
+                isLoggedIn = authState.isLoggedIn,                    // 👈 লগইন স্টেট পাস করা হয়েছে
+                onRequireLogin = { viewModel.showAuthDialog(true) },  // 👈 লগইন ডায়ালগ ট্রিগার
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 56.dp, end = 12.dp)
+                    .padding(bottom = 50.dp, end = 12.dp)            // 👈 বটম ন্যাভিগেশনের ওপরে নিখুঁত পজিশন
             )
         }
 
