@@ -23,8 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions // 👈 ফিক্সড: ইমপোর্ট যুক্ত করা হয়েছে
-import androidx.compose.foundation.text.KeyboardOptions // 👈 ফিক্সড: ইমপোর্ট যুক্ত করা হয়েছে
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -68,6 +68,9 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.ui.theme.GoldVip
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
 // 🌟 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট ব্রাশ
 private val BlueGreenGradientBrush = Brush.horizontalGradient(
@@ -248,17 +251,27 @@ fun EqualizerBarsIcon(
 }
 
 // =============================================================================
-// 🔒 ৪. মডার্ন ও ওয়াইড আনলক এপিসোড ডায়ালগ (ক্লিয়ার স্টেপ কাউন্টার সহ)
+// 🔒 ৪. ফিক্সড আনলক এপিসোড ডায়ালগ (০% ➔ ৫০% ➔ ১০০% লাইভ প্রোগ্রেস সহ)
 // =============================================================================
 @Composable
 fun CompactUnlockEpisodeDialog(
     episodeNumber: Int,
-    currentStep: Int = 1,
-    totalSteps: Int = 2,
+    completedSteps: Int = 0, // 👈 শুরুতে ০ থাকবে, ১ম অ্যাড দেখে আসলে ১ হবে
+    totalSteps: Int = 2,     // 👈 মোট প্রয়োজনীয় অ্যাড সংখ্যা
     onDismiss: () -> Unit,
     onWatchAd: () -> Unit,
     onUpgradeVip: () -> Unit
 ) {
+    val safeTotalSteps = totalSteps.coerceAtLeast(1)
+    val currentStepNumber = (completedSteps + 1).coerceAtMost(safeTotalSteps)
+
+    // 🎯 মসৃণ প্রগ্রেস বার অ্যানিমেশন (০% থেকে অর্ধেক এবং শেষে ১০০%)
+    val animatedProgress by animateFloatAsState(
+        targetValue = (completedSteps.toFloat() / safeTotalSteps.toFloat()).coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "unlock_step_progress"
+    )
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -308,15 +321,15 @@ fun CompactUnlockEpisodeDialog(
                             )
                         }
 
-                        // স্টেপ কাউন্টার ব্যাজ
-                        if (totalSteps > 1) {
+                        // স্টেপ কাউন্টার ব্যাজ (১ম বার Step 1 of 2, ব্যাক করলে Step 2 of 2)
+                        if (safeTotalSteps > 1) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = Color(0xFF003040),
                                 border = BorderStroke(0.6.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
                             ) {
                                 Text(
-                                    text = "Step $currentStep of $totalSteps",
+                                    text = "Step $currentStepNumber of $safeTotalSteps",
                                     color = Color(0xFF00E5FF),
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
@@ -369,7 +382,11 @@ fun CompactUnlockEpisodeDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (totalSteps > 1) "Complete $totalSteps sponsor visits to unlock!" else "Visit sponsor ad to unlock episode!",
+                            text = if (safeTotalSteps > 1) {
+                                "Complete $safeTotalSteps sponsor visits to unlock!"
+                            } else {
+                                "Visit sponsor ad to unlock episode!"
+                            },
                             color = Color(0xFF00E676),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
@@ -377,37 +394,30 @@ fun CompactUnlockEpisodeDialog(
                     }
                 }
 
-                // ৩. স্টেপ প্রগ্রেস ইন্ডিকেটর লাইন (🎯 ফিক্সড ব্যাকগ্রাউন্ড টাইপ)
-                if (totalSteps > 1) {
-                    Row(
+                // =============================================================
+                // 🎯 ৩. লাইভ স্টেপ প্রগ্রেস লাইন (শুরুতে ০% ➔ ১ম ক্লিকে ৫০% ➔ ২য় ক্লিকে ১০০%)
+                // =============================================================
+                if (safeTotalSteps > 1) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color(0xFF232B3D)) // নিষ্ক্রিয় ধূসর ব্যাকগ্রাউন্ড
                     ) {
-                        for (step in 1..totalSteps) {
-                            val isCompletedOrActive = step <= currentStep
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(3.5.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .then(
-                                        if (isCompletedOrActive) {
-                                            Modifier.background(BlueGreenGradientBrush)
-                                        } else {
-                                            Modifier.background(Color(0xFF232B3D))
-                                        }
-                                    )
-                            )
-                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = animatedProgress)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(BlueGreenGradientBrush) // নীল-সবুজ অ্যানিমেটেড লাইন
+                        )
                     }
                 }
 
                 // ৪. ডেসক্রিপশন
-                val descriptionText = if (totalSteps > 1) {
-                    "Complete all $totalSteps sponsor visits to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
+                val descriptionText = if (safeTotalSteps > 1) {
+                    "Complete all $safeTotalSteps sponsor visits to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
                 } else {
                     "Visit sponsor ad to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
                 }
@@ -427,8 +437,9 @@ fun CompactUnlockEpisodeDialog(
                 // 🌟 ৫. নীল ও সবুজ গ্রেডিয়েন্টের আনলক বাটন
                 // =============================================================
                 val buttonLabel = when {
-                    totalSteps > 1 && currentStep < totalSteps -> "Visit Sponsor Ad ($currentStep/$totalSteps)"
-                    totalSteps > 1 && currentStep == totalSteps -> "Final Click to Unlock Episode"
+                    safeTotalSteps > 1 && completedSteps == 0 -> "Visit Sponsor Ad (1/$safeTotalSteps)"
+                    safeTotalSteps > 1 && currentStepNumber < safeTotalSteps -> "Visit Next Sponsor ($currentStepNumber/$safeTotalSteps)"
+                    safeTotalSteps > 1 && currentStepNumber == safeTotalSteps -> "Final Step to Unlock Episode"
                     else -> "Visit Sponsor Ad to Unlock"
                 }
 
@@ -485,6 +496,80 @@ fun CompactUnlockEpisodeDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+// =============================================================================
+// 🎆 ৫. আতশবাজি / বাজি বিস্ফোরণ অ্যানিমেশন (Celebration Fireworks Overlay)
+// =============================================================================
+private data class FireworkParticle(
+    val x: Float,
+    val y: Float,
+    val vx: Float,
+    val vy: Float,
+    val color: Color,
+    val radius: Float
+)
+
+@Composable
+fun CelebrationFireworksOverlay(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val particles = remember {
+        val colors = listOf(
+            Color(0xFFFFD700), // Gold
+            Color(0xFF00E5FF), // Cyan
+            Color(0xFF00E676), // Green
+            Color(0xFFFF2A55), // Red / Pink
+            Color(0xFFA855F7), // Purple
+            Color(0xFFFF9100)  // Orange
+        )
+        List(75) {
+            val angle = Random.nextDouble(0.0, Math.PI * 2)
+            val speed = Random.nextDouble(300.0, 950.0).toFloat()
+            FireworkParticle(
+                x = 0f,
+                y = 0f,
+                vx = (cos(angle) * speed).toFloat(),
+                vy = (sin(angle) * speed).toFloat(),
+                color = colors.random(),
+                radius = Random.nextDouble(3.5, 7.5).toFloat()
+            )
+        }
+    }
+
+    val progress = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 2000, easing = FastOutSlowInEasing)
+        )
+        onDismiss()
+    }
+
+    val currentFraction = progress.value
+    val alpha = (1f - currentFraction * 1.1f).coerceIn(0f, 1f)
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {}
+    ) {
+        val centerX = size.width / 2f
+        val centerY = size.height * 0.45f
+
+        for (p in particles) {
+            val currentX = centerX + p.vx * currentFraction
+            val currentY = centerY + p.vy * currentFraction + (350f * currentFraction * currentFraction) // গ্র্যাভিটি ইফেক্ট
+
+            drawCircle(
+                color = p.color.copy(alpha = alpha),
+                radius = p.radius * (1f - currentFraction * 0.5f),
+                center = Offset(currentX, currentY)
+            )
         }
     }
 }
@@ -629,7 +714,7 @@ private fun SlateVoiceWaveformBars(
 }
 
 // -------------------------------------------------------------
-// 💬 ৫. কমেন্ট রো আইটেম
+// 💬 ৬. কমেন্ট রো আইটেম
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -879,7 +964,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ
+// 💬 ৭. কমেন্ট রিপ্লাই থ্রেড ভিউ
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
