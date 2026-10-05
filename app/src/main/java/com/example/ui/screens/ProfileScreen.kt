@@ -2,19 +2,26 @@
 
 package com.example.ui.screens
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
+import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -23,16 +30,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,12 +46,8 @@ import com.example.ads.UnifiedAdManager
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.profile.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 
 private val ActionGreen = Color(0xFF00E676)
 private val GoldVip = Color(0xFFFFB300)
@@ -83,20 +83,22 @@ fun ProfileScreen(
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
 
+    // 🎯 ইন-অ্যাপ ওয়েবভিউ ইনভয়েস স্টেট
+    var showInAppInvoiceWebView by remember { mutableStateOf(false) }
+
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var localAvatarOverride by remember { mutableStateOf<String?>(null) }
 
-    // 🎯 ইমেজ ক্রপিং কন্ট্রোল স্টেট
+    // ইমেজ ক্রপার স্টেট (সরাসরি প্রোফাইল ছবিতে ট্যাপের জন্য)
     var rawSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var showImageCropDialog by remember { mutableStateOf(false) }
 
-    // গ্যালারি থেকে সরাসরি ছবি পিক করার লাউঞ্চার (যা ক্রপ ডায়ালগ ওপেন করবে)
     val avatarGalleryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             rawSelectedImageUri = uri
-            showImageCropDialog = true // ক্রপ উইন্ডো ওপেন
+            showImageCropDialog = true
         }
     }
 
@@ -127,9 +129,7 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // =============================================================
-                // ১. ইউজার প্রোফাইল হেডার (কভার ছাড়া ও ভিআইপি কাউন্টডাউন সহ)
-                // =============================================================
+                // ১. ইউজার প্রোফাইল হেডার
                 ProfileHeaderCard(
                     isLoggedIn = authState.isLoggedIn,
                     userProfile = authState.userProfile,
@@ -175,9 +175,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // =============================================================
-                // ৩. প্রিমিয়াম পাস সেকশন (🎯 Tasks for Free Premium সরানো হয়েছে)
-                // =============================================================
+                // ৩. প্রিমিয়াম পাস সেকশন
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Star,
@@ -234,9 +232,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // =============================================================
-                // ৬. সেটিংস ও ইনভয়েস (🎯 ইনভয়েস সরাসরি ওয়েব পেজে ওপেন হবে)
-                // =============================================================
+                // ৬. সেটিংস ও ইনভয়েস (🎯 ইনভয়েস ১০০% ইন-অ্যাপ ওয়েবভিউতে ওপেন হবে)
                 ModernMenuGroupCard {
                     if (authState.isLoggedIn) {
                         ModernMenuRowItem(
@@ -249,17 +245,13 @@ fun ProfileScreen(
                         HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
                     }
 
-                    // 🎯 পেমেন্ট ইনভয়েস ওয়েব পেজ লিঙ্ক
+                    // 🎯 ইন-অ্যাপ ওয়েবভিউ ইনভয়েস
                     ModernMenuRowItem(
                         icon = Icons.Default.ReceiptLong,
                         title = "Payment & Invoices",
                         subtitle = "View your live VIP invoices & receipt",
                         iconTint = Color(0xFFB388FF),
-                        onClick = {
-                            val uid = authState.userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
-                            val invoiceWebUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$uid"
-                            UnifiedAdManager.openChromeCustomTab(context, invoiceWebUrl)
-                        }
+                        onClick = { showInAppInvoiceWebView = true }
                     )
 
                     HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
@@ -312,10 +304,19 @@ fun ProfileScreen(
         }
 
         // =============================================================
-        // ✂️ ৭. কাস্টম ইমেজ ক্রপার ডায়ালগ (ইচ্ছামতো প্যান ও জুম করে ক্রপ)
+        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
         // =============================================================
+        if (showInAppInvoiceWebView) {
+            val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
+            InAppInvoiceWebViewDialog(
+                userId = numericUid,
+                onDismiss = { showInAppInvoiceWebView = false }
+            )
+        }
+
+        // ক্রপার ডায়ালগ
         if (showImageCropDialog && rawSelectedImageUri != null) {
-            InteractiveImageCropperDialog(
+            InAppInteractiveImageCropper(
                 imageUri = rawSelectedImageUri!!,
                 onDismiss = {
                     showImageCropDialog = false
@@ -326,7 +327,6 @@ fun ProfileScreen(
                     rawSelectedImageUri = null
                     isUploadingAvatar = true
 
-                    // ক্রপ করা ছবিটি সার্ভারে আপলোড ও প্রোফাইলে সেভ করা
                     viewModel.updateUserProfileData(context, null, croppedUri) { success ->
                         isUploadingAvatar = false
                         if (success) {
@@ -347,17 +347,13 @@ fun ProfileScreen(
                 currentUser = authState.userProfile!!,
                 isLoading = isUploadingAvatar,
                 onSave = { newName, newAvatarUri ->
-                    if (newAvatarUri != null) {
-                        rawSelectedImageUri = newAvatarUri
-                        showImageCropDialog = true
-                    } else {
-                        isUploadingAvatar = true
-                        viewModel.updateUserProfileData(context, newName, null) {
-                            isUploadingAvatar = false
-                            showEditProfileSheet = false
-                            viewModel.refreshVipStatusAndProfile()
-                            Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
-                        }
+                    isUploadingAvatar = true
+                    viewModel.updateUserProfileData(context, newName, newAvatarUri) {
+                        isUploadingAvatar = false
+                        showEditProfileSheet = false
+                        if (newAvatarUri != null) localAvatarOverride = newAvatarUri.toString()
+                        viewModel.refreshVipStatusAndProfile()
+                        Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onDismiss = { showEditProfileSheet = false }
@@ -439,180 +435,132 @@ fun ProfileScreen(
     }
 }
 
-// =============================================================================
-// ✂️ ৮. ইন্টারেক্টিভ ইন-অ্যাপ ক্রপার (Pinch to Zoom, Pan & Crop)
-// =============================================================================
+/**
+ * 🧾 ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
+ */
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun InteractiveImageCropperDialog(
-    imageUri: Uri,
-    onDismiss: () -> Unit,
-    onCropSuccess: (Uri) -> Unit
+fun InAppInvoiceWebViewDialog(
+    userId: String,
+    onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-
-    var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isProcessing by remember { mutableStateOf(false) }
-
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-
-    LaunchedEffect(imageUri) {
-        withContext(Dispatchers.IO) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(imageUri)
-                val bmp = BitmapFactory.decodeStream(inputStream)
-                inputStream?.close()
-                sourceBitmap = bmp
-            } catch (_: Exception) {}
-        }
-    }
+    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$userId"
+    var isLoading by remember { mutableStateOf(true) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // টপ হেডার
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        Scaffold(
+            topBar = {
+                Surface(
+                    color = Color(0xFF06080E),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Crop Profile Photo", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White)
-                    }
-                }
-
-                // সেন্ট্রাল ক্রপ এরিয়া (Pinch & Pan)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (sourceBitmap != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(280.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, Color(0xFF00E676), CircleShape)
-                                .pointerInput(Unit) {
-                                    detectTransformGestures { _, pan, zoom, _ ->
-                                        scale = (scale * zoom).coerceIn(1f, 4f)
-                                        offset += pan
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Image(
-                                bitmap = sourceBitmap!!.asImageBitmap(),
-                                contentDescription = "Crop Preview",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        scaleX = scale
-                                        scaleY = scale
-                                        translationX = offset.x
-                                        translationY = offset.y
-                                    }
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White
+                                )
+                            }
+                            Text(
+                                text = "Invoices & History",
+                                color = Color.White,
+                                fontSize = 16.5.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                    } else {
-                        CircularProgressIndicator(color = Color(0xFF00E676))
-                    }
-                }
 
-                // নির্দেশনা ও সেভ বাটন বার
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "Pinch to zoom and drag to adjust position",
-                        color = Color(0xFF8E95A5),
-                        fontSize = 12.sp
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFF2E384D))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("Cancel", color = Color(0xFF8E95A5), fontSize = 13.5.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                if (sourceBitmap == null || isProcessing) return@Button
-                                isProcessing = true
-
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    try {
-                                        val bmp = sourceBitmap!!
-                                        val dimension = minOf(bmp.width, bmp.height)
-                                        val x = ((bmp.width - dimension) / 2).coerceAtLeast(0)
-                                        val y = ((bmp.height - dimension) / 2).coerceAtLeast(0)
-
-                                        val croppedBmp = Bitmap.createBitmap(bmp, x, y, dimension, dimension)
-
-                                        val tempFile = File(context.cacheDir, "avatar_crop_${System.currentTimeMillis()}.jpg")
-                                        val outputStream = FileOutputStream(tempFile)
-                                        croppedBmp.compress(Bitmap.CompressFormat.JPEG, 88, outputStream)
-                                        outputStream.flush()
-                                        outputStream.close()
-
-                                        withContext(Dispatchers.Main) {
-                                            isProcessing = false
-                                            onCropSuccess(Uri.fromFile(tempFile))
-                                        }
-                                    } catch (_: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            isProcessing = false
-                                            Toast.makeText(context, "Could not crop image", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            },
-                            enabled = sourceBitmap != null && !isProcessing,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
-                            modifier = Modifier
-                                .weight(1.5f)
-                                .height(46.dp)
-                        ) {
-                            if (isProcessing) {
-                                CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("Crop & Save", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = { webViewInstance?.reload() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = Color(0xFFFFB300),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                     }
+                }
+            },
+            containerColor = Color(0xFF06080E)
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(Color(0xFF06080E))
+            ) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            webViewInstance = this
+                            CookieManager.getInstance().setAcceptCookie(true)
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = true
+                                cacheMode = WebSettings.LOAD_DEFAULT
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
+                                setSupportZoom(false)
+                            }
+                            setBackgroundColor(android.graphics.Color.parseColor("#06080E"))
+
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    isLoading = true
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    isLoading = false
+                                }
+                            }
+                            webChromeClient = WebChromeClient()
+                            loadUrl(invoiceUrl)
+                        }
+                    }
+                )
+
+                if (isLoading) {
+                    LinearProgressIndicator(
+                        color = Color(0xFFFFB300),
+                        trackColor = Color(0xFF1E2536),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.TopCenter)
+                    )
                 }
             }
         }
