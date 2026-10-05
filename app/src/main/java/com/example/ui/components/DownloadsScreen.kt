@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens
 
@@ -13,7 +16,10 @@ import android.provider.MediaStore
 import android.util.Size
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +27,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,7 +59,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-// 🎨 ডিপ ব্ল্যাক ও ক্রিস্প হোয়াইট কালার থিম
+// 🎨 প্রিমিয়াম ডার্ক কালার থিম
 private val DeepBlackBg = Color(0xFF06080E)
 private val DeepCardBg = Color(0xFF111520)
 private val CardBorderColor = Color(0xFF1E2536)
@@ -73,10 +81,10 @@ fun DownloadsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope()
 
-    // ০ = Ongoing (ডাউনলোড হচ্ছে), ১ = Completed (অফলাইন ভিডিও)
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    // 🎯 ডানে-বামে স্মুথ স্লাইডিংয়ের জন্য HorizontalPager State (০ = Ongoing, ১ = Completed)
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     // লাইভ ডাউনলোড পর্যবেক্ষণ
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsStateWithLifecycle()
@@ -89,7 +97,7 @@ fun DownloadsScreen(
     var isLoadingCompleted by remember { mutableStateOf(false) }
 
     fun loadCompletedVideos() {
-        scope.launch {
+        coroutineScope.launch {
             isLoadingCompleted = true
             completedVideos = withContext(Dispatchers.IO) {
                 val list = mutableListOf<LocalVideoItem>()
@@ -188,8 +196,9 @@ fun DownloadsScreen(
         loadCompletedVideos()
     }
 
-    LaunchedEffect(selectedTabIndex) {
-        if (selectedTabIndex == 1) {
+    // সোয়াইপ করে Completed ট্যাবে গেলেই রিফ্রেশ লোড হবে
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage == 1) {
             loadCompletedVideos()
         }
     }
@@ -202,7 +211,7 @@ fun DownloadsScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. এজ-টু-এজ হেডার (নোটিফিকেশন প্যানেলের নিচ দিয়ে শুরু)
+            // 🔝 ১. এজ-টু-এজ হেডার ও সুইচ বাটন
             // =========================================================================
             Box(
                 modifier = Modifier
@@ -252,50 +261,66 @@ fun DownloadsScreen(
                         )
                     }
 
-                    // 🌟 প্রিমিয়াম ক্যাপসুল ট্যাব সুইচ [ Ongoing X ]  [ Completed Y ]
+                    // 🌟 ক্যাপসুল ট্যাব সুইচ (ক্লিক করলে স্মুথ স্ক্রোল হবে)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Ongoing Tab Button
+                        val isOngoingActive = (pagerState.currentPage == 0)
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
-                                .background(if (selectedTabIndex == 0) Color(0xFF1E2536) else Color(0xFF12151F))
+                                .background(if (isOngoingActive) Color(0xFF1E2536) else Color(0xFF12151F))
                                 .border(
                                     width = 1.dp,
-                                    color = if (selectedTabIndex == 0) Color(0xFF007AFF) else Color(0xFF222B3D),
+                                    color = if (isOngoingActive) Color(0xFF007AFF) else Color(0xFF222B3D),
                                     shape = RoundedCornerShape(20.dp)
                                 )
-                                .clickable { selectedTabIndex = 0 }
+                                .clickable {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(
+                                            page = 0,
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                                        )
+                                    }
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "Ongoing ${ongoingList.size}",
-                                color = if (selectedTabIndex == 0) Color(0xFF00E5FF) else TextMutedSlate,
+                                color = if (isOngoingActive) Color(0xFF00E5FF) else TextMutedSlate,
                                 fontSize = 12.sp,
-                                fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = if (isOngoingActive) FontWeight.Bold else FontWeight.Medium
                             )
                         }
 
                         // Completed Tab Button
+                        val isCompletedActive = (pagerState.currentPage == 1)
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
-                                .background(if (selectedTabIndex == 1) Color(0xFF1E2536) else Color(0xFF12151F))
+                                .background(if (isCompletedActive) Color(0xFF1E2536) else Color(0xFF12151F))
                                 .border(
                                     width = 1.dp,
-                                    color = if (selectedTabIndex == 1) Color(0xFF007AFF) else Color(0xFF222B3D),
+                                    color = if (isCompletedActive) Color(0xFF007AFF) else Color(0xFF222B3D),
                                     shape = RoundedCornerShape(20.dp)
                                 )
-                                .clickable { selectedTabIndex = 1 }
+                                .clickable {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(
+                                            page = 1,
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                                        )
+                                    }
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "Completed ${completedVideos.size}",
-                                color = if (selectedTabIndex == 1) TextWhite else TextMutedSlate,
+                                color = if (isCompletedActive) TextWhite else TextMutedSlate,
                                 fontSize = 12.sp,
-                                fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = if (isCompletedActive) FontWeight.Bold else FontWeight.Medium
                             )
                         }
                     }
@@ -303,14 +328,15 @@ fun DownloadsScreen(
             }
 
             // =========================================================================
-            // 📱 ২. ট্যাব কনটেন্ট
+            // ↔️ ২. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
             // =========================================================================
-            Box(
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-            ) {
-                if (selectedTabIndex == 0) {
+            ) { pageIndex ->
+                if (pageIndex == 0) {
                     // -----------------------------------------------------------------
                     // ⏳ ONGOING TAB (ডাউনলোড চলছে)
                     // -----------------------------------------------------------------
@@ -347,7 +373,7 @@ fun DownloadsScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Active downloading videos and live progress will appear here.",
+                                    text = "Active downloading videos and live progress will appear here. Swipe right to view completed downloads.",
                                     color = TextMutedSlate,
                                     fontSize = 12.5.sp,
                                     textAlign = TextAlign.Center,
@@ -442,7 +468,7 @@ fun DownloadsScreen(
 }
 
 // =========================================================================
-// 🔄 ৩ নম্বর ছবির স্টাইলের Ongoing কার্ড (Pause/Stop অপশন সহ)
+// 🔄 Ongoing কার্ড (Pause/Stop অপশন সহ)
 // =========================================================================
 @Composable
 private fun MinimalistOngoingDownloadCard(
@@ -482,7 +508,7 @@ private fun MinimalistOngoingDownloadCard(
                     )
                 }
 
-                // টাইটেল ও সাইজ (উজ্জ্বল সাদা ও হালকা গ্রে)
+                // টাইটেল ও সাইজ
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "${task.title} - EP ${task.episodeNumber}",
@@ -646,7 +672,7 @@ private fun PremiumOfflineVideoCard(
                 }
             }
 
-            // টাইটেল ও সাইজ (উজ্জ্বল সাদা ও সফট গ্রে)
+            // টাইটেল ও সাইজ
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = video.title,
