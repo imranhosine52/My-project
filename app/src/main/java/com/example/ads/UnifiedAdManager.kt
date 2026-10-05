@@ -152,7 +152,7 @@ object UnifiedAdManager {
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
         val appContext = context.applicationContext
 
-        // 🚫 Start.io Consent Dialog বন্ধ করার জন্য কনসেন্ট true সেট করা
+        // 🚫 Start.io Consent Popup চিরতরে বন্ধ করার জন্য গ্লোবাল পারমিশন বাইপাস
         try {
             val now = System.currentTimeMillis()
             StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -238,22 +238,27 @@ object UnifiedAdManager {
         }
     }
 
+    // ============================================================
+    // 🚫 START.IO INITIALIZER (Consent Popup সম্পূর্ণ ব্লক করা হয়েছে)
+    // ============================================================
     private fun initializeStartIo(context: Context, appId: String, isVip: Boolean) {
         try {
             currentStartIoAppId = appId
             val appContext = context.applicationContext
 
+            // ১. ইনিশিয়ালাইজেশনের আগেই কনসেন্ট ফ্ল্যাগ true করা
+            val now = System.currentTimeMillis()
             try {
-                val now = System.currentTimeMillis()
                 StartAppSDK.setUserConsent(appContext, "pas", now, true)
                 StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
                 StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
             } catch (_: Throwable) {}
 
+            // ২. ৩য় প্যারামিটার false দিলে স্প্ল্যাশ এবং রিটার্ন অ্যাড বন্ধ থাকে
             StartAppSDK.init(appContext, appId, false)
 
+            // ৩. ইনিশিয়ালাইজেশনের পরও আরেকবার কনসেন্ট রেজিস্টার করা
             try {
-                val now = System.currentTimeMillis()
                 StartAppSDK.setUserConsent(appContext, "pas", now, true)
                 StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
                 StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
@@ -263,7 +268,7 @@ object UnifiedAdManager {
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isStartIoInitialized = true
-            Log.i(TAG, "✓ Start.io SDK Initialized (App ID: $appId)")
+            Log.i(TAG, "✓ Start.io SDK Initialized without consent dialog (App ID: $appId)")
 
             if (!isVip) {
                 preloadInterstitial(context)
