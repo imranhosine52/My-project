@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions // 👈 ফিক্সড: ইমপোর্ট যুক্ত করা হয়েছে
+import androidx.compose.foundation.text.KeyboardOptions // 👈 ফিক্সড: ইমপোর্ট যুক্ত করা হয়েছে
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -246,7 +248,7 @@ fun EqualizerBarsIcon(
 }
 
 // =============================================================================
-// 🔒 ৪. মডার্ন ও ওয়াইড আনলক এপিসোড ডায়ালগ (স্টেপ-বাই-স্টেপ ও ব্লু-গ্রিন বাটন সহ)
+// 🔒 ৪. মডার্ন ও ওয়াইড আনলক এপিসোড ডায়ালগ (ক্লিয়ার স্টেপ কাউন্টার সহ)
 // =============================================================================
 @Composable
 fun CompactUnlockEpisodeDialog(
@@ -267,7 +269,7 @@ fun CompactUnlockEpisodeDialog(
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.92f) // 👈 দুই সাইডে প্রশস্ত (Wider)
+                .fillMaxWidth(0.92f)
                 .widthIn(max = 380.dp)
                 .wrapContentHeight(),
             shape = RoundedCornerShape(18.dp),
@@ -277,7 +279,7 @@ fun CompactUnlockEpisodeDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp), // 👈 উপর-নিচে কমপ্যাক্ট প্যাডিং
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -367,7 +369,7 @@ fun CompactUnlockEpisodeDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Unlock and watch for 1 minute for free!",
+                            text = if (totalSteps > 1) "Complete $totalSteps sponsor visits to unlock!" else "Visit sponsor ad to unlock episode!",
                             color = Color(0xFF00E676),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
@@ -375,7 +377,7 @@ fun CompactUnlockEpisodeDialog(
                     }
                 }
 
-                // ৩. স্টেপ প্রগ্রেস ইন্ডিকেটর লাইন
+                // ৩. স্টেপ প্রগ্রেস ইন্ডিকেটর লাইন (🎯 ফিক্সড ব্যাকগ্রাউন্ড টাইপ)
                 if (totalSteps > 1) {
                     Row(
                         modifier = Modifier
@@ -391,18 +393,27 @@ fun CompactUnlockEpisodeDialog(
                                     .weight(1f)
                                     .height(3.5.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(
-                                        if (isCompletedOrActive) BlueGreenGradientBrush
-                                        else Color(0xFF232B3D)
+                                    .then(
+                                        if (isCompletedOrActive) {
+                                            Modifier.background(BlueGreenGradientBrush)
+                                        } else {
+                                            Modifier.background(Color(0xFF232B3D))
+                                        }
                                     )
                             )
                         }
                     }
                 }
 
-                // ৪. ডেসক্রিপশন (১ মিনিট উল্লেখ সহ)
+                // ৪. ডেসক্রিপশন
+                val descriptionText = if (totalSteps > 1) {
+                    "Complete all $totalSteps sponsor visits to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
+                } else {
+                    "Visit sponsor ad to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
+                }
+
                 Text(
-                    text = "Visit sponsor ad to unlock Episode $episodeNumber for 1 full minute, or upgrade to VIP for permanent ad-free streaming.",
+                    text = descriptionText,
                     color = Color(0xFF94A3B8),
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -417,8 +428,8 @@ fun CompactUnlockEpisodeDialog(
                 // =============================================================
                 val buttonLabel = when {
                     totalSteps > 1 && currentStep < totalSteps -> "Visit Sponsor Ad ($currentStep/$totalSteps)"
-                    totalSteps > 1 && currentStep == totalSteps -> "Final Click to Unlock (1 Min Free)"
-                    else -> "Watch Ad to Unlock (1 Min Free)"
+                    totalSteps > 1 && currentStep == totalSteps -> "Final Click to Unlock Episode"
+                    else -> "Visit Sponsor Ad to Unlock"
                 }
 
                 Box(
