@@ -2,6 +2,7 @@
 
 package com.example.ui.screens.profile.components
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -19,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -27,17 +29,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.UserProfileDto
@@ -52,7 +58,7 @@ private val BlueAccent = Color(0xFF2AABEE)
 private val SheetBackground = Color(0xFF121724)
 
 /**
- * ✏️ প্রোফাইল নাম ও ছবি পরিবর্তনের জন্য আধুনিক বটম শীট (ইনস্ট্যান্ট ক্রপার সহ)
+ * ✏️ প্রোফাইল নাম ও ছবি পরিবর্তনের জন্য আধুনিক বটম শীট
  */
 @Composable
 fun EditUserProfileSheet(
@@ -75,7 +81,7 @@ fun EditUserProfileSheet(
     ) { uri: Uri? ->
         if (uri != null) {
             rawPickedUri = uri
-            showCropperDialog = true // 👈 সাথে সাথে ক্রপ ডায়ালগ ওপেন
+            showCropperDialog = true // 👈 ক্রপ ডায়ালগ ওপেন
         }
     }
 
@@ -245,7 +251,7 @@ fun EditUserProfileSheet(
                 rawPickedUri = null
             },
             onCropSuccess = { croppedUri ->
-                selectedAvatarUri = croppedUri // 👈 ক্রপ করা ছবি প্রিভিউতে বসবে
+                selectedAvatarUri = croppedUri // 👈 ক্রপ করা ছবি প্রিভিউতে সেট হবে
                 showCropperDialog = false
                 rawPickedUri = null
                 Toast.makeText(context, "✓ Photo cropped! Tap 'Save Changes' to update.", Toast.LENGTH_SHORT).show()
@@ -255,7 +261,8 @@ fun EditUserProfileSheet(
 }
 
 /**
- * ✂️ ইন-অ্যাপ ক্রপার কম্পোনেন্ট
+ * ✂️ ১০০% দৃশ্যমান ও নিরাপদ ইন-অ্যাপ ক্রপার কম্পোনেন্ট
+ * (টপ বারে [✓ Save] বাটন এবং বটমেও বড় [Crop & Set Profile Photo] বাটন রয়েছে)
  */
 @Composable
 fun InAppInteractiveImageCropper(
@@ -283,149 +290,195 @@ fun InAppInteractiveImageCropper(
         }
     }
 
+    fun performCrop() {
+        if (sourceBitmap == null || isProcessing) return
+        isProcessing = true
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val bmp = sourceBitmap!!
+                val dimension = minOf(bmp.width, bmp.height)
+                val x = ((bmp.width - dimension) / 2).coerceAtLeast(0)
+                val y = ((bmp.height - dimension) / 2).coerceAtLeast(0)
+
+                val croppedBmp = Bitmap.createBitmap(bmp, x, y, dimension, dimension)
+
+                val tempFile = File(context.cacheDir, "avatar_crop_${System.currentTimeMillis()}.jpg")
+                val outputStream = FileOutputStream(tempFile)
+                croppedBmp.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+                outputStream.flush()
+                outputStream.close()
+
+                withContext(Dispatchers.Main) {
+                    isProcessing = false
+                    onCropSuccess(Uri.fromFile(tempFile))
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    isProcessing = false
+                    Toast.makeText(context, "Could not crop image", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
     ) {
+        val view = LocalView.current
+        DisposableEffect(view) {
+            val window = (view.parent as? DialogWindowProvider)?.window
+                ?: (view.context as? Activity)?.window
+            if (window != null) {
+                window.statusBarColor = android.graphics.Color.BLACK
+                window.navigationBarColor = android.graphics.Color.BLACK
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+            }
+            onDispose {}
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .statusBarsPadding()
-                .navigationBarsPadding()
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+            // =========================================================================
+            // 🔝 ১. টপ হেডার বার: [✕ Cancel]  [ Crop Profile Photo ]  [ ✓ Save ]
+            // =========================================================================
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // টপ হেডার
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Crop Profile Photo", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White)
-                    }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White, modifier = Modifier.size(22.dp))
                 }
 
-                // সেন্ট্রাল ক্রপ এরিয়া (Pinch & Pan)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
+                Text(
+                    text = "Crop Profile Photo",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // 🎯 উপরেও সবসময় দৃশ্যমান সেভ বাটন
+                Button(
+                    onClick = { performCrop() },
+                    enabled = sourceBitmap != null && !isProcessing,
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                    modifier = Modifier.height(34.dp)
                 ) {
-                    if (sourceBitmap != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(280.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, Color(0xFF00E676), CircleShape)
-                                .pointerInput(Unit) {
-                                    detectTransformGestures { _, pan, zoom, _ ->
-                                        scale = (scale * zoom).coerceIn(1f, 4f)
-                                        offset += pan
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Image(
-                                bitmap = sourceBitmap!!.asImageBitmap(),
-                                contentDescription = "Crop Preview",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        scaleX = scale
-                                        scaleY = scale
-                                        translationX = offset.x
-                                        translationY = offset.y
-                                    }
-                            )
-                        }
+                    if (isProcessing) {
+                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     } else {
-                        CircularProgressIndicator(color = Color(0xFF00E676))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Text("Save", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
+            }
 
-                // নির্দেশনা ও সেভ বাটন বার
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "Pinch to zoom and drag to adjust position",
-                        color = Color(0xFF8E95A5),
-                        fontSize = 12.sp
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFF2E384D))
-                        ) {
-                            Text("Cancel", color = Color(0xFF8E95A5), fontSize = 13.5.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                if (sourceBitmap == null || isProcessing) return@Button
-                                isProcessing = true
-
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    try {
-                                        val bmp = sourceBitmap!!
-                                        val dimension = minOf(bmp.width, bmp.height)
-                                        val x = ((bmp.width - dimension) / 2).coerceAtLeast(0)
-                                        val y = ((bmp.height - dimension) / 2).coerceAtLeast(0)
-
-                                        val croppedBmp = Bitmap.createBitmap(bmp, x, y, dimension, dimension)
-
-                                        val tempFile = File(context.cacheDir, "avatar_crop_${System.currentTimeMillis()}.jpg")
-                                        val outputStream = FileOutputStream(tempFile)
-                                        croppedBmp.compress(Bitmap.CompressFormat.JPEG, 88, outputStream)
-                                        outputStream.flush()
-                                        outputStream.close()
-
-                                        withContext(Dispatchers.Main) {
-                                            isProcessing = false
-                                            onCropSuccess(Uri.fromFile(tempFile))
-                                        }
-                                    } catch (_: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            isProcessing = false
-                                            Toast.makeText(context, "Could not crop image", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
+            // =========================================================================
+            // ✂️ ২. সেন্ট্রাল ক্রপ এরিয়া (Pinch to Zoom & Drag)
+            // =========================================================================
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 80.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (sourceBitmap != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(280.dp)
+                            .clip(CircleShape)
+                            .border(2.5.dp, ActionGreen, CircleShape)
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    scale = (scale * zoom).coerceIn(1f, 4.5f)
+                                    offset += pan
                                 }
                             },
-                            enabled = sourceBitmap != null && !isProcessing,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            bitmap = sourceBitmap!!.asImageBitmap(),
+                            contentDescription = "Crop Preview",
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .weight(1.5f)
-                                .height(46.dp)
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                    translationX = offset.x
+                                    translationY = offset.y
+                                }
+                        )
+                    }
+                } else {
+                    CircularProgressIndicator(color = ActionGreen)
+                }
+            }
+
+            // =========================================================================
+            // 🔘 ৩. নিচে ফিক্সড ও সুরক্ষিত সেভ বাটন বার
+            // =========================================================================
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f),
+                                Color.Black
+                            )
+                        )
+                    )
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Pinch to zoom and drag image to fit circle",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.sp
+                )
+
+                Button(
+                    onClick = { performCrop() },
+                    enabled = sourceBitmap != null && !isProcessing,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    if (isProcessing) {
+                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Cropping & Saving...", color = Color.Black, fontWeight = FontWeight.Bold)
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (isProcessing) {
-                                CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("Crop & Set", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            }
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Text("Crop & Set Profile Photo", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
