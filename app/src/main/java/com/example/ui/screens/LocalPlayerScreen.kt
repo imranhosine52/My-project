@@ -66,6 +66,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -304,7 +305,13 @@ fun LocalPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    var resizeModeIndex by rememberSaveable { mutableIntStateOf(1) }
+    // =========================================================================
+    // 🎯 ১. ডিফল্ট 0 = RESIZE_MODE_FIT (ভিডিওর আসল সাইজ, জোর করে ফুলস্ক্রিন হবে না)
+    // =========================================================================
+    var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
+    var isVerticalVideo by remember { mutableStateOf(false) }
 
     val speedOptions = remember { listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f) }
     var currentSpeedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -397,8 +404,21 @@ fun LocalPlayerScreen(
         onDispose { }
     }
 
+    // =========================================================================
+    // 🎯 ২. ভিডিও সাইজ ডিটেকশন (TikTok vs YouTube Aspect Ratio)
+    // =========================================================================
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                val w = videoSize.width
+                val h = videoSize.height
+                if (w > 0 && h > 0) {
+                    videoWidth = w
+                    videoHeight = h
+                    isVerticalVideo = (h > w) // টিকটক/ভার্টিক্যাল ভিডিও শনাক্তকরণ
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
@@ -456,10 +476,16 @@ fun LocalPlayerScreen(
                 activity?.let { act ->
                     try {
                         isControlsVisible = false
-                        val aspectRatio = when (resizeModeIndex) {
-                            1 -> Rational(9, 16)
-                            else -> Rational(16, 9)
+                        // 🎯 ভিডিওর আসল অনুপাত দিয়ে PiP ওপেন হবে
+                        val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
+                            val ratio = (videoWidth.toFloat() / videoHeight.toFloat()).coerceIn(0.41841f, 2.39f)
+                            Rational((ratio * 1000).toInt(), 1000)
+                        } else if (isVerticalVideo) {
+                            Rational(9, 16)
+                        } else {
+                            Rational(16, 9)
                         }
+
                         val pipParams = PictureInPictureParams.Builder()
                             .setAspectRatio(aspectRatio)
                             .build()
@@ -483,7 +509,7 @@ fun LocalPlayerScreen(
     }
 
     // =========================================================================
-    // 🎵 ১. অডিও প্লেয়ার মোড (Swipe Down to Mini Player সক্রিয়)
+    // 🎵 ১. অডিও প্লেয়ার মোড
     // =========================================================================
     if (isAudioMode) {
         Box(
@@ -494,12 +520,11 @@ fun LocalPlayerScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                // 🔽 নিচে টান দিলে মিনি প্লেয়ারে নামার জেসচার
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
                         onDragEnd = {
                             if (swipeOffsetY > 160f) {
-                                onBackClick() // নিচে মিনি প্লেয়ারে চলে যাবে
+                                onBackClick()
                             } else {
                                 swipeOffsetY = 0f
                             }
@@ -624,7 +649,7 @@ fun LocalPlayerScreen(
         }
     } else {
         // =========================================================================
-        // 🎬 ২. ভিডিও প্লেয়ার মোড
+        // 🎬 ২. ভিডিও প্লেয়ার মোড (প্রাকৃতিক রেশিও অনুযায়ী ফিট)
         // =========================================================================
         Box(
             modifier = modifier
@@ -673,6 +698,7 @@ fun LocalPlayerScreen(
                     }
                 }
         ) {
+            // 🎯 ডিফল্ট RESIZE_MODE_FIT অনুযায়ী ভিডিও প্লে হবে (জোর করে ফুলস্ক্রিন হবে না)
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -685,7 +711,7 @@ fun LocalPlayerScreen(
                         resizeMode = when (resizeModeIndex) {
                             1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                             2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 👈 প্রাকৃতিক মাপ
                         }
                     }
                 },
@@ -693,7 +719,7 @@ fun LocalPlayerScreen(
                     view.resizeMode = when (resizeModeIndex) {
                         1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 👈 প্রাকৃতিক মাপ
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -807,13 +833,14 @@ fun LocalPlayerScreen(
                                         }
                                     }
 
+                                    // 🎯 অ্যাসপেক্ট রেশিও সুইচ বাটন
                                     IconButton(
                                         onClick = {
                                             resizeModeIndex = (resizeModeIndex + 1) % 3
                                             val modeName = when (resizeModeIndex) {
-                                                1 -> "TikTok 9:16 Fullscreen"
-                                                2 -> "100% Stretch"
-                                                else -> "16:9 Fit"
+                                                0 -> "Original Fit (প্রাকৃতিক রেশিও)"
+                                                1 -> "Crop to Fill (জুম)"
+                                                else -> "Stretch (১০০% স্ক্রিন)"
                                             }
                                             Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
                                         },
