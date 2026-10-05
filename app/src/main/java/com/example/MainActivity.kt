@@ -1,7 +1,7 @@
 package com.example
 
 import android.Manifest
-import android.app.Activity
+import android.app.Activity // 👈 ফিক্সড: Activity ইমপোর্ট যুক্ত করা হয়েছে
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -666,9 +666,6 @@ private fun MainAppContent(
             }
         }
 
-        // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট (লগইন চেকার সহ নিখুঁত পজিশন)
-        // =========================================================================
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat
@@ -680,12 +677,10 @@ private fun MainAppContent(
                 currentUserEmail = authState.userProfile?.email,
                 currentUserAvatar = authState.userProfile?.avatar,
                 isVip = isVip,
-                isLoggedIn = authState.isLoggedIn,                    // 👈 লগইন স্টেট পাস করা হয়েছে
-                onRequireLogin = { viewModel.showAuthDialog(true) },  // 👈 লগইন ডায়ালগ ট্রিগার
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 50.dp, end = 12.dp)            // 👈 বটম ন্যাভিগেশনের ঠিক ওপরে নিখুঁত পজিশন
+                    .padding(bottom = 56.dp, end = 12.dp)
             )
         }
 
