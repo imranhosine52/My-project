@@ -23,8 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -38,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -67,6 +66,14 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.ui.theme.GoldVip
 import java.util.Locale
+
+// 🌟 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট ব্রাশ
+private val BlueGreenGradientBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF007AFF), // Electric Blue
+        Color(0xFF00D166)  // Emerald Green
+    )
+)
 
 // -------------------------------------------------------------
 // ⚡ ১. স্কিপ আইকন (-10s / +10s)
@@ -238,12 +245,14 @@ fun EqualizerBarsIcon(
     }
 }
 
-// -------------------------------------------------------------
-// 🔒 ৪. কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
-// -------------------------------------------------------------
+// =============================================================================
+// 🔒 ৪. মডার্ন ও ওয়াইড আনলক এপিসোড ডায়ালগ (স্টেপ-বাই-স্টেপ ও ব্লু-গ্রিন বাটন সহ)
+// =============================================================================
 @Composable
 fun CompactUnlockEpisodeDialog(
     episodeNumber: Int,
+    currentStep: Int = 1,
+    totalSteps: Int = 2,
     onDismiss: () -> Unit,
     onWatchAd: () -> Unit,
     onUpgradeVip: () -> Unit
@@ -252,43 +261,67 @@ fun CompactUnlockEpisodeDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             dismissOnBackPress = true,
-            dismissOnClickOutside = true
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
         )
     ) {
         Card(
             modifier = Modifier
-                .widthIn(max = 300.dp)
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF131824)),
+                .fillMaxWidth(0.92f) // 👈 দুই সাইডে প্রশস্ত (Wider)
+                .widthIn(max = 380.dp)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF111622)),
             border = BorderStroke(1.dp, Color(0xFF222B3D))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp), // 👈 উপর-নিচে কমপ্যাক্ট প্যাডিং
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // ১. টপ ব্যাজ ও ক্লোজ বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF2D2305))
-                            .border(0.8.dp, GoldVip.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = "EPISODE $episodeNumber LOCKED",
-                            color = GoldVip,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF2D2305))
+                                .border(0.8.dp, GoldVip.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "EPISODE $episodeNumber LOCKED",
+                                color = GoldVip,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // স্টেপ কাউন্টার ব্যাজ
+                        if (totalSteps > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF003040),
+                                border = BorderStroke(0.6.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    text = "Step $currentStep of $totalSteps",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
 
                     Icon(
@@ -297,62 +330,126 @@ fun CompactUnlockEpisodeDialog(
                         tint = Color(0xFF94A3B8),
                         modifier = Modifier
                             .size(18.dp)
+                            .clip(CircleShape)
                             .clickable { onDismiss() }
                     )
                 }
 
-                Box(
+                // ২. সেন্ট্রাল লক আইকন ও টাইটেল
+                Row(
                     modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF292004))
-                        .border(1.2.dp, GoldVip, CircleShape),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = GoldVip,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF292004))
+                            .border(1.2.dp, GoldVip, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = GoldVip,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "Unlock Episode $episodeNumber",
+                            color = Color.White,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Unlock and watch for 1 minute for free!",
+                            color = Color(0xFF00E676),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
 
-                Text(
-                    text = "Unlock Episode $episodeNumber",
-                    color = Color.White,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                // ৩. স্টেপ প্রগ্রেস ইন্ডিকেটর লাইন
+                if (totalSteps > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        for (step in 1..totalSteps) {
+                            val isCompletedOrActive = step <= currentStep
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(3.5.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(
+                                        if (isCompletedOrActive) BlueGreenGradientBrush
+                                        else Color(0xFF232B3D)
+                                    )
+                            )
+                        }
+                    }
+                }
 
+                // ৪. ডেসক্রিপশন (১ মিনিট উল্লেখ সহ)
                 Text(
-                    text = "Watch a sponsor ad to unlock Episode $episodeNumber for 2 full hours, or upgrade to VIP for permanent ad-free streaming.",
+                    text = "Visit sponsor ad to unlock Episode $episodeNumber for 1 full minute, or upgrade to VIP for permanent ad-free streaming.",
                     color = Color(0xFF94A3B8),
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 2.dp)
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                Button(
-                    onClick = onWatchAd,
+                // =============================================================
+                // 🌟 ৫. নীল ও সবুজ গ্রেডিয়েন্টের আনলক বাটন
+                // =============================================================
+                val buttonLabel = when {
+                    totalSteps > 1 && currentStep < totalSteps -> "Visit Sponsor Ad ($currentStep/$totalSteps)"
+                    totalSteps > 1 && currentStep == totalSteps -> "Final Click to Unlock (1 Min Free)"
+                    else -> "Watch Ad to Unlock (1 Min Free)"
+                }
+
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(38.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166)),
-                    contentPadding = PaddingValues(0.dp)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(BlueGreenGradientBrush)
+                        .clickable { onWatchAd() },
+                    contentAlignment = Alignment.Center
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
-                        Text("Watch Ad to Unlock (Free)", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = buttonLabel,
+                            color = Color.White,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
 
+                // ৬. VIP আপগ্রেড বাটন
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -368,7 +465,12 @@ fun CompactUnlockEpisodeDialog(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text("👑 ", fontSize = 11.5.sp)
-                        Text("Upgrade to VIP (Ad-Free All)", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Upgrade to VIP (Ad-Free Permanent)",
+                            color = GoldVip,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -377,7 +479,7 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 🎥 ভিডিও স্টিকার অটো-প্লেয়ার (মিউটেড লুপ)
+// 🎥 ভিডিও স্টিকার অটো-প্লেয়ার
 // -------------------------------------------------------------
 @Composable
 fun CommentVideoStickerPlayer(
@@ -419,7 +521,7 @@ fun CommentVideoStickerPlayer(
 }
 
 // -------------------------------------------------------------
-// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল
+// 🎙️ ভয়েস কমেন্ট বাবল
 // -------------------------------------------------------------
 @Composable
 fun SlateVoiceCommentPill(
@@ -516,7 +618,7 @@ private fun SlateVoiceWaveformBars(
 }
 
 // -------------------------------------------------------------
-// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (ইনস্ট্যান্ট লাইক ও স্টিকার গ্লিচ ফিক্সড)
+// 💬 ৫. কমেন্ট রো আইটেম
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -538,7 +640,6 @@ fun ModernCommentRowItem(
 
     var showMenuDropdown by remember { mutableStateOf(false) }
 
-    // 🎯 তাৎক্ষণিক অপটিমিস্টিক লাইভ লাইক স্টেট
     var isLikedOptimistic by remember(comment.id, comment.isLiked) { mutableStateOf(comment.isLiked) }
     var likesCountOptimistic by remember(comment.id, comment.likesCount) { mutableIntStateOf(comment.likesCount) }
 
@@ -615,7 +716,6 @@ fun ModernCommentRowItem(
                     Text(comment.displayDate, color = Color(0xFF64748B), fontSize = 11.5.sp)
                 }
 
-                // 🧸 ১. ভিডিও স্টিকার (Unique Key দিয়ে লক করা যাতে আগের স্টিকার না দেখায়)
                 if (isVideoSticker) {
                     key(comment.id, text) {
                         Box(
@@ -630,9 +730,7 @@ fun ModernCommentRowItem(
                             )
                         }
                     }
-                }
-                // 🧸 ২. ইমেজ/GIF স্টিকার (Unique Key দিয়ে লক করা)
-                else if (isImageSticker) {
+                } else if (isImageSticker) {
                     key(comment.id, text) {
                         Box(
                             modifier = Modifier
@@ -651,9 +749,7 @@ fun ModernCommentRowItem(
                             )
                         }
                     }
-                } 
-                // 🎙️ ৩. ভয়েস বাবল (লাইভ সেকেন্ড টাইমার সহ)
-                else if (isVoiceComment) {
+                } else if (isVoiceComment) {
                     val isPlaying = (activeAudioUrl == text)
                     SlateVoiceCommentPill(
                         audioUrl = text,
@@ -662,9 +758,7 @@ fun ModernCommentRowItem(
                         onPlayToggle = { onPlayAudio(text) },
                         modifier = Modifier.padding(top = 2.dp)
                     )
-                } 
-                // 💬 ৪. সাধারণ টেক্সট কমেন্ট
-                else {
+                } else {
                     Text(text, color = Color(0xFFE2E8F0), fontSize = 13.5.sp, lineHeight = 18.sp)
                 }
 
@@ -675,7 +769,6 @@ fun ModernCommentRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // ❤️ লাইক বাটন: তাৎক্ষণিক ক্লিক ও লাইভ অপটিমিস্টিক আপডেট
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -703,7 +796,6 @@ fun ModernCommentRowItem(
                         }
                     }
 
-                    // রিপ্লাই
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -723,7 +815,6 @@ fun ModernCommentRowItem(
                         }
                     }
 
-                    // 🎯 ৩-ডট ড্রপডাউন মেনু (Share + Delete)
                     Box {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -1145,7 +1236,6 @@ fun CommentRepliesThreadView(
             }
         }
 
-        // নিচের রিপ্লাই ইনপুট বার
         Surface(
             color = Color(0xFF080C14),
             modifier = Modifier
