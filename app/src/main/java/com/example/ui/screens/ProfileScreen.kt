@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
+import com.example.data.model.UserProfileDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.profile.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -98,7 +99,7 @@ fun ProfileScreen(
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var localAvatarOverride by remember { mutableStateOf<String?>(null) }
 
-    // ইমেজ ক্রপার স্টেট (সরাসরি প্রোফাইল ছবিতে ট্যাপের জন্য)
+    // ইমেজ ক্রপার স্টেট
     var rawSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var showImageCropDialog by remember { mutableStateOf(false) }
 
@@ -305,12 +306,11 @@ fun ProfileScreen(
         }
 
         // =============================================================
-        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
+        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ (ইউজার প্রোফাইল সহ)
         // =============================================================
         if (showInAppInvoiceWebView) {
-            val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
             InAppInvoiceWebViewDialog(
-                userId = numericUid,
+                userProfile = authState.userProfile,
                 onDismiss = { showInAppInvoiceWebView = false }
             )
         }
@@ -437,15 +437,20 @@ fun ProfileScreen(
 }
 
 /**
- * 🧾 ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
+ * 🧾 ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ (Multi-Identifier URL সহ)
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun InAppInvoiceWebViewDialog(
-    userId: String,
+    userProfile: UserProfileDto?,
     onDismiss: () -> Unit
 ) {
-    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$userId"
+    val numericUid = userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
+    val accountId = userProfile?.effectiveAccountId ?: ""
+    val email = Uri.encode(userProfile?.email ?: "")
+
+    // 🎯 ইউজার আইডি, অ্যাকাউন্ট আইডি ও ইমেইল একসাথে পাঠানো হচ্ছে যাতে যেকোনো একটি মিললেই ইনভয়েস চলে আসে
+    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$numericUid&account_id=$accountId&email=$email"
     var isLoading by remember { mutableStateOf(true) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
@@ -531,7 +536,7 @@ fun InAppInvoiceWebViewDialog(
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
                                 databaseEnabled = true
-                                cacheMode = WebSettings.LOAD_DEFAULT
+                                cacheMode = WebSettings.LOAD_NO_CACHE // 👈 রিয়েলটাইম ডাটা লোড
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 setSupportZoom(false)
