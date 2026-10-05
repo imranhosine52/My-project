@@ -13,6 +13,7 @@ import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.view.ViewGroup // 👈 ফিক্সড: ViewGroup ইমপোর্ট যুক্ত করা হয়েছে
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -613,7 +614,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // ইনপুট বার
                     Surface(
                         color = Color(0xFF141A24),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)
@@ -706,7 +706,6 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // ফ্লোটিং চ্যাট বাটন
         if (!isImeVisible) {
             Box(
                 modifier = Modifier
@@ -746,9 +745,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // =========================================================================
-    // 🧸 স্টিকার ও ফটো প্রিভিউ ডায়ালগ (কালো স্ক্রিন ফিক্সড)
-    // =========================================================================
     previewImageUrl?.let { mediaUrl ->
         val isVideoSticker = mediaUrl.endsWith(".mp4", true) || mediaUrl.endsWith(".webm", true)
 
@@ -759,11 +755,10 @@ fun FloatingCommunityChatWidget(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xCC080C14)) // 👈 কালো ব্ল্যাংক স্ক্রিনের বদলে ট্রান্সলুসেন্ট ব্যাকগ্রাউন্ড
+                    .background(Color(0xCC080C14))
                     .clickable { previewImageUrl = null },
                 contentAlignment = Alignment.Center
             ) {
-                // স্টিকার প্রিভিউ কনটেইনার
                 Box(
                     modifier = Modifier
                         .size(240.dp)
