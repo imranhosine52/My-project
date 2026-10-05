@@ -234,7 +234,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // ৬. সেটিংস ও ইনভয়েস (ইনভয়েস সরাসরি ইন-অ্যাপ ওয়েবভিউতে ওপেন হবে)
+                // ৬. সেটিংস ও ইনভয়েস
                 ModernMenuGroupCard {
                     if (authState.isLoggedIn) {
                         ModernMenuRowItem(
@@ -306,7 +306,7 @@ fun ProfileScreen(
         }
 
         // =============================================================
-        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ (ইউজার প্রোফাইল সহ)
+        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ (Multi-Identifier)
         // =============================================================
         if (showInAppInvoiceWebView) {
             InAppInvoiceWebViewDialog(
@@ -446,11 +446,15 @@ fun InAppInvoiceWebViewDialog(
     onDismiss: () -> Unit
 ) {
     val numericUid = userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
-    val accountId = userProfile?.effectiveAccountId ?: ""
+    val rawId = Uri.encode(userProfile?.id ?: "0")
+    val accountId = Uri.encode(userProfile?.effectiveAccountId ?: "")
     val email = Uri.encode(userProfile?.email ?: "")
+    val phone = Uri.encode(userProfile?.phone ?: "")
+    val name = Uri.encode(userProfile?.displayName ?: "")
+    val isVipFlag = if (userProfile?.isVip == true || userProfile?.plan?.lowercase() in listOf("vip", "premium")) "1" else "0"
 
-    // 🎯 ইউজার আইডি, অ্যাকাউন্ট আইডি ও ইমেইল একসাথে পাঠানো হচ্ছে যাতে যেকোনো একটি মিললেই ইনভয়েস চলে আসে
-    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$numericUid&account_id=$accountId&email=$email"
+    // 🎯 ইউজার আইডি, র' আইডি, অ্যাকাউন্ট আইডি, ইমেইল, ফোন, নাম ও ভিআইপি ফ্ল্যাগ একসাথে পাঠানো হচ্ছে
+    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$numericUid&raw_id=$rawId&account_id=$accountId&email=$email&phone=$phone&name=$name&is_vip=$isVipFlag"
     var isLoading by remember { mutableStateOf(true) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
@@ -536,7 +540,7 @@ fun InAppInvoiceWebViewDialog(
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
                                 databaseEnabled = true
-                                cacheMode = WebSettings.LOAD_NO_CACHE // 👈 রিয়েলটাইম ডাটা লোড
+                                cacheMode = WebSettings.LOAD_NO_CACHE // 👈 রিয়েলটাইম রিফ্রেশ
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 setSupportZoom(false)
