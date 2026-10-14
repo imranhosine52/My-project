@@ -266,16 +266,20 @@ fun FloatingCommunityChatWidget(
         FirebaseChatManager.getLiveMessagesFlow().collect { value = it }
     }
 
-    // প্রদর্শনের জন্য তৈরি মেসেজ লিস্ট
     val displayMessages = remember(messages) { messages.takeLast(70) }
 
-    // =========================================================================
-    // 🎯 ১. চ্যাট ওপেন করলেই সবার নিচের (লাস্ট) মেসেজ লোড হবে
-    // =========================================================================
     LaunchedEffect(isExpanded) {
         if (isExpanded && displayMessages.isNotEmpty()) {
-            delay(100L) // লেআউট তৈরি হওয়ামাত্রই লাস্ট আইটেমে জাম্প করবে
+            delay(100L)
             miniListState.scrollToItem(displayMessages.size - 1)
+        }
+    }
+
+    // 🎯 কিবোর্ড ওপেন হওয়ামাত্রই চ্যাট মেসেজের একদম শেষে স্ক্রোল হওয়া
+    LaunchedEffect(isImeVisible) {
+        if (isExpanded && isImeVisible && displayMessages.isNotEmpty()) {
+            delay(80L)
+            miniListState.animateScrollToItem(displayMessages.size - 1)
         }
     }
 
@@ -308,7 +312,6 @@ fun FloatingCommunityChatWidget(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
-    // 🧸 স্টিকার ও GIF সেন্ড হ্যান্ডলার
     fun sendStickerOrGif(mediaUrl: String) {
         if (isSending) return
         showMediaPicker = false
@@ -391,15 +394,17 @@ fun FloatingCommunityChatWidget(
         }
     }
 
+    // =========================================================================
+    // 🎯 ফিক্স: কিবোর্ড ওপেন হলে ডাবল প্যাডিং বন্ধ ও ডায়নামিক হাইট অ্যাডাপ্ট
+    // =========================================================================
     Column(
         modifier = modifier
-            .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
-            .padding(
-                bottom = if (isImeVisible) 4.dp else 48.dp, // 👈 নিচে উপযুক্ত মার্জিন
-                end = 12.dp
+            .then(
+                if (isImeVisible) Modifier.padding(bottom = 2.dp, end = 4.dp)
+                else Modifier.padding(bottom = 0.dp)
             ),
         horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         AnimatedVisibility(
             visible = isExpanded,
@@ -408,9 +413,10 @@ fun FloatingCommunityChatWidget(
         ) {
             Surface(
                 modifier = Modifier
-                    .width(335.dp)
-                    .height(495.dp)
-                    .shadow(elevation = 20.dp, shape = RoundedCornerShape(16.dp)),
+                    .width(330.dp)
+                    // 🎯 কিবোর্ড ওপেন হলে উইজেটের উচ্চতা ৩১০ ডিপি হবে, বন্ধ থাকলে ৪৭০ ডিপি
+                    .height(if (isImeVisible) 310.dp else 470.dp)
+                    .shadow(elevation = 16.dp, shape = RoundedCornerShape(16.dp)),
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0xFF10141D),
                 border = BorderStroke(1.dp, Color(0xFF232D3F))
@@ -463,7 +469,6 @@ fun FloatingCommunityChatWidget(
 
                     HorizontalDivider(color = Color(0xFF202A3C), thickness = 0.6.dp)
 
-                    // 💬 মেসেজ ও স্টিকার রেন্ডারিং (সর্বশেষ মেসেজ নিচে থেকে সুন্দরভাবে দেখাবে)
                     LazyColumn(
                         state = miniListState,
                         modifier = Modifier
@@ -482,7 +487,6 @@ fun FloatingCommunityChatWidget(
 
                             val offsetX = remember { Animatable(0f) }
 
-                            // 🧸 ১. নিখুঁত স্টিকার ও GIF ডিটেকশন
                             val candidateStickerUrl = msg.imageUrl ?: msg.imageUrls.firstOrNull() ?: msg.videoUrl
                             val isStickerMessage = msg.text.isBlank() &&
                                     msg.audioUrl.isNullOrBlank() &&
@@ -534,7 +538,6 @@ fun FloatingCommunityChatWidget(
                                     Spacer(modifier = Modifier.width(4.dp))
                                 }
 
-                                // 🧸 ২. স্টিকার হলে স্বচ্ছ ও জীবন্ত রেন্ডারিং
                                 if (isStickerMessage && !candidateStickerUrl.isNullOrBlank()) {
                                     Box(
                                         modifier = Modifier
@@ -910,7 +913,7 @@ fun FloatingCommunityChatWidget(
         }
 
         // =========================================================================
-        // 🌟 ২. কোনো নীল ব্যাকগ্রাউন্ড নেই — শুধু চ্যাট আইকন এবং পাশে "Help?" লেখা
+        // 💬 ফ্লোটিং চ্যাট লঞ্চার বাটন (Help?)
         // =========================================================================
         if (!isImeVisible) {
             Box(
@@ -919,7 +922,7 @@ fun FloatingCommunityChatWidget(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) { isExpanded = !isExpanded }
-                    .padding(horizontal = 4.dp, vertical = 2.dp), // 👈 নীল ব্যাকগ্রাউন্ড ও পিল সম্পূর্ণ বাদ দেওয়া হয়েছে
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -948,14 +951,12 @@ fun FloatingCommunityChatWidget(
                             fontWeight = FontWeight.Bold
                         )
                     } else {
-                        // 🎯 চ্যাট আইকন
                         Icon(
                             imageVector = Icons.Default.ChatBubble,
                             contentDescription = "Help",
                             tint = Color(0xFF00E5FF),
                             modifier = Modifier.size(20.dp)
                         )
-                        // 🎯 পাশে স্পষ্ট Help? লেখা
                         Text(
                             text = "Help?",
                             color = Color.White,
@@ -1004,9 +1005,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // =========================================================================
-    // 🧸 স্টিকার ও ইমেজ প্রিভিউ ডায়ালগ (কালো স্ক্রিন ফিক্সড)
-    // =========================================================================
     previewImageUrl?.let { mediaUrl ->
         val isVideoSticker = mediaUrl.endsWith(".mp4", true) || mediaUrl.endsWith(".webm", true)
 
@@ -1054,7 +1052,7 @@ fun FloatingCommunityChatWidget(
                         .padding(16.dp)
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(0.6f))
+                        .background(Color.Black.copy(alpha = 0.6f))
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }
@@ -1070,7 +1068,6 @@ fun FloatingCommunityChatWidget(
     }
 }
 
-// 🎥 মিনি ভিডিও স্টিকার অটো-প্লেয়ার
 @Composable
 private fun MiniVideoStickerLoopPlayer(
     videoUrl: String,
