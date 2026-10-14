@@ -692,12 +692,32 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerState.recommendations, homeState.popularDramas, homeState.recentlyAdded, currentActiveSlug) {
+    // =========================================================================
+    // 🎯 রিকমেন্ডেশন পুল সম্প্রসারণ ও ঠিক ৩২টি কার্ড নির্বাচন
+    // =========================================================================
+    LaunchedEffect(
+        playerState.recommendations,
+        homeState.popularDramas,
+        homeState.recentlyAdded,
+        homeState.dramaSeriesContent,
+        homeState.trendingDramas,
+        homeState.banglaDubbed,
+        homeState.hindiDubbed,
+        currentActiveSlug
+    ) {
         val currentCategories = content.categories.map { it.lowercase() }
         val currentDub = content.dubBadge.lowercase()
 
-        val allPool = (playerState.recommendations + homeState.popularDramas + homeState.recentlyAdded)
-            .distinctBy { it.slug }
+        // সমস্ত ক্যাটাগরি থেকে বড় পুল তৈরি
+        val allPool = (
+            playerState.recommendations +
+            homeState.popularDramas +
+            homeState.recentlyAdded +
+            homeState.dramaSeriesContent +
+            homeState.trendingDramas +
+            homeState.banglaDubbed +
+            homeState.hindiDubbed
+        ).distinctBy { it.slug }
             .filter { drama ->
                 drama.slug != currentActiveSlug &&
                 !drama.isShorts &&
@@ -711,7 +731,15 @@ fun PlayerScreen(
             score
         }
 
-        shuffledRecommendations = sortedSimilar.take(20).shuffled()
+        // 🎯 নিশ্চিতভাবে ঠিক ৩২টি কার্ড নেওয়া হচ্ছে
+        val targetCards = if (sortedSimilar.size >= 32) {
+            sortedSimilar.take(32)
+        } else {
+            val remaining = (allPool - sortedSimilar.toSet())
+            (sortedSimilar + remaining).take(32)
+        }
+
+        shuffledRecommendations = targetCards.shuffled()
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
@@ -922,7 +950,6 @@ fun PlayerScreen(
                             }
                         )
                     } else {
-                        // 🎯 পুল-টু-রিফ্রেশ বক্স
                         PullToRefreshBox(
                             isRefreshing = isRefreshing,
                             onRefresh = {
@@ -1024,7 +1051,7 @@ fun PlayerScreen(
                                 }
 
                                 // =============================================================
-                                // 🌟 For you ট্যাব: এক লাইনে ৪টি করে কার্ড (4 Cards Per Row)
+                                // 🌟 For you ট্যাব: ৩২টি কার্ড ($4 \times 8$ গ্রিড - কোনো ফাঁকা জায়গা থাকবে না)
                                 // =============================================================
                                 if (selectedTabIndex == 0) {
                                     val dramaRows = shuffledRecommendations.chunked(4)
@@ -1270,13 +1297,12 @@ fun PlayerScreen(
             }
         }
 
-        // 👑 লং ভিডিও VIP লকড ডাউনলোড শিট
         if (showDownloadSheet) {
             DownloadResourceSheet(
                 title = cleanShortTitle,
                 downloadUrl = downloadUrl,
                 isVip = isUserVip,
-                isLongVideo = true, // 👈 লং ভিডিও ফ্ল্যাগ
+                isLongVideo = true,
                 onDismiss = { showDownloadSheet = false },
                 onDownloadNow = {
                     showDownloadSheet = false
