@@ -63,7 +63,7 @@ fun MainHomeFeedTab(
         contentPadding = PaddingValues(top = statusBarTop + 84.dp, bottom = 60.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ১. Spotlight Hero Carousel
+        // Spotlight Hero Carousel
         if (homeState.spotlightDramas.isNotEmpty()) {
             item {
                 HotSpotlightHeroCard(
@@ -75,7 +75,7 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ২. VIP Promo Banner
+        // VIP Promo Banner
         item {
             HomeVipPromoBanner(
                 onVipClick = onNavigateToVip,
@@ -83,7 +83,9 @@ fun MainHomeFeedTab(
             )
         }
 
-        // ৩. Recently Added
+        // =========================================================================
+        // ১/ Recently Added
+        // =========================================================================
         if (homeState.recentlyAdded.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -104,7 +106,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৪. Popular Series
+        // =========================================================================
+        // ২/ Popular Series
+        // =========================================================================
         if (sortedPopularByViews.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -125,7 +129,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৫. Shorts Drama
+        // =========================================================================
+        // ৩/ Shorts Drama
+        // =========================================================================
         if (homeState.shortsContent.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -146,7 +152,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৬. Drama Series
+        // =========================================================================
+        // ৪/ Drama Series
+        // =========================================================================
         if (homeState.dramaSeriesContent.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -167,12 +175,60 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৭. Bangla Dub
+        // =========================================================================
+        // ৫/ Anime Series
+        // =========================================================================
+        if (homeState.animeContent.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Anime Series",
+                    onSeeAllClick = { onSelectCategoryTab(5) } // Tab 5 = Anime
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(homeState.animeContent) { drama ->
+                        HomePosterCardHorizontal(
+                            drama = drama,
+                            onClick = { onNavigateToPlayer(drama.slug) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // ৬/ Movies
+        // =========================================================================
+        if (homeState.movieContent.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Movies",
+                    onSeeAllClick = { onSelectCategoryTab(6) } // Tab 6 = Movies
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(homeState.movieContent) { drama ->
+                        HomePosterCardHorizontal(
+                            drama = drama,
+                            onClick = { onNavigateToPlayer(drama.slug) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // ৭/ Bangla Dub
+        // =========================================================================
         if (homeState.banglaDubbed.isNotEmpty()) {
             item {
                 SectionHeader(
                     title = "Bangla Dub",
-                    onSeeAllClick = { onSelectCategoryTab(7) }
+                    onSeeAllClick = { onSelectCategoryTab(7) } // Tab 7 = Bangla Dub
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 10.dp),
@@ -188,12 +244,14 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৮. Hindi Dub
+        // =========================================================================
+        // ৮/ Hindi Dub
+        // =========================================================================
         if (homeState.hindiDubbed.isNotEmpty()) {
             item {
                 SectionHeader(
                     title = "Hindi Dub",
-                    onSeeAllClick = { onSelectCategoryTab(8) }
+                    onSeeAllClick = { onSelectCategoryTab(8) } // Tab 8 = Hindi Dub
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 10.dp),
@@ -252,7 +310,7 @@ fun MainHomeFeedTab(
 }
 
 // =========================================================================
-// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড (হালকা রেটিং ও Display Name সহ)
+// 🖼️ কমপ্যাক্ট হরিজন্টাল কার্ড
 // =========================================================================
 @Composable
 fun HomePosterCardHorizontal(
@@ -304,7 +362,7 @@ fun HomePosterCardHorizontal(
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // এপিসোড সংখ্যা (নিচে বাঁয়ে)
+            // এপিসোড সংখ্যা
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "Full HD"
             Text(
                 text = epCount,
@@ -316,7 +374,7 @@ fun HomePosterCardHorizontal(
                     .padding(start = 6.dp, bottom = 4.dp)
             )
 
-            // 🎯 হালকা রেটিং (নিচে ডানে - কোনো সলিড বক্স ছাড়া)
+            // হালকা রেটিং
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -354,7 +412,7 @@ fun HomePosterCardHorizontal(
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড (হালকা রেটিং ও Display Name সহ)
+// 🖼️ হোম পেজের ৩-কলাম গ্রিড কার্ড
 // =========================================================================
 @Composable
 fun HomeGridDramaCard(
@@ -401,13 +459,11 @@ fun HomeGridDramaCard(
                     )
             )
 
-            // ডাইনামিক ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // এপিসোড সংখ্যা (নিচে বাঁয়ে)
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "Full HD"
             Text(
                 text = epCount,
@@ -419,7 +475,6 @@ fun HomeGridDramaCard(
                     .padding(horizontal = 5.dp, vertical = 4.dp)
             )
 
-            // 🎯 হালকা রেটিং (নিচে ডানে)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -444,7 +499,6 @@ fun HomeGridDramaCard(
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // ছোট ও পরিচ্ছন্ন নাম
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
