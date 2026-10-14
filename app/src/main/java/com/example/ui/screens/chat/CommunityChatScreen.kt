@@ -182,7 +182,6 @@ fun CommunityChatScreen(
     var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
 
-    // 🌟 VIP স্ট্যাটাস সরাসরি জয়েন ও ক্লাউড সিঙ্ক
     LaunchedEffect(currentUserId, currentUserEmail, isUserVip) {
         if (isCurrentUserOwner) {
             isUserJoined = true
@@ -285,7 +284,6 @@ fun CommunityChatScreen(
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
 
-    // 🌟 প্রেজেন্স লুপে রিয়েল-টাইম isUserVip সিঙ্ক
     LaunchedEffect(currentUserId, isUserJoined, isUserVip) {
         if (isUserJoined) {
             FirebaseChatManager.subscribeToUserTopic(currentUserId)
@@ -351,10 +349,11 @@ fun CommunityChatScreen(
         }
     }
 
-    val bottomInsetModifier = Modifier.windowInsetsPadding(
-        if (isImeVisible) WindowInsets.ime
-        else WindowInsets.navigationBars
-    )
+    // =========================================================================
+    // 🎯 ফিক্স: কিবোর্ড ওপেন হলে অতিরিক্ত প্যাডিং সম্পূর্ণ পরিহার করা
+    // কিবোর্ড খোলা থাকলে 0dp আর বন্ধ থাকলে সাধারণ navigationBarsPadding থাকবে।
+    // =========================================================================
+    val cleanBottomInsetModifier = if (isImeVisible) Modifier.padding(bottom = 2.dp) else Modifier.navigationBarsPadding()
 
     fun executeStartRecordingVoice() {
         try {
@@ -928,7 +927,7 @@ fun CommunityChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .then(bottomInsetModifier)
+                        .then(cleanBottomInsetModifier) // 🎯 ফিক্সড ক্লিন প্যাডিং
                         .clickable { showAuthSheet = true }
                 ) {
                     Row(
@@ -954,7 +953,7 @@ fun CommunityChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 6.dp)
-                        .then(bottomInsetModifier)
+                        .then(cleanBottomInsetModifier) // 🎯 ফিক্সড ক্লিন প্যাডিং
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -1026,7 +1025,7 @@ fun CommunityChatScreen(
                     onSendMessage = { sendMessage() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(bottomInsetModifier)
+                        .then(cleanBottomInsetModifier) // 🎯 ফিক্সড ক্লিন প্যাডিং
                 )
             }
         }
