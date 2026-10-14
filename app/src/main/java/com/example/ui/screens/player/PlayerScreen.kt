@@ -42,6 +42,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -111,13 +113,18 @@ private fun findActivityFromContext(context: Context): Activity? {
     return null
 }
 
-private fun isDirectMediaUrl(rawUrl: String?): Boolean {
+/**
+ * 🎯 অটোমেটিক মিডিয়া ডিটেকশন হেল্পার:
+ * সরাসরি ভিডিও ফাইল (.mp4, .m3u8, .mkv ইত্যাদি) নাকি কোনো থার্ডপার্টি এম্বেড আইফ্রেম প্লেয়ার
+ */
+private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
     val url = rawUrl.trim().lowercase()
 
     if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
     if (!url.startsWith("http://") && !url.startsWith("https://")) return false
 
+    // যদি কোনো এম্বেড লিঙ্ক বা আইফ্রেম থাকে
     if (url.contains("/e/") || url.contains("/embed") || url.contains("byse") ||
         url.contains("streamtape") || url.contains("streamwish") || url.contains("dood") ||
         url.contains("vidhide") || url.contains("youtube") || url.contains("iframe")
@@ -128,6 +135,7 @@ private fun isDirectMediaUrl(rawUrl: String?): Boolean {
     val cleanUrl = url.substringBefore("?").substringBefore("#")
     return cleanUrl.endsWith(".mp4") ||
             cleanUrl.endsWith(".m3u8") ||
+            cleanUrl.endsWith(".mkv") ||
             cleanUrl.endsWith(".mpd") ||
             cleanUrl.endsWith(".m4v")
 }
@@ -167,7 +175,6 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     val isUserLoggedIn = authState.isLoggedIn
-
     val isUserVip = playerState.isVip ||
             authState.isVip ||
             (authState.userProfile?.isVip == true) ||
@@ -186,6 +193,10 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
+    // 🔄 পুল-টু-রিফ্রেশ স্টেট
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
+
     val deletedCommentPrefs = remember { context.getSharedPreferences("drama_deleted_comments_prefs", Context.MODE_PRIVATE) }
     val deletedCommentIds = remember {
         mutableStateListOf<String>().apply {
@@ -199,9 +210,7 @@ fun PlayerScreen(
 
     var isMediaSendingLock by remember { mutableStateOf(false) }
 
-    // =========================================================================
-    // 📢 ১. কাস্টম অ্যাড কনফিগারেশন ও ডায়নামিক মিনিট টাইমার
-    // =========================================================================
+    // কাস্টম বিজ্ঞাপন লোডিং
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
     var lastMidrollTriggerSeconds by remember(currentActiveSlug) { mutableLongStateOf(0L) }
@@ -226,9 +235,6 @@ fun PlayerScreen(
         customAdsConfig?.ads?.filter { it.placement == "long_video" || it.placement == "all" } ?: emptyList()
     }
 
-    // =========================================================================
-    // 🎯 ২. একাধিক ক্লিক অ্যাড ও ১ মিনিট আনলক ভ্যালিডিটি ইঞ্জিন
-    // =========================================================================
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
@@ -236,22 +242,18 @@ fun PlayerScreen(
         adConfig.rules?.timerSeconds?.let { (it / 5).coerceIn(1, 3) } ?: 2
     }
 
-    // 🎯 কতটি ক্লিক সম্পন্ন হয়েছে তার লাইভ কাউন্টার (শুরুতে ০)
     var completedAdClicks by remember(currentActiveSlug, playerState.lockedEpisodeTarget?.episodeNumber) {
         mutableIntStateOf(0)
     }
 
-    // 🎆 বাজি ফোটানোর অ্যানিমেশন স্টেট
     var showFireworksCelebration by remember { mutableStateOf(false) }
 
-    // ১ মিনিটের আনলক মেথড
     fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // ১ মিনিট (৬০ সেকেন্ড)
+        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L)
         val storageKey = "unlock_expiry_${currentActiveSlug}_ep${ep.episodeNumber}"
 
         prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
-
         viewModel.selectEpisode(ep.copy(isLocked = false))
 
         coroutineScope.launch {
@@ -262,15 +264,14 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 মাল্টি-ক্লিক অ্যাড হ্যান্ডলার (স্টেপ বাই স্টেপ অগ্রগতি)
     fun handleMultiClickAdUnlock(ep: EpisodeDto) {
         UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
-        completedAdClicks++ // ১ ধাপ বাড়লো
+        completedAdClicks++
 
         if (completedAdClicks >= requiredAdClicks) {
             completedAdClicks = 0
             viewModel.dismissEpisodeUnlockModal()
-            showFireworksCelebration = true // 🎆 শেষ ক্লিকে রঙিন বাজি ফুটবে!
+            showFireworksCelebration = true
             unlockEpisodeForOneMinute(ep)
         } else {
             val remainingClicks = requiredAdClicks - completedAdClicks
@@ -334,16 +335,9 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
-    val serverPrefs = remember { context.getSharedPreferences("drama_server_preference_prefs", Context.MODE_PRIVATE) }
-    var selectedGlobalServerId by rememberSaveable {
-        mutableStateOf(serverPrefs.getString("user_chosen_server", "server_1") ?: "server_1")
-    }
-
     var showAuthSheet by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
-
-    var showServerSelectorSheet by remember { mutableStateOf(false) }
     var showAllEpisodesSheet by remember { mutableStateOf(false) }
 
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -392,8 +386,6 @@ fun PlayerScreen(
             showBatchDownloadDialog = false
         } else if (showAllEpisodesSheet) {
             showAllEpisodesSheet = false
-        } else if (showServerSelectorSheet) {
-            showServerSelectorSheet = false
         } else if (isDeviceLandscape) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else if (selectedThreadParentComment != null) {
@@ -558,70 +550,7 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
-    val hasServer1Available = remember(currentEp) {
-        if (currentEp == null) false
-        else {
-            val appStream = currentEp.appStreamUrl
-            val vUrl = currentEp.videoUrl
-            isDirectMediaUrl(appStream) || isDirectMediaUrl(vUrl)
-        }
-    }
-
-    val hasServer2Available = remember(currentEp, playerState.servers) {
-        if (currentEp == null) false
-        else {
-            val em = currentEp.embedUrl?.trim() ?: ""
-            val wp = currentEp.webPlayerUrl?.trim() ?: ""
-            val vu = currentEp.videoUrl?.trim() ?: ""
-
-            val hasValidEmbed = em.isNotBlank() && em != "null"
-            val hasValidWebPlayer = wp.isNotBlank() && wp != "null"
-            val hasWebPlayerInVideoUrl = vu.isNotBlank() && vu != "null" && !isDirectMediaUrl(vu)
-
-            val hasGlobalServers = playerState.servers.any { srv ->
-                val raw = srv.rawUrl?.trim() ?: ""
-                val embed = srv.embedUrl?.trim() ?: ""
-                (raw.isNotBlank() && raw != "null") || (embed.isNotBlank() && embed != "null")
-            }
-
-            hasValidEmbed || hasValidWebPlayer || hasWebPlayerInVideoUrl || hasGlobalServers
-        }
-    }
-
-    val availableGlobalServers = remember(hasServer1Available, hasServer2Available) {
-        buildList {
-            if (hasServer1Available) {
-                add(
-                    GlobalStreamServer(
-                        id = "server_1",
-                        displayName = "Server 1",
-                        providerInfo = "Ultra Fast HD Node (1080p)",
-                        isEmbed = false
-                    )
-                )
-            }
-            if (hasServer2Available) {
-                add(
-                    GlobalStreamServer(
-                        id = "server_2",
-                        displayName = "Server 2",
-                        providerInfo = "High-Speed Stream Node",
-                        isEmbed = true
-                    )
-                )
-            }
-        }
-    }
-
-    LaunchedEffect(currentEp?.episodeId, currentActiveSlug) {
-        if (selectedGlobalServerId == "server_1" && !hasServer1Available && hasServer2Available) {
-            selectedGlobalServerId = "server_2"
-        } else if (selectedGlobalServerId == "server_2" && !hasServer2Available && hasServer1Available) {
-            selectedGlobalServerId = "server_1"
-        }
-    }
-
-    DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
+    DisposableEffect(exoPlayer, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
@@ -643,10 +572,7 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (hasServer2Available && selectedGlobalServerId != "server_2") {
-                    selectedGlobalServerId = "server_2"
-                    Toast.makeText(context, "Switching to Server 2...", Toast.LENGTH_SHORT).show()
-                } else if (activeStreamUrl.isNotBlank()) {
+                if (activeStreamUrl.isNotBlank() && !useWebPlayerFallback) {
                     useWebPlayerFallback = true
                     persistentWebView.loadUrl(activeStreamUrl)
                 }
@@ -656,9 +582,7 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // =========================================================================
-    // ⏱️ ৩. অ্যাডমিন প্যানেল নির্ধারিত ডায়নামিক মিনিট ইন্টারভাল অ্যাড ট্রিগার
-    // =========================================================================
+    // মিডরোল বিজ্ঞাপন চেক
     LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -672,7 +596,6 @@ fun PlayerScreen(
             if (!isUserVip && activeCustomVideoAd == null && customAdsConfig?.customAdsEnabled == true) {
                 val longRules = customAdsConfig?.longVideoRules
                 if (longRules?.enabled == true && customLongAds.isNotEmpty()) {
-
                     val repeatIntervalSec = (longRules.repeatIntervalSeconds).coerceAtLeast(60)
                     val firstAdDelaySec = (longRules.firstAdDelaySeconds).coerceAtLeast(0)
 
@@ -691,10 +614,12 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🎯 একক অটো-রিজলভার (MP4, HLS/m3u8 বা Embed স্বয়ংক্রিয় প্লেব্যাক ইঞ্জিন)
+    // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
-        selectedGlobalServerId,
         currentActiveSlug
     ) {
         if (currentEp != null) {
@@ -704,33 +629,56 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            val (resolvedUrl, isEmbed) = if (selectedGlobalServerId == "server_2") {
-                val byseCandidate = currentEp.embedUrl?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: currentEp.webPlayerUrl?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && it != "null" && !isDirectMediaUrl(it) }
-                    ?: ""
-                Pair(byseCandidate, true)
-            } else {
-                val directCandidate = currentEp.appStreamUrl?.takeIf { isDirectMediaUrl(it) }
-                    ?: currentEp.videoUrl?.takeIf { isDirectMediaUrl(it) }
-                    ?: ""
-                Pair(directCandidate, false)
+            // সার্ভারের পাঠানো ফিল্ডগুলো স্বয়ংক্রিয়ভাবে স্ক্যান করা
+            val appStream = currentEp.appStreamUrl?.trim() ?: ""
+            val streamUrl = currentEp.directStreamUrl?.trim() ?: ""
+            val videoUrl = currentEp.videoUrl?.trim() ?: ""
+            val embedUrl = currentEp.embedUrl?.trim() ?: ""
+            val webPlayerUrl = currentEp.webPlayerUrl?.trim() ?: ""
+
+            // ১. সরাসরি ভিডিও লিংক খোঁজা (.mp4 / .m3u8 ইত্যাদি)
+            val directCandidate = when {
+                isDirectStreamableUrl(appStream) -> appStream
+                isDirectStreamableUrl(streamUrl) -> streamUrl
+                isDirectStreamableUrl(videoUrl) -> videoUrl
+                else -> ""
+            }
+
+            // ২. এম্বেড লিংক খোঁজা
+            val embedCandidate = when {
+                embedUrl.isNotBlank() && embedUrl != "null" -> embedUrl
+                webPlayerUrl.isNotBlank() && webPlayerUrl != "null" -> webPlayerUrl
+                videoUrl.isNotBlank() && videoUrl != "null" && !isDirectStreamableUrl(videoUrl) -> videoUrl
+                else -> ""
+            }
+
+            // সিদ্ধান্ত: সরাসরি ভিডিও নাকি এম্বেড
+            val (resolvedUrl, isEmbed) = when {
+                directCandidate.isNotBlank() -> Pair(directCandidate, false)
+                embedCandidate.isNotBlank() -> Pair(embedCandidate, true)
+                else -> {
+                    // ফলব্যাক: Cloudflare R2 HLS বা ডিরেক্ট MP4
+                    val fallback = currentEp.resolveR2StreamUrl(currentActiveSlug)
+                    Pair(fallback, !isDirectStreamableUrl(fallback))
+                }
             }
 
             if (resolvedUrl.isBlank()) return@LaunchedEffect
 
-            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${selectedGlobalServerId}"
+            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}"
             if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == resolvedUrl) return@LaunchedEffect
 
             currentLoadedEpKey = epUniqueKey
             activeStreamUrl = resolvedUrl
 
             if (isEmbed) {
+                // এম্বেড প্লেয়ার চালু
                 useWebPlayerFallback = true
                 exoPlayer.stop()
                 exoPlayer.clearMediaItems()
                 persistentWebView.loadUrl(resolvedUrl)
             } else {
+                // ExoPlayer-এ সরাসরি প্লেব্যাক
                 useWebPlayerFallback = false
                 persistentWebView.loadUrl("about:blank")
                 try {
@@ -745,11 +693,9 @@ fun PlayerScreen(
                     exoPlayer.playWhenReady = true
                     if (activeCustomVideoAd == null) exoPlayer.play()
                 } catch (_: Exception) {
-                    if (hasServer2Available) {
-                        selectedGlobalServerId = "server_2"
-                    } else {
+                    if (embedCandidate.isNotBlank()) {
                         useWebPlayerFallback = true
-                        persistentWebView.loadUrl(resolvedUrl)
+                        persistentWebView.loadUrl(embedCandidate)
                     }
                 }
             }
@@ -833,6 +779,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
+                // ভিডিও প্লেয়ার কন্টেইনার
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -947,6 +894,9 @@ fun PlayerScreen(
                     }
                 }
 
+                // =============================================================
+                // 🔄 পোর্ট্রেট অংশ: পুল-টু-রিফ্রেশ কনটেইনার
+                // =============================================================
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -982,7 +932,20 @@ fun PlayerScreen(
                             }
                         )
                     } else {
-                        Box(
+                        // 🎯 পুল-টু-রিফ্রেশ বক্স: নিচে টানলে ক্যাশ ক্লিয়ার করে নতুন ডাটা ফেচ হবে
+                        PullToRefreshBox(
+                            isRefreshing = isRefreshing,
+                            onRefresh = {
+                                coroutineScope.launch {
+                                    isRefreshing = true
+                                    viewModel.loadDramaDetails(currentActiveSlug, context, forceRefresh = true)
+                                    viewModel.refreshComments()
+                                    delay(600)
+                                    isRefreshing = false
+                                    Toast.makeText(context, "✓ Updated to latest episodes & links!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            state = pullRefreshState,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
@@ -1025,7 +988,6 @@ fun PlayerScreen(
                                             else viewModel.toggleLikeDrama()
                                         },
                                         onWatchlistClick = { viewModel.toggleWatchlist() },
-                                        onServerIconClick = { showServerSelectorSheet = true },
                                         onSwipeDownFullscreen = {
                                             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                         }
@@ -1172,71 +1134,55 @@ fun PlayerScreen(
                                     }
                                 }
                             }
+                        }
 
-                            if (showAllEpisodesSheet) {
-                                PlayerAllEpisodesSheet(
-                                    episodes = effectiveEpisodes,
-                                    currentEpNumber = currentEp?.episodeNumber ?: 1,
-                                    shouldLockEpisodes = shouldLockEpisodes,
-                                    onClose = { showAllEpisodesSheet = false },
-                                    onSelectEpisode = { ep ->
-                                        showAllEpisodesSheet = false
-                                        if (shouldLockEpisodes && ep.isLocked) viewModel.showEpisodeUnlockModal(ep)
-                                        else viewModel.selectEpisode(ep)
-                                    }
-                                )
-                            }
+                        if (showAllEpisodesSheet) {
+                            PlayerAllEpisodesSheet(
+                                episodes = effectiveEpisodes,
+                                currentEpNumber = currentEp?.episodeNumber ?: 1,
+                                shouldLockEpisodes = shouldLockEpisodes,
+                                onClose = { showAllEpisodesSheet = false },
+                                onSelectEpisode = { ep ->
+                                    showAllEpisodesSheet = false
+                                    if (shouldLockEpisodes && ep.isLocked) viewModel.showEpisodeUnlockModal(ep)
+                                    else viewModel.selectEpisode(ep)
+                                }
+                            )
+                        }
 
-                            if (showServerSelectorSheet) {
-                                PlayerServerSelectorSheet(
-                                    servers = availableGlobalServers,
-                                    selectedServerId = selectedGlobalServerId,
-                                    onClose = { showServerSelectorSheet = false },
-                                    onSelectServer = { srv: GlobalStreamServer ->
-                                        selectedGlobalServerId = srv.id
-                                        serverPrefs.edit().putString("user_chosen_server", srv.id).apply()
-                                        showServerSelectorSheet = false
-                                        Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
+                        if (showBatchDownloadDialog) {
+                            PlayerBatchDownloadSheet(
+                                title = cleanShortTitle,
+                                slug = currentActiveSlug,
+                                episodes = effectiveEpisodes,
+                                isVip = isUserVip,
+                                onClose = { showBatchDownloadDialog = false },
+                                onNavigateToVip = onNavigateToVip,
+                                onDownloadSelected = { selectedList ->
+                                    showBatchDownloadDialog = false
+                                    selectedList.forEach { ep ->
+                                        R2DownloadManager.startDownload(
+                                            context = context,
+                                            downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
+                                            title = cleanShortTitle,
+                                            episodeNumber = ep.episodeNumber,
+                                            isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
+                                        )
                                     }
-                                )
-                            }
-
-                            if (showBatchDownloadDialog) {
-                                PlayerBatchDownloadSheet(
-                                    title = cleanShortTitle,
-                                    slug = currentActiveSlug,
-                                    episodes = effectiveEpisodes,
-                                    isVip = isUserVip,
-                                    onClose = { showBatchDownloadDialog = false },
-                                    onNavigateToVip = onNavigateToVip,
-                                    onDownloadSelected = { selectedList ->
-                                        showBatchDownloadDialog = false
-                                        selectedList.forEach { ep ->
-                                            R2DownloadManager.startDownload(
-                                                context = context,
-                                                downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
-                                                title = cleanShortTitle,
-                                                episodeNumber = ep.episodeNumber,
-                                                isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
-                                            )
-                                        }
-                                        Toast.makeText(
-                                            context,
-                                            "📥 Download started for ${selectedList.size} episodes!",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                )
-                            }
+                                    Toast.makeText(
+                                        context,
+                                        "📥 Download started for ${selectedList.size} episodes!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
                         }
                     }
                 }
             }
         }
 
-        // =========================================================================
-        // 🎬 ৪. ইউটিউব স্প্লিট কাস্টম ভিডিও বিজ্ঞাপন উইন্ডো
-        // =========================================================================
+        // কাস্টম অ্যাড ডায়ালগ
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
             CustomVideoAdDialog(
@@ -1355,14 +1301,11 @@ fun PlayerScreen(
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
-        // =========================================================================
-        // 🔒 ৫. স্টেপ কাউন্টার আনলক ডায়ালগ
-        // =========================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
-                completedSteps = completedAdClicks, // 👈 লাইভ প্রোগ্রেস সিঙ্ক
+                completedSteps = completedAdClicks,
                 totalSteps = requiredAdClicks,
                 onDismiss = {
                     completedAdClicks = 0
@@ -1378,9 +1321,6 @@ fun PlayerScreen(
             )
         }
 
-        // =========================================================================
-        // 🎆 ৬. আনলক সম্পন্ন হওয়ার রঙিন বাজি বিস্ফোরণ অ্যানিমেশন (Fireworks)
-        // =========================================================================
         if (showFireworksCelebration) {
             CelebrationFireworksOverlay(
                 onDismiss = { showFireworksCelebration = false },
