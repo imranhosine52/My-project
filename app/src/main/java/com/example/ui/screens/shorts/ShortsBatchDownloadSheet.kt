@@ -131,14 +131,11 @@ fun ShortsBatchDownloadSheet(
     val dragOffsetY = remember { Animatable(0f) }
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
-    // 🎯 রিয়েল-টাইম লাইভ মেগাবাইট সাইজ ক্যাশ ম্যাপ
     val realSizesMap = remember { mutableStateMapOf<String, Long>() }
-
-    // 🎯 দৈনিক ২ জিবি কোটা ট্র্যাকার স্টেট
     var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     // =========================================================================
-    // 🔍 ১. ড্রামার আসল কোয়ালিটি ডিটেকশন
+    // 🔍 ১. শর্টসের আসল কোয়ালিটি ডিটেকশন
     // =========================================================================
     val realAvailableQualities = remember(episodes) {
         val detected = mutableListOf<SheetQualityItem>()
@@ -168,7 +165,7 @@ fun ShortsBatchDownloadSheet(
     }
 
     var selectedQuality by remember(realAvailableQualities) {
-        mutableStateOf(realAvailableQualities.firstOrNull() ?: SheetQualityItem("single", "HD", false))
+        mutableStateOf(realAvailableQualities.firstOrNull { !it.isVipOnly } ?: realAvailableQualities.first())
     }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
@@ -277,7 +274,7 @@ fun ShortsBatchDownloadSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = 90.dp) // নিচে লিমিট টেক্সটের জন্য জায়গা বাড়ানো হলো
+                        .padding(bottom = 90.dp)
                 ) {
                     // =============================================================
                     // 🔝 ১. ড্র্যাগ হ্যান্ডেল ও কোয়ালিটি চিপস
@@ -404,7 +401,6 @@ fun ShortsBatchDownloadSheet(
                             val targetUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
                             val liveBytes = realSizesMap[targetUrl] ?: 0L
 
-                            // 🎯 আসল সাইজ ফরম্যাটিং
                             val sizeDisplay = when {
                                 liveBytes > 0L -> {
                                     val mb = liveBytes / (1024.0 * 1024.0)
@@ -428,7 +424,6 @@ fun ShortsBatchDownloadSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // 👈 বাঁয়ে: চেকমার্ক + পর্ব নম্বর
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -465,7 +460,6 @@ fun ShortsBatchDownloadSheet(
                                     )
                                 }
 
-                                // 👉 ডানে: ফাইলের আসল সাইজ ব্যাজ
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = if (isSelected) Color(0xFF00E676).copy(alpha = 0.15f) else Color(0xFF1E2430),
@@ -488,7 +482,7 @@ fun ShortsBatchDownloadSheet(
                 }
 
                 // =============================================================
-                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (২ জিবি লিমিট টেক্সট সহ)
+                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (শর্টসে ২ জিবি ফ্রি কোটা সহ)
                 // =============================================================
                 Surface(
                     modifier = Modifier
@@ -509,7 +503,6 @@ fun ShortsBatchDownloadSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // 👈 বামে: [○] Select All
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -559,7 +552,6 @@ fun ShortsBatchDownloadSheet(
                                 )
                             }
 
-                            // 👉 ডানে: ডাউনলোড বাটন
                             val isVipLocked = selectedQuality.isVipOnly && !isVip
 
                             val downloadButtonBrush = if (isVipLocked) {
@@ -598,12 +590,13 @@ fun ShortsBatchDownloadSheet(
                                             return@clickable
                                         }
 
-                                        // 🎯 কোটা ভ্যালিডেশন
+                                        // 🎯 শর্টসের জন্য isLongVideo = false (ফ্রি ২ জিবি লিমিট কার্যকর)
                                         val totalSelectedBytes = (totalCalculatedMb * 1024.0 * 1024.0).toLong()
                                         val checkResult = DownloadQuotaManager.checkCanDownload(
                                             context = context,
                                             bytesToDownload = totalSelectedBytes,
-                                            isVip = isVip
+                                            isVip = isVip,
+                                            isLongVideo = false
                                         )
 
                                         if (checkResult.canDownload) {
@@ -650,7 +643,7 @@ fun ShortsBatchDownloadSheet(
                         }
 
                         // =============================================================
-                        // 🌟 গোল বৃত্তের জায়গায় কাঙ্ক্ষিত ২ জিবি কোটা টেক্সট
+                        // 🌟 শর্টস ডাউনলোডের ফ্রি ২ জিবি লিমিট টেক্সট
                         // =============================================================
                         if (isVip) {
                             Text(
