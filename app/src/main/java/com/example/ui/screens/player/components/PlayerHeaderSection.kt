@@ -2,7 +2,6 @@ package com.example.ui.screens.player.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -13,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,30 +40,25 @@ fun PlayerHeaderSection(
     onToggleDescription: () -> Unit,
     onLikeClick: () -> Unit,
     onWatchlistClick: () -> Unit,
-    onServerIconClick: () -> Unit,
     onSwipeDownFullscreen: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
-    // 🎯 স্মুথ ইলাস্টিক ড্র্যাগ অ্যানিমেশন স্টেট
     val pullDownOffsetY = remember { Animatable(0f) }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
-                // টানার সময় হালকা নিচে নেমে দৃশ্যমান রেসপন্স দিবে
                 translationY = pullDownOffsetY.value
             }
-            // 🎯 টাইটেল ধরে টান দিলে স্মুথ ড্র্যাগ হ্যান্ডলিং
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragEnd = {
                         coroutineScope.launch {
                             if (pullDownOffsetY.value > 30f) {
-                                onSwipeDownFullscreen() // স্মুথভাবে ফুলস্ক্রিন কল
+                                onSwipeDownFullscreen()
                             }
-                            // বাউন্স হয়ে আগের জায়গায় মসৃণভাবে ফিরে আসবে
                             pullDownOffsetY.animateTo(
                                 targetValue = 0f,
                                 animationSpec = spring(
@@ -84,7 +77,6 @@ fun PlayerHeaderSection(
                         if (dragAmount > 0 || pullDownOffsetY.value > 0) {
                             change.consume()
                             coroutineScope.launch {
-                                // 🎯 ইলাস্টিক রেজিস্ট্যান্স (টানলে মাখনের মতো মসৃণ মুভ হবে)
                                 val newOffset = (pullDownOffsetY.value + dragAmount * 0.45f).coerceIn(0f, 50f)
                                 pullDownOffsetY.snapTo(newOffset)
                             }
@@ -93,7 +85,7 @@ fun PlayerHeaderSection(
                 )
             }
     ) {
-        // ১. ড্রামা টাইটেল ও Pre / Next বাটন
+        // ১. টাইটেল ও Pre / Next বাটন
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -153,7 +145,7 @@ fun PlayerHeaderSection(
             }
         }
 
-        // ২. মেটাডাটা ও অ্যাকশন আইকন রো (ভিউ, লাইক, বুকমার্ক ও সার্ভার সুইচ)
+        // ২. মেটাডাটা ও অ্যাকশন আইকন (ভিউ, লাইক, বুকমার্ক)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -204,7 +196,7 @@ fun PlayerHeaderSection(
 
                 // লাইক বাটন
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically, 
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.clickable { onLikeClick() }
                 ) {
@@ -229,27 +221,10 @@ fun PlayerHeaderSection(
                     tint = if (isInWatchlist) TealAccent else Color(0xFFADB3C2),
                     modifier = Modifier.size(16.dp).clickable { onWatchlistClick() }
                 )
-
-                // 🎯 সার্ভার সুইচ আইকন
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF161E2E))
-                        .clickable { onServerIconClick() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Dns,
-                        contentDescription = "Server",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
             }
         }
 
-        // ৩. এক্সপ্যান্ডেবল ডেসক্রিপশন
+        // ৩. ডেসক্রিপশন
         if (isDescriptionExpanded) {
             Column(
                 modifier = Modifier
