@@ -6,13 +6,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// 🎯 Download Quota & Bandwidth Manager
+// 🎯 Download Quota & Long Video VIP Access Manager
 object DownloadQuotaManager {
     private const val PREF_NAME = "playdramaflix_download_quota_pref"
     private const val KEY_LAST_DATE = "quota_last_date"
     private const val KEY_USED_BYTES = "quota_used_bytes_today"
 
-    // 🎯 Daily Free Limit: 2.0 GB in Bytes
+    // 🎯 শর্ট ভিডিওর জন্য দৈনিক ফ্রি ডাউনলোড লিমিট: ২.০ জিবি (Bytes)
     const val DAILY_FREE_LIMIT_BYTES: Long = 2L * 1024L * 1024L * 1024L // 2.0 GB
 
     private fun getPrefs(context: Context): SharedPreferences {
@@ -45,12 +45,19 @@ object DownloadQuotaManager {
         return (DAILY_FREE_LIMIT_BYTES - used).coerceAtLeast(0L)
     }
 
-    // 🎯 আন্তর্জাতিক স্ট্যান্ডার্ডে ডাউনলোড কোটা চেক
+    /**
+     * 🎯 ডাউনলোড পারমিশন ভ্যালিডেশন ইঞ্জিন:
+     * ১. VIP ইউজাররা লং ও শর্ট সব ধরনের ভিডিও আনলিমিটেড ডাউনলোড করতে পারবে।
+     * ২. লং ভিডিও হলে ফ্রি ইউজারদের জন্য ডাউনলোড সম্পূর্ণ বন্ধ থাকবে (VIP বাধ্যতামূলক)।
+     * ৩. শর্ট ভিডিও হলে ফ্রি ইউজারদের জন্য দৈনিক ২.০ জিবি লিমিট কার্যকর থাকবে।
+     */
     fun checkCanDownload(
         context: Context,
         bytesToDownload: Long,
-        isVip: Boolean
+        isVip: Boolean,
+        isLongVideo: Boolean = false // 👈 লং ভিডিও ফ্ল্যাগ
     ): QuotaCheckResult {
+        // 👑 ১. ভিআইপি ইউজারদের জন্য সবকিছু আনলিমিটেড
         if (isVip) {
             return QuotaCheckResult(
                 canDownload = true,
@@ -59,6 +66,16 @@ object DownloadQuotaManager {
             )
         }
 
+        // 🚫 ২. লং ভিডিও হলে ফ্রি ইউজারদের জন্য ডাউনলোড সম্পূর্ণ রেস্ট্রিক্টেড
+        if (isLongVideo) {
+            return QuotaCheckResult(
+                canDownload = false,
+                isVip = false,
+                message = "👑 লং ভিডিও ডাউনলোড শুধুমাত্র VIP মেম্বারদের জন্য প্রযোজ্য! ফুল ড্রামা ও হাই-স্পিড ডাউনলোডের জন্য VIP পাস নিন।"
+            )
+        }
+
+        // 📱 ৩. শর্ট ভিডিওর ক্ষেত্রে দৈনিক ২ জিবি ফ্রি কোটা চেক
         val used = getTodayUsedBytes(context)
         val remaining = (DAILY_FREE_LIMIT_BYTES - used).coerceAtLeast(0L)
 
@@ -74,7 +91,7 @@ object DownloadQuotaManager {
             QuotaCheckResult(
                 canDownload = false,
                 isVip = false,
-                message = "⚠️ Daily 2.0 GB free download limit reached! Only $remainingFormatted remaining today. Upgrade to VIP for unlimited downloads.",
+                message = "⚠️ দৈনিক ২.০ জিবি ফ্রি শর্ট ভিডিও ডাউনলোড সীমা শেষ! আজকে আর মাত্র $remainingFormatted বাকি আছে। আনলিমিটেড ডাউনলোডের জন্য VIP পাস নিন।",
                 remainingBytes = remaining
             )
         }
