@@ -134,7 +134,6 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 সব অরিজিনাল সাব-ট্যাব ট্র্যাকিং স্টেট
     var activeListingViewType by rememberSaveable { mutableStateOf(ShortTvNavHelper.activeSubTab) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
@@ -149,14 +148,12 @@ fun ShortsDramaCategoryScreen(
         items.filter { it.slug in savedIds || it.id in savedIds }
     }
 
-    // 🎯 কার্ডের অবস্থান ডায়নামিক রোটেশন / শাফেলিং সিড
     var refreshSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
     val dynamicGridItems = remember(items, refreshSeed) {
         if (items.size <= 3) items
         else items.shuffled(Random(refreshSeed))
     }
 
-    // 🎯 ৪ কলামের জন্য ৪টি করে গ্রুপ করা হয়েছে
     val gridChunks = remember(dynamicGridItems) {
         dynamicGridItems.chunked(4)
     }
@@ -215,7 +212,7 @@ fun ShortsDramaCategoryScreen(
                         onSelectFilter = { filterName ->
                             ShortTvNavHelper.activeSubTab = filterName
                             activeListingViewType = filterName
-                            refreshSeed = System.currentTimeMillis() // 👈 অবস্থান রোটেশন
+                            refreshSeed = System.currentTimeMillis()
                         }
                     )
                 }
@@ -412,7 +409,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ব্যাচ ডাউনলোড শিট
+        // 📥 ব্যাচ ডাউনলোড শিট (শর্টস ভিডিওতে ফ্রি ২ জিবি লিমিট কার্যকর)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
@@ -424,9 +421,6 @@ fun ShortsDramaCategoryScreen(
     }
 }
 
-// =========================================================================
-// 🎬 ১. সেন্টার-ফোকাসড ইনফিনিট টপ স্লাইডার
-// =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
     dramas: List<ContentItemDto>,
@@ -552,9 +546,6 @@ fun SingleFocusInfiniteTopCarousel(
     }
 }
 
-// =========================================================================
-// 🔘 ফিল্টার বাটনসমূহ: [ Latest ]  [ Hottest ]  [ All ]
-// =========================================================================
 @Composable
 fun ShortTvFilterPillsRow(
     onSelectFilter: (String) -> Unit,
@@ -637,9 +628,6 @@ fun ShortTvFilterPillsRow(
     }
 }
 
-// =========================================================================
-// 🔖 My List কার্ড
-// =========================================================================
 @Composable
 fun ShortTvMyListCard(
     drama: ContentItemDto,
@@ -694,9 +682,6 @@ fun ShortTvMyListCard(
     }
 }
 
-// =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ (All)
-// =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
     items: List<ContentItemDto>,
@@ -811,13 +796,11 @@ fun ShortsFourColumnGridCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // রেটিং (নিচে ডানে)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -854,7 +837,7 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট
+// 📥 শর্টস ব্যাচ ডাউনলোড শিট (ফ্রি ২ জিবি লিমিট নিশ্চিত করা হয়েছে)
 // =========================================================================
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
@@ -1001,7 +984,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable { selectedChunkIndex = index }
-                                        .padding(vertical = 2.dp)
+                                        .padding(vertical = 4.dp)
                                 )
                             }
                         }
@@ -1113,7 +1096,13 @@ fun ShortsEpisodeBatchDownloadModal(
                                 .clickable {
                                     val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
                                     
-                                    val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
+                                    // 🎯 শর্ট ভিডিওর জন্য isLongVideo = false পাস করা হলো (দৈনিক ২ জিবি ফ্রি কোটা কার্যকর)
+                                    val quotaCheck = DownloadQuotaManager.checkCanDownload(
+                                        context = context,
+                                        bytesToDownload = totalSelectedBytes,
+                                        isVip = isVip,
+                                        isLongVideo = false
+                                    )
 
                                     if (quotaCheck.canDownload) {
                                         if (!isVip) {
@@ -1176,9 +1165,6 @@ fun ShortsEpisodeBatchDownloadModal(
     }
 }
 
-// =========================================================================
-// 📱 লিস্টিং পেজ
-// =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
     title: String,
@@ -1370,9 +1356,6 @@ fun TopPicksItemRow(
     }
 }
 
-// =========================================================================
-// 🖼️ ৪-কলাম কম্প্যাক্ট শর্ট ড্রামা কার্ড (হালকা রেটিং ও ডাইনামিক ডাবিং ব্যাজ সহ)
-// =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
     drama: ContentItemDto,
@@ -1414,13 +1397,11 @@ fun ShortTvGridDramaCard(
                     )
             )
 
-            // ডাবিং ব্যাজ (উপরে ডানে)
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // এপিসোড সংখ্যা
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "Short"
             Text(
                 text = epCount,
@@ -1430,7 +1411,6 @@ fun ShortTvGridDramaCard(
                 modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 4.dp, vertical = 3.dp)
             )
 
-            // রেটিং (নিচে ডানে - হালকা ইফেক্ট)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -1455,7 +1435,6 @@ fun ShortTvGridDramaCard(
 
         Spacer(modifier = Modifier.height(2.5.dp))
 
-        // ছোট ও পরিচ্ছন্ন নাম (Display Name)
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
