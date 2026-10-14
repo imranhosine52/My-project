@@ -1,21 +1,23 @@
 @file:OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class,
-    androidx.media3.common.util.UnstableApi::class
+    ExperimentalLayoutApi::class
 )
 
-package com.example.ui.screens.chat.components
+package com.example.ui.screens.chat
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -23,63 +25,57 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.data.model.ChatMessage
 import com.example.data.model.GroupMemberInfo
+import com.example.data.model.PinnedMessageInfo
+import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.screens.chat.components.*
+import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
+import com.example.util.LiveGroupStats
 import com.example.util.UserChatStatus
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.Locale
-import kotlin.math.roundToInt
+import java.util.*
 
-private fun formatMiniActiveActionsText(actions: List<UserChatStatus>): String {
+private val WhatsAppDarkBg = Color(0xFF0C1317)
+private val WhatsAppBarBg = Color(0xFF1F2C34)
+
+private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
     if (actions.isEmpty()) return ""
     val count = actions.size
     return if (count == 1) {
@@ -90,6 +86,12 @@ private fun formatMiniActiveActionsText(actions: List<UserChatStatus>): String {
             "uploading_video" -> "${user.userName} is sending video 🎬"
             else -> "${user.userName} is typing... ✍️"
         }
+    } else if (count == 2) {
+        val u1 = actions[0].userName
+        val u2 = actions[1].userName
+        val allTyping = actions.all { it.action == "typing" }
+        if (allTyping) "$u1 and $u2 are typing... ✍️"
+        else "$u1 and $u2 are active in chat..."
     } else {
         val u1 = actions[0].userName
         val others = count - 1
@@ -98,43 +100,138 @@ private fun formatMiniActiveActionsText(actions: List<UserChatStatus>): String {
 }
 
 @Composable
-fun FloatingCommunityChatWidget(
-    currentUserId: String,
-    currentUserName: String,
-    currentUserEmail: String?,
-    currentUserAvatar: String?,
-    isVip: Boolean,
-    onOpenFullScreenChat: () -> Unit,
+fun CommunityChatScreen(
+    viewModel: DramaFlixViewModel,
+    onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val miniListState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
 
-    var isExpanded by remember { mutableStateOf(false) }
-    var messageInput by remember { mutableStateOf("") }
-    var isSending by remember { mutableStateOf(false) }
+    val authState by viewModel.authUiState.collectAsStateWithLifecycle()
+    val chatPrefs = remember { context.getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE) }
+    val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
+    val favPrefs = remember { context.getSharedPreferences("chat_sticker_favorites", Context.MODE_PRIVATE) }
 
+    val isUserLoggedIn = authState.isLoggedIn || authPrefs.getString("user_id", "").isNullOrBlank().not()
+    var showAuthSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                ServerStickerRepository.fetchServerMedia(context)
+            } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(isUserLoggedIn) {
+        if (!isUserLoggedIn) {
+            delay(300)
+            showAuthSheet = true
+        }
+    }
+
+    val userProfile = authState.userProfile
+
+    val currentUserEmail = remember(userProfile) {
+        userProfile?.email?.trim()?.lowercase()
+            ?: authPrefs.getString("user_email", null)?.trim()?.lowercase()
+    }
+
+    val isCurrentUserOwner = remember(currentUserEmail) {
+        FirebaseChatManager.isRootAdmin(currentUserEmail)
+    }
+
+    val currentUserId = remember(userProfile, isCurrentUserOwner) {
+        if (isCurrentUserOwner) {
+            "owner_yheysifat"
+        } else {
+            val uid = userProfile?.id?.takeIf { it.isNotBlank() }
+                ?: authPrefs.getString("user_id", "")?.takeIf { it.isNotBlank() }
+            if (!uid.isNullOrBlank()) {
+                uid
+            } else {
+                val existingGuest = authPrefs.getString("permanent_guest_id", "")
+                if (!existingGuest.isNullOrBlank()) existingGuest
+                else {
+                    val newGId = "guest_${UUID.randomUUID().toString().take(8)}"
+                    authPrefs.edit().putString("permanent_guest_id", newGId).apply()
+                    newGId
+                }
+            }
+        }
+    }
+
+    val currentUserName = remember(userProfile) {
+        userProfile?.displayName?.takeIf { it.isNotBlank() }
+            ?: authPrefs.getString("user_name", null)?.takeIf { it.isNotBlank() }
+            ?: if (isCurrentUserOwner) "Hey Sifat YT" else "Drama Fan"
+    }
+
+    val currentUserAvatar = userProfile?.avatar?.takeIf { it.isNotBlank() }
+        ?: userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
+        ?: authPrefs.getString("user_avatar", null)
+
+    val isUserVip = remember(authState) {
+        isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
+        (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
+    }
+
+    var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
+    var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
+
+    LaunchedEffect(currentUserId, currentUserEmail, isUserVip) {
+        if (isCurrentUserOwner) {
+            isUserJoined = true
+            chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = true)
+        } else {
+            val alreadyJoined = FirebaseChatManager.isUserAlreadyJoined(currentUserId, currentUserEmail)
+            if (alreadyJoined) {
+                isUserJoined = true
+                chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
+            }
+        }
+    }
+
+    var showGroupInfoScreen by remember { mutableStateOf(false) }
+    var showTopDropDownMenu by remember { mutableStateOf(false) }
+
+    var messageText by remember { mutableStateOf("") }
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
-    var showAttachSheet by remember { mutableStateOf(false) }
-    var showMediaPicker by remember { mutableStateOf(false) }
-    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var isSending by remember { mutableStateOf(false) }
 
-    var previewImageUrl by remember { mutableStateOf<String?>(null) }
-    var previewVideoUrl by remember { mutableStateOf<String?>(null) }
+    var typingStatusJob by remember { mutableStateOf<Job?>(null) }
 
-    var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
-    val audioMediaPlayer = remember { MediaPlayer() }
+    val selectedMessageIds = remember { mutableStateListOf<String>() }
+    val isSelectionMode = selectedMessageIds.isNotEmpty()
+
+    var uploadingVideoUri by remember { mutableStateOf<Uri?>(null) }
+    var uploadProgressPercent by remember { mutableIntStateOf(0) }
+    var uploadSecondsLeft by remember { mutableLongStateOf(0L) }
+    var isVideoUploadingActive by remember { mutableStateOf(false) }
+
+    var showTelegramMediaPicker by remember { mutableStateOf(false) }
 
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
-    var typingStatusJob by remember { mutableStateOf<Job?>(null) }
 
-    val isImeVisible = WindowInsets.isImeVisible
+    var showAttachMenu by remember { mutableStateOf(false) }
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var selectedActionMessage by remember { mutableStateOf<ChatMessage?>(null) }
+
+    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    var previewVideoUrl by remember { mutableStateOf<String?>(null) }
+
+    var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
+    val audioMediaPlayer = remember { MediaPlayer() }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -147,27 +244,115 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    val multiImagePicker = rememberLauncherForActivityResult(
+    BackHandler(enabled = isSelectionMode || showTelegramMediaPicker) {
+        if (showTelegramMediaPicker) showTelegramMediaPicker = false
+        else selectedMessageIds.clear()
+    }
+
+    val liveStats by produceState(initialValue = LiveGroupStats(1, 1)) {
+        FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
+    }
+
+    val groupMembersList by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
+        FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
+    }
+
+    val liveMembersAvatarMap = remember(groupMembersList, currentUserAvatar) {
+        val map = mutableMapOf<String, String?>()
+        groupMembersList.forEach { m ->
+            if (!m.userAvatar.isNullOrBlank()) {
+                map[m.userId] = m.userAvatar
+                m.userEmail?.let { map[it.lowercase()] = m.userAvatar }
+            }
+        }
+        if (!currentUserAvatar.isNullOrBlank()) {
+            map[currentUserId] = currentUserAvatar
+            currentUserEmail?.let { map[it.lowercase()] = currentUserAvatar }
+            if (isCurrentUserOwner) {
+                map["owner_yheysifat"] = currentUserAvatar
+                map[FirebaseChatManager.ROOT_ADMIN_EMAIL.lowercase()] = currentUserAvatar
+            }
+        }
+        map
+    }
+
+    val pinnedMessageInfo by produceState<PinnedMessageInfo?>(initialValue = null) {
+        FirebaseChatManager.getLivePinnedMessageFlow().collect { value = it }
+    }
+
+    val isCurrentUserBlocked by produceState(initialValue = false) {
+        FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
+    }
+
+    LaunchedEffect(currentUserId, isUserJoined, isUserVip) {
+        if (isUserJoined) {
+            FirebaseChatManager.subscribeToUserTopic(currentUserId)
+            while (isUserJoined) {
+                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
+                delay(25000L)
+            }
+        }
+    }
+
+    val multiImagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            selectedImageUris = uris.take(6)
+            selectedImageUris = (selectedImageUris + uris).distinct().take(10)
             selectedVideoUri = null
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "uploading_photo")
         }
     }
 
-    val videoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
+    val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedVideoUri = uri
             selectedImageUris = emptyList()
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "uploading_video")
         }
     }
 
-    fun startRecording() {
+    val messagesList by produceState<List<ChatMessage>>(initialValue = emptyList()) {
+        FirebaseChatManager.getLiveMessagesFlow().collect { value = it }
+    }
+
+    LaunchedEffect(messagesList) {
+        if (messagesList.isNotEmpty()) {
+            FirebaseChatManager.markMessagesAsRead(currentUserId, messagesList)
+        }
+    }
+
+    val liveActiveActions by produceState<List<UserChatStatus>>(initialValue = emptyList()) {
+        FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
+    }
+
+    var isFirstLoadDone by remember { mutableStateOf(false) }
+    var previousMessageCount by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(messagesList.size) {
+        val currentCount = messagesList.size
+        if (currentCount > 0 && !isSelectionMode) {
+            if (!isFirstLoadDone) {
+                listState.scrollToItem(currentCount - 1)
+                isFirstLoadDone = true
+            } else if (currentCount > previousMessageCount) {
+                listState.animateScrollToItem(currentCount - 1)
+            }
+            previousMessageCount = currentCount
+        }
+    }
+
+    val isImeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
+            delay(100L)
+            listState.animateScrollToItem(messagesList.size - 1)
+        }
+    }
+
+    fun executeStartRecordingVoice() {
         try {
-            val audioFile = File(context.cacheDir, "mini_voice_${System.currentTimeMillis()}.m4a")
+            val audioFile = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
             tempAudioFile = audioFile
 
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -197,9 +382,12 @@ fun FloatingCommunityChatWidget(
                     recordDurationSeconds++
                 }
             }
+
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
         } catch (e: Exception) {
+            Log.e("ChatVoice", "Recorder error: ${e.message}", e)
+            Toast.makeText(context, "Could not record voice", Toast.LENGTH_SHORT).show()
             isRecordingVoice = false
-            Toast.makeText(context, "Could not start recording", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -207,21 +395,37 @@ fun FloatingCommunityChatWidget(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            startRecording()
+            executeStartRecordingVoice()
         } else {
-            Toast.makeText(context, "Microphone permission required for voice notes", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission is required.", Toast.LENGTH_SHORT).show()
         }
     }
 
-    fun toggleVoiceRecord() {
-        if (!isRecordingVoice) {
-            val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            if (hasPerm) startRecording()
-            else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    fun startRecordingVoice() {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
+        if (isCurrentUserBlocked) return
+
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            executeStartRecordingVoice()
         } else {
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    fun stopAndSendVoice() {
+        try {
             recordingTimerJob?.cancel()
             recordingTimerJob = null
-            try { mediaRecorder?.stop() } catch (_: Exception) {}
+
+            try { mediaRecorder?.stop() } catch (_: RuntimeException) {}
             mediaRecorder?.release()
             mediaRecorder = null
             isRecordingVoice = false
@@ -233,88 +437,54 @@ fun FloatingCommunityChatWidget(
                 isSending = true
                 coroutineScope.launch {
                     try {
-                        FirebaseChatManager.uploadVoiceAndSendMessage(
+                        val ok = FirebaseChatManager.uploadVoiceAndSendMessage(
                             audioFile = file,
                             durationSeconds = duration,
                             senderId = currentUserId,
                             senderName = currentUserName,
                             senderEmail = currentUserEmail,
                             senderAvatar = currentUserAvatar,
-                            isVip = isVip,
-                            replyToMessage = replyingToMessage
+                            isVip = isUserVip,
+                            replyToMessage = replyingToMessage,
+                            onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                         )
-                        replyingToMessage = null
+                        if (ok) replyingToMessage = null
                     } finally {
                         isSending = false
+                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
                     }
                 }
+            } else {
+                tempAudioFile?.delete()
+                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
             }
+        } catch (_: Exception) {
+            isRecordingVoice = false
+            isSending = false
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
         }
     }
 
-    fun cancelVoiceRecord() {
-        recordingTimerJob?.cancel()
-        recordingTimerJob = null
-        try { mediaRecorder?.stop() } catch (_: Exception) {}
-        mediaRecorder?.release()
-        mediaRecorder = null
-        tempAudioFile?.delete()
-        isRecordingVoice = false
+    fun cancelVoiceRecording() {
+        try {
+            recordingTimerJob?.cancel()
+            recordingTimerJob = null
+            try { mediaRecorder?.stop() } catch (_: Exception) {}
+            mediaRecorder?.release()
+            mediaRecorder = null
+            tempAudioFile?.delete()
+            isRecordingVoice = false
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+        } catch (_: Exception) {}
     }
 
-    val messages by produceState<List<ChatMessage>>(initialValue = emptyList()) {
-        FirebaseChatManager.getLiveMessagesFlow().collect { value = it }
-    }
-
-    val displayMessages = remember(messages) { messages.takeLast(70) }
-
-    LaunchedEffect(isExpanded) {
-        if (isExpanded && displayMessages.isNotEmpty()) {
-            delay(100L)
-            miniListState.scrollToItem(displayMessages.size - 1)
+    fun sendStickerOrGifMessage(mediaUrl: String) {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
         }
-    }
-
-    // 🎯 কিবোর্ড ওপেন হওয়ামাত্রই চ্যাট মেসেজের একদম শেষে স্ক্রোল হওয়া
-    LaunchedEffect(isImeVisible) {
-        if (isExpanded && isImeVisible && displayMessages.isNotEmpty()) {
-            delay(80L)
-            miniListState.animateScrollToItem(displayMessages.size - 1)
-        }
-    }
-
-    LaunchedEffect(displayMessages.size) {
-        if (isExpanded && displayMessages.isNotEmpty()) {
-            miniListState.animateScrollToItem(displayMessages.size - 1)
-        }
-    }
-
-    val groupMembersList by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
-        FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
-    }
-
-    val liveMembersAvatarMap = remember(groupMembersList, currentUserAvatar) {
-        val map = mutableMapOf<String, String?>()
-        groupMembersList.forEach { m ->
-            if (!m.userAvatar.isNullOrBlank()) {
-                map[m.userId] = m.userAvatar
-                m.userEmail?.let { map[it.lowercase()] = m.userAvatar }
-            }
-        }
-        if (!currentUserAvatar.isNullOrBlank()) {
-            map[currentUserId] = currentUserAvatar
-            currentUserEmail?.let { map[it.lowercase()] = currentUserAvatar }
-        }
-        map
-    }
-
-    val liveActiveActions by produceState<List<UserChatStatus>>(initialValue = emptyList()) {
-        FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
-    }
-
-    fun sendStickerOrGif(mediaUrl: String) {
-        if (isSending) return
-        showMediaPicker = false
+        if (isCurrentUserBlocked) return
+        showTelegramMediaPicker = false
         val replyTarget = replyingToMessage
         replyingToMessage = null
 
@@ -331,865 +501,795 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    fun sendMediaOrTextMessage() {
-        if (isSending) return
-        val text = messageInput.trim()
-        val images = selectedImageUris
-        val video = selectedVideoUri
+    fun sendMessage() {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
+        if (isSending || isCurrentUserBlocked) return
+        val textToSend = messageText.trim()
+        val imageUris = selectedImageUris
+        val videoUri = selectedVideoUri
         val replyTarget = replyingToMessage
 
-        if (text.isBlank() && images.isEmpty() && video == null) return
+        if (textToSend.isBlank() && imageUris.isEmpty() && videoUri == null) return
 
-        messageInput = ""
+        messageText = ""
         selectedImageUris = emptyList()
         selectedVideoUri = null
         replyingToMessage = null
-        showMediaPicker = false
+        showTelegramMediaPicker = false
         isSending = true
+
+        typingStatusJob?.cancel()
+        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
 
         coroutineScope.launch {
             try {
-                if (video != null) {
+                if (videoUri != null) {
+                    uploadingVideoUri = videoUri
+                    isVideoUploadingActive = true
+                    uploadProgressPercent = 0
+                    uploadSecondsLeft = 5L
+
                     FirebaseChatManager.uploadVideoWithProgressAndSendMessage(
                         context = context,
-                        videoUri = video,
+                        videoUri = videoUri,
                         senderId = currentUserId,
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
                         isVip = isVip,
-                        captionText = text,
+                        captionText = textToSend,
                         replyToMessage = replyTarget,
-                        onProgress = { _, _ -> },
-                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+                        onProgress = { pct, sec ->
+                            uploadProgressPercent = pct
+                            uploadSecondsLeft = sec
+                        },
+                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                     )
-                } else if (images.isNotEmpty()) {
+                    isVideoUploadingActive = false
+                    uploadingVideoUri = null
+                } else if (imageUris.isNotEmpty()) {
                     FirebaseChatManager.uploadMultipleImagesAndSendMessage(
                         context = context,
-                        imageUris = images,
+                        imageUris = imageUris,
                         senderId = currentUserId,
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
                         isVip = isVip,
-                        captionText = text,
+                        captionText = textToSend,
                         replyToMessage = replyTarget,
-                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                     )
                 } else {
-                    FirebaseChatManager.sendTextMessage(
+                    val ok = FirebaseChatManager.sendTextMessage(
                         senderId = currentUserId,
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
                         isVip = isVip,
-                        text = text,
+                        text = textToSend,
                         replyToMessage = replyTarget
                     )
+                    if (!ok) {
+                        Toast.makeText(context, "Failed to send message.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } finally {
                 isSending = false
+                focusManager.clearFocus()
                 FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
             }
         }
     }
 
     // =========================================================================
-    // 🎯 ফিক্স: কিবোর্ড ওপেন হলে ডাবল প্যাডিং বন্ধ ও ডায়নামিক হাইট অ্যাডাপ্ট
+    // 🎯 মূল কন্টেইনার: imePadding() প্যারেন্টে দেওয়ার কারণে
+    // কিবোর্ড ওপেন হওয়ামাত্রই পুরো ভিউ উপরে উঠে কিবোর্ডের মাথায় বসবে এবং
+    // কোনো অতিরিক্ত ফাঁকা জায়গা থাকবে না বা কিবোর্ডের নিচে ঢাকা পড়বে না।
     // =========================================================================
     Column(
         modifier = modifier
-            .then(
-                if (isImeVisible) Modifier.padding(bottom = 2.dp, end = 4.dp)
-                else Modifier.padding(bottom = 0.dp)
-            ),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .fillMaxSize()
+            .background(WhatsAppDarkBg)
+            .imePadding() // 👈 কিবোর্ড উঠলে সম্পূর্ণ স্ক্রিন নির্ভুলভাবে ডক হবে
     ) {
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(220)) + fadeIn(),
-            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(200)) + fadeOut()
-        ) {
-            Surface(
-                modifier = Modifier
-                    .width(330.dp)
-                    // 🎯 কিবোর্ড ওপেন হলে উইজেটের উচ্চতা ৩১০ ডিপি হবে, বন্ধ থাকলে ৪৭০ ডিপি
-                    .height(if (isImeVisible) 310.dp else 470.dp)
-                    .shadow(elevation = 16.dp, shape = RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF10141D),
-                border = BorderStroke(1.dp, Color(0xFF232D3F))
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                            .background(Color(0xFF161E2C))
-                            .padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.5.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00E676))
-                            )
-                            Text("DramaFlix Live Chat", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+        if (isSelectionMode) {
+            val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
+                messagesList.find { it.id == id }?.senderId == currentUserId
+            }
+
+            ChatSelectionTopBar(
+                selectedCount = selectedMessageIds.size,
+                canDeleteAny = canDelete,
+                canPinSelected = isCurrentUserOwner && selectedMessageIds.size == 1,
+                onCloseSelection = { selectedMessageIds.clear() },
+                onDeleteSelected = {
+                    coroutineScope.launch {
+                        val idsToDelete = selectedMessageIds.toList()
+                        selectedMessageIds.clear()
+                        for (id in idsToDelete) {
+                            FirebaseChatManager.deleteMessage(id)
                         }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    isExpanded = false
-                                    onOpenFullScreenChat()
-                                },
-                                modifier = Modifier.size(26.dp)
-                            ) {
-                                Icon(Icons.Default.OpenInFull, contentDescription = "Full Chat", tint = Color(0xFF00E5FF), modifier = Modifier.size(15.dp))
-                            }
-
-                            IconButton(
-                                onClick = { isExpanded = false },
-                                modifier = Modifier.size(26.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(16.dp))
-                            }
+                        Toast.makeText(context, "Messages deleted", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onPinSelected = {
+                    val singleId = selectedMessageIds.firstOrNull()
+                    val targetMsg = messagesList.find { it.id == singleId }
+                    if (targetMsg != null) {
+                        coroutineScope.launch {
+                            FirebaseChatManager.pinMessage(targetMsg, currentUserName)
+                            Toast.makeText(context, "Message pinned to top!", Toast.LENGTH_SHORT).show()
                         }
                     }
-
-                    HorizontalDivider(color = Color(0xFF202A3C), thickness = 0.6.dp)
-
-                    LazyColumn(
-                        state = miniListState,
+                    selectedMessageIds.clear()
+                },
+                onCopySelected = {
+                    val texts = messagesList
+                        .filter { it.id in selectedMessageIds && it.text.isNotBlank() }
+                        .joinToString("\n") { it.text }
+                    if (texts.isNotBlank()) {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Copied Messages", texts))
+                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                    selectedMessageIds.clear()
+                }
+            )
+        } else {
+            Surface(
+                color = WhatsAppBarBg,
+                shadowElevation = 4.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp),
-                        contentPadding = PaddingValues(vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                            .clickable { showGroupInfoScreen = true }
                     ) {
-                        items(displayMessages, key = { it.id }) { msg ->
-                            val isMe = msg.senderId == currentUserId ||
-                                    (!currentUserEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true))
-
-                            val effectiveAvatar = if (isMe) currentUserAvatar ?: liveMembersAvatarMap[currentUserId]
-                            else msg.senderAvatar ?: liveMembersAvatarMap[msg.senderId] ?: msg.senderEmail?.let { liveMembersAvatarMap[it.lowercase()] }
-
-                            val offsetX = remember { Animatable(0f) }
-
-                            val candidateStickerUrl = msg.imageUrl ?: msg.imageUrls.firstOrNull() ?: msg.videoUrl
-                            val isStickerMessage = msg.text.isBlank() &&
-                                    msg.audioUrl.isNullOrBlank() &&
-                                    !candidateStickerUrl.isNullOrBlank() &&
-                                    (candidateStickerUrl.contains("tenor.com", ignoreCase = true) ||
-                                     candidateStickerUrl.contains("giphy.com", ignoreCase = true) ||
-                                     candidateStickerUrl.contains("/stickers/", ignoreCase = true) ||
-                                     candidateStickerUrl.contains("stk_", ignoreCase = true) ||
-                                     candidateStickerUrl.contains("gif_", ignoreCase = true) ||
-                                     candidateStickerUrl.contains("emo_", ignoreCase = true) ||
-                                     candidateStickerUrl.endsWith(".gif", ignoreCase = true) ||
-                                     candidateStickerUrl.endsWith(".webp", ignoreCase = true) ||
-                                     candidateStickerUrl.endsWith(".mp4", ignoreCase = true) ||
-                                     candidateStickerUrl.endsWith(".webm", ignoreCase = true))
-
-                            val isVideoSticker = isStickerMessage && (
-                                candidateStickerUrl!!.endsWith(".mp4", true) ||
-                                candidateStickerUrl.endsWith(".webm", true) ||
-                                candidateStickerUrl.contains("vid_", true)
-                            )
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                                    .pointerInput(msg.id) {
-                                        detectHorizontalDragGestures(
-                                            onDragEnd = {
-                                                if (offsetX.value > 40f) replyingToMessage = msg
-                                                coroutineScope.launch { offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
-                                            },
-                                            onDragCancel = { coroutineScope.launch { offsetX.animateTo(0f) } },
-                                            onHorizontalDrag = { _, dragAmount ->
-                                                if (dragAmount > 0 || offsetX.value > 0) {
-                                                    coroutineScope.launch { offsetX.snapTo((offsetX.value + dragAmount * 0.5f).coerceIn(0f, 60f)) }
-                                                }
-                                            }
-                                        )
-                                    },
-                                horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
-                                verticalAlignment = Alignment.Bottom
-                            ) {
-                                if (!isMe) {
-                                    ChatUserAvatarCircle(
-                                        avatarUrl = effectiveAvatar,
-                                        userName = msg.senderName,
-                                        modifier = Modifier.size(24.dp).padding(bottom = 2.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                }
-
-                                if (isStickerMessage && !candidateStickerUrl.isNullOrBlank()) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(135.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .clickable { previewImageUrl = candidateStickerUrl },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isVideoSticker) {
-                                            MiniVideoStickerLoopPlayer(
-                                                videoUrl = candidateStickerUrl,
-                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
-                                            )
-                                        } else {
-                                            AsyncImage(
-                                                model = ImageRequest.Builder(context)
-                                                    .data(candidateStickerUrl)
-                                                    .crossfade(true)
-                                                    .allowHardware(false)
-                                                    .build(),
-                                                contentDescription = "Sticker",
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Fit
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    val hasImages = msg.imageUrls.isNotEmpty() || !msg.imageUrl.isNullOrBlank()
-                                    val hasVideo = !msg.videoUrl.isNullOrBlank()
-                                    val hasVoice = !msg.audioUrl.isNullOrBlank()
-
-                                    Surface(
-                                        shape = RoundedCornerShape(
-                                            topStart = 10.dp,
-                                            topEnd = 10.dp,
-                                            bottomStart = if (isMe) 10.dp else 2.dp,
-                                            bottomEnd = if (isMe) 2.dp else 10.dp
-                                        ),
-                                        color = if (isMe) Color(0xFF2B5278) else Color(0xFF1B2330),
-                                        modifier = Modifier.widthIn(min = 40.dp, max = 245.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)) {
-                                            if (!isMe) {
-                                                Text(
-                                                    text = msg.senderName,
-                                                    color = if (msg.isOwner) Color(0xFFFFB300) else Color(0xFF5288C1),
-                                                    fontSize = 10.5.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Spacer(modifier = Modifier.height(1.dp))
-                                            }
-
-                                            if (!msg.replyToName.isNullOrBlank()) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(Color(0x22000000))
-                                                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Box(modifier = Modifier.width(2.dp).height(16.dp).background(Color(0xFF5288C1)))
-                                                    Column {
-                                                        Text(msg.replyToName, color = Color(0xFF5288C1), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                                        Text(msg.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                            }
-
-                                            if (hasImages && !hasVideo) {
-                                                val img = msg.imageUrls.firstOrNull() ?: msg.imageUrl!!
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(115.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .clickable { previewImageUrl = img }
-                                                ) {
-                                                    AsyncImage(
-                                                        model = ImageRequest.Builder(context)
-                                                            .data(img)
-                                                            .crossfade(true)
-                                                            .allowHardware(false)
-                                                            .build(),
-                                                        contentDescription = null,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentScale = ContentScale.Crop
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                            }
-
-                                            if (hasVideo) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .width(180.dp)
-                                                        .height(110.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(Color(0xFF141A24))
-                                                        .clickable { previewVideoUrl = msg.videoUrl },
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    AsyncImage(
-                                                        model = msg.imageUrl ?: msg.videoUrl,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentScale = ContentScale.Crop
-                                                    )
-                                                    Box(
-                                                        modifier = Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                            }
-
-                                            if (hasVoice) {
-                                                val isVoicePlaying = (activePlayingAudioUrl == msg.audioUrl)
-                                                CompactMiniVoicePlayer(
-                                                    durationSec = msg.mediaDurationSec,
-                                                    timeFormatted = formatMessageTime(msg.timestamp),
-                                                    isMe = isMe,
-                                                    isSeen = msg.isRead,
-                                                    isPlaying = isVoicePlaying,
-                                                    onPlayToggle = {
-                                                        try {
-                                                            if (isVoicePlaying && audioMediaPlayer.isPlaying) {
-                                                                audioMediaPlayer.pause()
-                                                                activePlayingAudioUrl = null
-                                                            } else {
-                                                                audioMediaPlayer.reset()
-                                                                audioMediaPlayer.setDataSource(msg.audioUrl)
-                                                                audioMediaPlayer.prepareAsync()
-                                                                audioMediaPlayer.setOnPreparedListener {
-                                                                    audioMediaPlayer.start()
-                                                                    activePlayingAudioUrl = msg.audioUrl
-                                                                }
-                                                                audioMediaPlayer.setOnCompletionListener {
-                                                                    activePlayingAudioUrl = null
-                                                                }
-                                                            }
-                                                        } catch (_: Exception) {}
-                                                    }
-                                                )
-                                            }
-
-                                            if (msg.text.isNotBlank()) {
-                                                Text(
-                                                    text = msg.text,
-                                                    color = Color.White,
-                                                    fontSize = 12.sp,
-                                                    lineHeight = 15.sp
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if (isMe) {
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    ChatUserAvatarCircle(
-                                        avatarUrl = effectiveAvatar,
-                                        userName = msg.senderName,
-                                        modifier = Modifier.size(24.dp).padding(bottom = 2.dp)
-                                    )
-                                }
-                            }
+                        IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
                         }
-                    }
 
-                    AnimatedVisibility(
-                        visible = liveActiveActions.isNotEmpty(),
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        val actionText = formatMiniActiveActionsText(liveActiveActions)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            JumpingDotsAnimation(dotColor = Color(0xFF00E676))
-                            Text(
-                                text = actionText,
-                                color = Color(0xFF00E676),
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(visible = replyingToMessage != null) {
-                        replyingToMessage?.let { target ->
+                        Column {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF182230))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Box(modifier = Modifier.width(2.dp).height(20.dp).background(Color(0xFF00E5FF)))
-                                    Column {
-                                        Text("Replying to ${target.senderName}", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                        Text(target.text.ifBlank { "Attachment" }, color = Color.White.copy(0.7f), fontSize = 9.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8692A6), modifier = Modifier.size(15.dp).clickable { replyingToMessage = null })
+                                Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
                             }
+                            Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
 
-                    if (selectedImageUris.isNotEmpty() || selectedVideoUri != null) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF161F2E))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    Box {
+                        IconButton(
+                            onClick = { showTopDropDownMenu = true },
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Text(
-                                text = if (selectedVideoUri != null) "🎬 1 Video selected" else "📷 ${selectedImageUris.size} Photos",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Menu",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
                             )
-                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(13.dp).clickable {
-                                selectedImageUris = emptyList()
-                                selectedVideoUri = null
-                            })
                         }
-                    }
 
-                    AnimatedVisibility(
-                        visible = showMediaPicker,
-                        enter = expandVertically(tween(220)) + fadeIn(),
-                        exit = shrinkVertically(tween(200)) + fadeOut()
-                    ) {
-                        TelegramMediaPickerSheet(
-                            onSendSticker = { stickerUrl -> sendStickerOrGif(stickerUrl) },
-                            onSendGif = { gifUrl -> sendStickerOrGif(gifUrl) },
-                            onSelectEmoji = { emoji -> messageInput += emoji },
-                            onClose = { showMediaPicker = false },
-                            modifier = Modifier.padding(4.dp)
-                        )
-                    }
-
-                    Surface(
-                        color = Color(0xFF141A24),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF0E131C),
-                            border = BorderStroke(1.dp, Color(0xFF222C3E)),
-                            modifier = Modifier.fillMaxWidth()
+                        DropdownMenu(
+                            expanded = showTopDropDownMenu,
+                            onDismissRequest = { showTopDropDownMenu = false },
+                            modifier = Modifier
+                                .background(Color(0xFF1E2834))
+                                .clip(RoundedCornerShape(12.dp))
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                                if (isRecordingVoice) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().height(32.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
-                                            Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text("Cancel", color = Color(0xFFFF5252), fontSize = 11.sp, modifier = Modifier.clickable { cancelVoiceRecord() })
-                                            Text("Send", color = Color(0xFF00E676), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { toggleVoiceRecord() })
-                                        }
-                                    }
-                                } else {
-                                    BasicTextField(
-                                        value = messageInput,
-                                        onValueChange = {
-                                            messageInput = it
-                                            if (it.isNotBlank()) {
-                                                typingStatusJob?.cancel()
-                                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
-                                                typingStatusJob = coroutineScope.launch {
-                                                    delay(3000L)
-                                                    FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                                                }
-                                            } else {
-                                                typingStatusJob?.cancel()
-                                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                                            }
-                                        },
-                                        textStyle = TextStyle(color = Color.White, fontSize = 12.sp, lineHeight = 15.sp),
-                                        cursorBrush = SolidColor(Color(0xFF00E676)),
-                                        singleLine = false,
-                                        maxLines = 3,
-                                        decorationBox = { inner ->
-                                            if (messageInput.isEmpty() && selectedImageUris.isEmpty() && selectedVideoUri == null) {
-                                                Text("Compose your message...", color = Color(0xFF717D94), fontSize = 11.5.sp)
-                                            }
-                                            inner()
-                                        },
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp, max = 50.dp)
-                                    )
-
-                                    Spacer(modifier = Modifier.height(3.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                                contentDescription = "Emoji, Stickers & GIFs",
-                                                tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { showMediaPicker = !showMediaPicker }
-                                            )
-
-                                            Icon(
-                                                imageVector = Icons.Outlined.AttachFile,
-                                                contentDescription = "Attach",
-                                                tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { showAttachSheet = true }
-                                            )
-
-                                            Icon(
-                                                imageVector = Icons.Default.GraphicEq,
-                                                contentDescription = "Voice",
-                                                tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { toggleVoiceRecord() }
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = { sendMediaOrTextMessage() },
-                                            enabled = messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null,
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Send",
-                                                tint = if (messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null) Color(0xFF00E676) else Color(0xFF384354),
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                        }
-                                    }
+                            DropdownMenuItem(
+                                text = { Text("Group Info", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    showTopDropDownMenu = false
+                                    showGroupInfoScreen = true
                                 }
-                            }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Share Group Link", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    showTopDropDownMenu = false
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "Join DramaFlix Community Group:\nhttps://playdramaflix.com/community")
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Group Link"))
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text(if (isGroupMuted) "Unmute Notifications" else "Mute Notifications", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                leadingIcon = {
+                                    Icon(
+                                        if (isGroupMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFFB300),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showTopDropDownMenu = false
+                                    val newState = !isGroupMuted
+                                    isGroupMuted = newState
+                                    chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                                    FirebaseChatManager.toggleGroupNotification(!newState)
+                                    Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                                }
+                            )
                         }
                     }
                 }
             }
         }
 
-        // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট লঞ্চার বাটন (Help?)
-        // =========================================================================
-        if (!isImeVisible) {
-            Box(
-                modifier = Modifier
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { isExpanded = !isExpanded }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (isExpanded) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.65f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+        pinnedMessageInfo?.let { pinInfo ->
+            PinnedMessageBanner(
+                pinnedInfo = pinInfo,
+                canUnpin = isCurrentUserOwner,
+                onBannerClick = { msgId ->
+                    coroutineScope.launch {
+                        val targetIdx = messagesList.indexOfFirst { it.id == msgId }
+                        if (targetIdx != -1) {
+                            listState.animateScrollToItem(targetIdx)
                         }
+                    }
+                },
+                onUnpinClick = { msgId ->
+                    coroutineScope.launch {
+                        FirebaseChatManager.unpinMessage(msgId)
+                    }
+                }
+            )
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items(messagesList, key = { it.id }) { msg ->
+                val isMe = remember(msg.senderId, msg.senderEmail, currentUserId, currentUserEmail, isCurrentUserOwner) {
+                    (msg.senderId.isNotBlank() && msg.senderId == currentUserId) ||
+                    (!currentUserEmail.isNullOrBlank() && !msg.senderEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true)) ||
+                    (isCurrentUserOwner && (msg.isOwner || FirebaseChatManager.isRootAdmin(msg.senderEmail) || msg.senderId == "owner_yheysifat"))
+                }
+
+                val isSelected = selectedMessageIds.contains(msg.id)
+
+                WhatsAppMessageBubble(
+                    message = msg,
+                    isMe = isMe,
+                    currentUserAvatar = currentUserAvatar,
+                    avatarMap = liveMembersAvatarMap,
+                    isSelected = isSelected,
+                    isSelectionMode = isSelectionMode,
+                    activeAudioUrl = activePlayingAudioUrl,
+                    onPlayAudio = { url ->
+                        try {
+                            if (activePlayingAudioUrl == url && audioMediaPlayer.isPlaying) {
+                                audioMediaPlayer.pause()
+                                activePlayingAudioUrl = null
+                            } else {
+                                audioMediaPlayer.reset()
+                                audioMediaPlayer.setDataSource(url)
+                                audioMediaPlayer.prepareAsync()
+                                audioMediaPlayer.setOnPreparedListener {
+                                    audioMediaPlayer.start()
+                                    activePlayingAudioUrl = url
+                                }
+                                audioMediaPlayer.setOnCompletionListener {
+                                    activePlayingAudioUrl = null
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    },
+                    onSwipeToReply = { replyingToMessage = msg },
+                    onImageClick = { clickedUrl ->
+                        val isSticker = clickedUrl.contains("/stickers/", true) ||
+                                clickedUrl.contains("stk_", true) ||
+                                clickedUrl.endsWith(".webp", true) ||
+                                clickedUrl.endsWith(".gif", true)
+                        if (!isSticker) {
+                            previewImageUrl = clickedUrl
+                        }
+                    },
+                    onVideoClick = { previewVideoUrl = it },
+                    onLongClick = {
+                        if (isSelectionMode) {
+                            if (isSelected) selectedMessageIds.remove(msg.id) else selectedMessageIds.add(msg.id)
+                        } else {
+                            selectedActionMessage = msg
+                        }
+                    },
+                    onClick = {
+                        if (isSelectionMode) {
+                            if (isSelected) selectedMessageIds.remove(msg.id) else selectedMessageIds.add(msg.id)
+                        }
+                    },
+                    onShareForward = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "Voice note from ${msg.senderName} in DramaFlix Community")
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Forward Voice"))
+                    }
+                )
+            }
+
+            if (isVideoUploadingActive && uploadingVideoUri != null) {
+                item {
+                    UploadingVideoBubble(
+                        videoUri = uploadingVideoUri!!,
+                        percent = uploadProgressPercent,
+                        secondsLeft = uploadSecondsLeft,
+                        onCancel = {
+                            isVideoUploadingActive = false
+                            uploadingVideoUri = null
+                        }
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = liveActiveActions.isNotEmpty(),
+            enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(180)) + shrinkVertically(tween(180))
+        ) {
+            val actionText = formatActiveActionsText(liveActiveActions)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                JumpingDotsAnimation(dotColor = Color(0xFF00E676))
+                Text(
+                    text = actionText,
+                    color = Color(0xFF00E676),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = replyingToMessage != null,
+            enter = expandVertically(tween(200)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(180))
+        ) {
+            replyingToMessage?.let { target ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1E2834))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                        Box(modifier = Modifier.width(3.dp).height(30.dp).background(Color(0xFF2AABEE)))
+                        Column {
+                            Text(target.senderName, color = Color(0xFF2AABEE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
+        if (showTelegramMediaPicker) {
+            TelegramMediaPickerSheet(
+                onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
+                onSendGif = { gifUrl -> sendStickerOrGifMessage(gifUrl) },
+                onSelectEmoji = { emoji -> messageText += emoji },
+                onClose = { showTelegramMediaPicker = false },
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            if (!isUserLoggedIn) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF1E2834),
+                    border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .navigationBarsPadding()
+                        .clickable { showAuthSheet = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Close",
-                            color = Color.White,
+                            text = "Log in to join chat & send messages",
+                            color = Color(0xFF2AABEE),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else if (isCurrentUserBlocked) {
+                Surface(
+                    color = Color(0xFF261214),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .navigationBarsPadding()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                        Text(
+                            text = "You are blocked by Admin from sending messages in this community group.",
+                            color = Color(0xFFFF5252),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.ChatBubble,
-                            contentDescription = "Help",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "Help?",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    }
+                }
+            } else {
+                TelegramChatInputBar(
+                    isUserJoined = isUserJoined,
+                    isRecordingVoice = isRecordingVoice,
+                    recordDurationSeconds = recordDurationSeconds,
+                    messageText = messageText,
+                    currentUserAvatar = currentUserAvatar,
+                    currentUserName = currentUserName,
+                    selectedImageUris = selectedImageUris,
+                    selectedVideoUri = selectedVideoUri,
+                    isGroupMuted = isGroupMuted,
+                    isSending = isSending,
+                    onJoinGroupClick = {
+                        isUserJoined = true
+                        chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
+                        Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                    },
+                    onMessageTextChange = { newText ->
+                        messageText = newText
+                        if (newText.isNotBlank()) {
+                            typingStatusJob?.cancel()
+                            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
+                            typingStatusJob = coroutineScope.launch {
+                                delay(3500L)
+                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                            }
+                        } else {
+                            typingStatusJob?.cancel()
+                            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                        }
+                    },
+                    onToggleMuteClick = {
+                        val newState = !isGroupMuted
+                        isGroupMuted = newState
+                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                        FirebaseChatManager.toggleGroupNotification(!newState)
+                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                    },
+                    onEmojiPackToggle = {
+                        focusManager.clearFocus()
+                        showTelegramMediaPicker = !showTelegramMediaPicker
+                    },
+                    onAttachClick = { showAttachMenu = true },
+                    onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
+                    onClearSelectedMedia = {
+                        selectedImageUris = emptyList()
+                        selectedVideoUri = null
+                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                    },
+                    onStartVoiceRecord = { startRecordingVoice() },
+                    onCancelVoiceRecord = { cancelVoiceRecording() },
+                    onSendVoiceRecord = { stopAndSendVoice() },
+                    onSendMessage = { sendMessage() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding() // 👈 কিবোর্ড বন্ধ থাকলে নেভিগেশন বার উপরে, খুললে সোজা কিবোর্ডের মাথায় বসবে
+                )
+            }
+        }
+    }
+
+    if (showAuthSheet) {
+        AuthBottomSheetDialog(
+            viewModel = viewModel,
+            onDismiss = { showAuthSheet = false }
+        )
+    }
+
+    if (showGroupInfoScreen) {
+        Dialog(
+            onDismissRequest = { showGroupInfoScreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            GroupDetailsScreen(
+                messages = messagesList,
+                isGroupMuted = isGroupMuted,
+                stats = liveStats,
+                isCurrentUserOwner = isCurrentUserOwner,
+                onToggleMute = {
+                    val newState = !isGroupMuted
+                    isGroupMuted = newState
+                    chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                    FirebaseChatManager.toggleGroupNotification(!newState)
+                },
+                onLeaveGroup = {
+                    isUserJoined = false
+                    chatPrefs.edit().putBoolean("is_joined_group", false).apply()
+                    FirebaseChatManager.leaveGroup(currentUserId, currentUserEmail)
+                    showGroupInfoScreen = false
+                    Toast.makeText(context, "You left the community group", Toast.LENGTH_SHORT).show()
+                },
+                onBackClick = { showGroupInfoScreen = false },
+                onImageClick = { previewImageUrl = it },
+                onVideoClick = { previewVideoUrl = it }
+            )
+        }
+    }
+
+    if (showAttachMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showAttachMenu = false },
+            containerColor = WhatsAppBarBg
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Share Media", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            showAttachMenu = false
+                            multiImagePickerLauncher.launch("image/*")
+                        }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(26.dp))
+                    Column {
+                        Text("Photos / Images (Multiple)", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Select single or multiple photos together", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            showAttachMenu = false
+                            videoPickerLauncher.launch("video/*")
+                        }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(26.dp))
+                    Column {
+                        Text("Video Clip", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Select video (up to 50 MB) & add caption", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                     }
                 }
             }
         }
     }
 
-    if (showAttachSheet) {
+    if (selectedActionMessage != null) {
+        val msg = selectedActionMessage!!
+        val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
+        val isSenderNotOwner = msg.senderEmail != FirebaseChatManager.ROOT_ADMIN_EMAIL && msg.senderId != currentUserId
+        val candidateStickerUrl = msg.imageUrl ?: msg.imageUrls.firstOrNull()
+
         ModalBottomSheet(
-            onDismissRequest = { showAttachSheet = false },
-            containerColor = Color(0xFF161F2C)
+            onDismissRequest = { selectedActionMessage = null },
+            containerColor = WhatsAppBarBg
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Select Media to Share", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
-                HorizontalDivider(color = Color(0xFF2B374A), thickness = 0.8.dp)
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Message Options", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
-                        showAttachSheet = false
-                        multiImagePicker.launch("image/*")
-                    }.padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        replyingToMessage = msg
+                        selectedActionMessage = null
+                    }.padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(22.dp))
-                    Text("Photos & Images", color = Color.White, fontSize = 13.5.sp)
+                    Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = Color(0xFF2AABEE))
+                    Text("Reply", color = Color.White, fontSize = 14.sp)
+                }
+
+                if (!candidateStickerUrl.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            val currentSet = favPrefs.getStringSet("fav_items", emptySet())?.toMutableSet() ?: mutableSetOf()
+                            currentSet.add(candidateStickerUrl)
+                            favPrefs.edit().putStringSet("fav_items", currentSet).apply()
+                            Toast.makeText(context, "⭐ Added to Favorites!", Toast.LENGTH_SHORT).show()
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300))
+                        Text("Add Sticker to Favorites", color = Color(0xFFFFB300), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (isCurrentUserOwner) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            coroutineScope.launch {
+                                FirebaseChatManager.pinMessage(msg, currentUserName)
+                                Toast.makeText(context, "Message pinned to top!", Toast.LENGTH_SHORT).show()
+                            }
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.PushPin, contentDescription = null, tint = Color(0xFFFFB300))
+                        Text(if (msg.isPinned) "Re-pin Message" else "Pin Message to Top", color = Color(0xFFFFB300), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
-                        showAttachSheet = false
-                        videoPicker.launch("video/*")
-                    }.padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        selectedMessageIds.add(msg.id)
+                        selectedActionMessage = null
+                    }.padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(22.dp))
-                    Text("Video Clip (Max 50MB)", color = Color.White, fontSize = 13.5.sp)
+                    Icon(Icons.Default.CheckCircleOutline, contentDescription = null, tint = Color(0xFF00E676))
+                    Text("Select Multiple Messages", color = Color.White, fontSize = 14.sp)
+                }
+
+                if (msg.text.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Message", msg.text))
+                            Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color.White)
+                        Text("Copy Text", color = Color.White, fontSize = 14.sp)
+                    }
+                }
+
+                if (isCurrentUserOwner && isSenderNotOwner) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            coroutineScope.launch {
+                                FirebaseChatManager.kickUser(msg.senderId)
+                                Toast.makeText(context, "${msg.senderName} kicked from group", Toast.LENGTH_SHORT).show()
+                            }
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.PersonRemove, contentDescription = null, tint = Color(0xFFFF9800))
+                        Text("Kick User (${msg.senderName})", color = Color(0xFFFF9800), fontSize = 14.sp)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            coroutineScope.launch {
+                                FirebaseChatManager.blockUser(msg.senderId, msg.senderName, msg.senderEmail)
+                                Toast.makeText(context, "${msg.senderName} has been blocked!", Toast.LENGTH_SHORT).show()
+                            }
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252))
+                        Text("Block & Ban User", color = Color(0xFFFF5252), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (canDelete) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            coroutineScope.launch { FirebaseChatManager.deleteMessage(msg.id) }
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252))
+                        Text(if (isCurrentUserOwner && msg.senderId != currentUserId) "Delete as Owner" else "Delete Message", color = Color(0xFFFF5252), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
 
-    previewImageUrl?.let { mediaUrl ->
-        val isVideoSticker = mediaUrl.endsWith(".mp4", true) || mediaUrl.endsWith(".webm", true)
+    previewVideoUrl?.let { vidUrl ->
+        ChatVideoPlayerDialog(
+            videoUrl = vidUrl,
+            onDismiss = { previewVideoUrl = null }
+        )
+    }
 
-        Dialog(
-            onDismissRequest = { previewImageUrl = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+    previewImageUrl?.let { imgUrl ->
+        Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xCC080C14))
-                    .clickable { previewImageUrl = null },
+                    .background(Color.Black.copy(0.95f)),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isVideoSticker) {
-                        MiniVideoStickerLoopPlayer(
-                            videoUrl = mediaUrl,
-                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp))
-                        )
-                    } else {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(mediaUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Sticker",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
-                }
-
+                AsyncImage(
+                    model = imgUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
                 IconButton(
                     onClick = { previewImageUrl = null },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .statusBarsPadding()
-                        .padding(16.dp)
+                        .padding(14.dp)
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.6f))
+                        .background(Color.Black.copy(0.6f))
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }
             }
-        }
-    }
-
-    previewVideoUrl?.let { vid ->
-        ChatVideoPlayerDialog(
-            videoUrl = vid,
-            onDismiss = { previewVideoUrl = null }
-        )
-    }
-}
-
-@Composable
-private fun MiniVideoStickerLoopPlayer(
-    videoUrl: String,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val exoPlayer = remember(videoUrl) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUrl))
-            repeatMode = Player.REPEAT_MODE_ALL
-            volume = 0f
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(exoPlayer) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                player = exoPlayer
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-        },
-        modifier = modifier
-    )
-}
-
-@Composable
-private fun CompactMiniVoicePlayer(
-    durationSec: Long,
-    timeFormatted: String,
-    isMe: Boolean,
-    isSeen: Boolean,
-    isPlaying: Boolean,
-    onPlayToggle: () -> Unit
-) {
-    val sec = durationSec.coerceAtLeast(1L)
-    val durationText = String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60)
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .widthIn(min = 125.dp, max = 175.dp)
-            .padding(vertical = 1.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF5288C1))
-                .clickable { onPlayToggle() },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = "Play/Pause",
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            MiniVoiceWaveform(isPlaying = isPlaying)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (isPlaying) "Playing..." else durationText,
-                    color = Color(0xFF8E9BA8),
-                    fontSize = 9.sp
-                )
-
-                Text(
-                    text = timeFormatted + (if (isMe) (if (isSeen) " ✓✓" else " ✓") else ""),
-                    color = Color(0xFF8E9BA8),
-                    fontSize = 8.5.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniVoiceWaveform(
-    isPlaying: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val heights = remember { listOf(3, 7, 11, 5, 13, 8, 6, 12, 8, 4, 10, 4) }
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(1.5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .fillMaxWidth()
-            .height(13.dp)
-    ) {
-        heights.forEach { h ->
-            Box(
-                modifier = Modifier
-                    .width(1.8.dp)
-                    .height(h.dp)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(if (isPlaying) Color(0xFF8CA5BE) else Color(0xFF6E8092))
-            )
         }
     }
 }
