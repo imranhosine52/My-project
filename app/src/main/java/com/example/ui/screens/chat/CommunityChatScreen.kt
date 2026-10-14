@@ -174,10 +174,12 @@ fun CommunityChatScreen(
         ?: userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
         ?: authPrefs.getString("user_avatar", null)
 
+    // 🎯 ফিক্স: isUserVip এবং isVip দুটো ভ্যারিয়েবলই নিশ্চিত করা হলো যাতে রেফারেন্স এরর না হয়
     val isUserVip = remember(authState) {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
+    val isVip = isUserVip
 
     var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
@@ -186,7 +188,7 @@ fun CommunityChatScreen(
         if (isCurrentUserOwner) {
             isUserJoined = true
             chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = true)
+            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
         } else {
             val alreadyJoined = FirebaseChatManager.isUserAlreadyJoined(currentUserId, currentUserEmail)
             if (alreadyJoined) {
@@ -495,7 +497,7 @@ fun CommunityChatScreen(
                 senderName = currentUserName,
                 senderEmail = currentUserEmail,
                 senderAvatar = currentUserAvatar,
-                isVip = isVip,
+                isVip = isUserVip,
                 replyToMessage = replyTarget
             )
         }
@@ -539,7 +541,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isVip,
+                        isVip = isUserVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onProgress = { pct, sec ->
@@ -558,7 +560,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isVip,
+                        isVip = isUserVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
@@ -569,7 +571,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isVip,
+                        isVip = isUserVip,
                         text = textToSend,
                         replyToMessage = replyTarget
                     )
@@ -585,16 +587,12 @@ fun CommunityChatScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 মূল কন্টেইনার: imePadding() প্যারেন্টে দেওয়ার কারণে
-    // কিবোর্ড ওপেন হওয়ামাত্রই পুরো ভিউ উপরে উঠে কিবোর্ডের মাথায় বসবে এবং
-    // কোনো অতিরিক্ত ফাঁকা জায়গা থাকবে না বা কিবোর্ডের নিচে ঢাকা পড়বে না।
-    // =========================================================================
+    // 🎯 মূল কন্টেইনার: imePadding() প্যারেন্টে থাকার কারণে কিবোর্ডের মাথায় বসবে নির্ভুলভাবে
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
-            .imePadding() // 👈 কিবোর্ড উঠলে সম্পূর্ণ স্ক্রিন নির্ভুলভাবে ডক হবে
+            .imePadding()
     ) {
         if (isSelectionMode) {
             val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
@@ -1026,7 +1024,7 @@ fun CommunityChatScreen(
                     onSendMessage = { sendMessage() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding() // 👈 কিবোর্ড বন্ধ থাকলে নেভিগেশন বার উপরে, খুললে সোজা কিবোর্ডের মাথায় বসবে
+                        .navigationBarsPadding()
                 )
             }
         }
