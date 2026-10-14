@@ -345,15 +345,10 @@ fun CommunityChatScreen(
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
-            listState.scrollToItem(messagesList.size - 1)
+            delay(100L)
+            listState.animateScrollToItem(messagesList.size - 1)
         }
     }
-
-    // =========================================================================
-    // 🎯 ফিক্স: কিবোর্ড ওপেন হলে অতিরিক্ত প্যাডিং সম্পূর্ণ পরিহার করা
-    // কিবোর্ড খোলা থাকলে 0dp আর বন্ধ থাকলে সাধারণ navigationBarsPadding থাকবে।
-    // =========================================================================
-    val cleanBottomInsetModifier = if (isImeVisible) Modifier.padding(bottom = 2.dp) else Modifier.navigationBarsPadding()
 
     fun executeStartRecordingVoice() {
         try {
@@ -500,7 +495,7 @@ fun CommunityChatScreen(
                 senderName = currentUserName,
                 senderEmail = currentUserEmail,
                 senderAvatar = currentUserAvatar,
-                isVip = isUserVip,
+                isVip = isVip,
                 replyToMessage = replyTarget
             )
         }
@@ -544,7 +539,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        isVip = isVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onProgress = { pct, sec ->
@@ -563,7 +558,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        isVip = isVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
@@ -574,7 +569,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        isVip = isVip,
                         text = textToSend,
                         replyToMessage = replyTarget
                     )
@@ -590,10 +585,16 @@ fun CommunityChatScreen(
         }
     }
 
+    // =========================================================================
+    // 🎯 মূল কন্টেইনার: imePadding() প্যারেন্টে দেওয়ার কারণে
+    // কিবোর্ড ওপেন হওয়ামাত্রই পুরো ভিউ উপরে উঠে কিবোর্ডের মাথায় বসবে এবং
+    // কোনো অতিরিক্ত ফাঁকা জায়গা থাকবে না বা কিবোর্ডের নিচে ঢাকা পড়বে না।
+    // =========================================================================
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
+            .imePadding() // 👈 কিবোর্ড উঠলে সম্পূর্ণ স্ক্রিন নির্ভুলভাবে ডক হবে
     ) {
         if (isSelectionMode) {
             val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
@@ -927,7 +928,7 @@ fun CommunityChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .then(cleanBottomInsetModifier) // 🎯 ফিক্সড ক্লিন প্যাডিং
+                        .navigationBarsPadding()
                         .clickable { showAuthSheet = true }
                 ) {
                     Row(
@@ -953,7 +954,7 @@ fun CommunityChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 6.dp)
-                        .then(cleanBottomInsetModifier) // 🎯 ফিক্সড ক্লিন প্যাডিং
+                        .navigationBarsPadding()
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -1025,7 +1026,7 @@ fun CommunityChatScreen(
                     onSendMessage = { sendMessage() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(cleanBottomInsetModifier) // 🎯 ফিক্সড ক্লিন প্যাডিং
+                        .navigationBarsPadding() // 👈 কিবোর্ড বন্ধ থাকলে নেভিগেশন বার উপরে, খুললে সোজা কিবোর্ডের মাথায় বসবে
                 )
             }
         }
