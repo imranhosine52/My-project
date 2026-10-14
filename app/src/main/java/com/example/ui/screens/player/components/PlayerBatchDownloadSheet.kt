@@ -6,14 +6,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells           // 👈 ফিক্সড ইমপোর্ট
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid     // 👈 ফিক্সড ইমপোর্ট
-import androidx.compose.foundation.lazy.grid.items                // 👈 ফিক্সড ইমপোর্ট
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -142,7 +139,7 @@ fun PlayerBatchDownloadSheet(
     var isFetchingSizes by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎯 ১. ডাইনামিক কোয়ালিটি ডিটেকশন (৭২০p এবং ১০৮০p ভিআইপি থাকবে)
+    // 🎯 ১. ডাইনামিক কোয়ালিটি তালিকা
     // =========================================================================
     val availableQualities = remember(episodes) {
         val detected = mutableListOf<DownloadQualityItem>()
@@ -153,7 +150,7 @@ fun PlayerBatchDownloadSheet(
                 val qLower = opt.quality.lowercase()
                 val (key, label, isVipTag) = when {
                     qLower.contains("1080") -> Triple("1080p", "1080P", true)
-                    qLower.contains("720")  -> Triple("720p", "720P", true)  // 👈 ৭২০p প্রিমিয়াম
+                    qLower.contains("720")  -> Triple("720p", "720P", true)
                     qLower.contains("480")  -> Triple("480p", "480P", false)
                     qLower.contains("360")  -> Triple("360p", "360P", false)
                     else                   -> Triple("single", "HD", false)
@@ -165,7 +162,7 @@ fun PlayerBatchDownloadSheet(
         if (detected.isEmpty()) {
             listOf(
                 DownloadQualityItem("1080p", "1080P", true),
-                DownloadQualityItem("720p", "720P", true),   // 👈 ৭২০p প্রিমিয়াম
+                DownloadQualityItem("720p", "720P", true),
                 DownloadQualityItem("480p", "480P", false),
                 DownloadQualityItem("360p", "360P", false)
             )
@@ -194,10 +191,8 @@ fun PlayerBatchDownloadSheet(
         selectedDownloadEpisodes.size == filteredEpisodes.size && filteredEpisodes.isNotEmpty()
     }
 
-    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
-
     // =========================================================================
-    // ⚡ ২. নির্বাচিত কোয়ালিটির আসল MB সাইজ ক্যালকুলেশন
+    // ⚡ ২. ফাইলের আসল সাইজ লাইভ রিড
     // =========================================================================
     LaunchedEffect(selectedDownloadEpisodes.toList(), selectedQuality) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
@@ -240,7 +235,7 @@ fun PlayerBatchDownloadSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
-                .padding(top = 14.dp, bottom = 95.dp),
+                .padding(top = 14.dp, bottom = 100.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // ১. হেডার
@@ -265,9 +260,33 @@ fun PlayerBatchDownloadSheet(
 
             HorizontalDivider(color = Color(0xFF2A303C), thickness = 0.8.dp)
 
-            // =========================================================================
-            // 🎯 কোয়ালিটি চিপস রো (1080p, 720p VIP Crown সহ)
-            // =========================================================================
+            // ২. ফ্রি ইউজারদের জন্য ভিআইপি ব্যানার
+            if (!isVip) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF2C2208),
+                    border = BorderStroke(1.dp, Color(0xFFFFB300).copy(alpha = 0.6f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToVip() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        VipCrownMiniIcon(tint = Color(0xFFFFB300))
+                        Text(
+                            text = "লং ভিডিও ডাউনলোড শুধুমাত্র VIP মেম্বারদের জন্য প্রযোজ্য!",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // ৩. কোয়ালিটি চিপস রো
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -295,7 +314,7 @@ fun PlayerBatchDownloadSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (q.isVipOnly) {
+                                if (q.isVipOnly || !isVip) {
                                     VipCrownMiniIcon(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
                                 }
                                 Text(
@@ -335,7 +354,7 @@ fun PlayerBatchDownloadSheet(
 
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-            // ২. পর্বের গ্রিড (৮ কলাম)
+            // ৪. পর্বের গ্রিড (৮ কলাম)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(8),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -392,7 +411,7 @@ fun PlayerBatchDownloadSheet(
         }
 
         // =========================================================================
-        // ৩. নিচের ফিক্সড ডাউনলোড বার (VIP কোয়ালিটি গার্ড সহ)
+        // 👑 ৫. নিচের ফিক্সড ডাউনলোড বার (লং ভিডিও VIP লকড ইঞ্জিন)
         // =========================================================================
         Column(
             modifier = Modifier
@@ -441,10 +460,8 @@ fun PlayerBatchDownloadSheet(
                         Text("Select All", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
                     }
 
-                    // 🎯 VIP কোয়ালিটি লক চেকার (৭২০p ও ১০৮০p এর জন্য)
-                    val isVipLocked = selectedQuality.isVipOnly && !isVip
-
-                    val downloadButtonBrush = if (isVipLocked) {
+                    // 👑 লং ভিডিওতে ফ্রি ইউজার হলে গোল্ডেন ভিআইপি বাটন
+                    val downloadButtonBrush = if (!isVip) {
                         Brush.horizontalGradient(listOf(Color(0xFFE5B567), Color(0xFFF6D38B)))
                     } else {
                         Brush.horizontalGradient(listOf(Color(0xFF0088FF), Color(0xFF00D26A)))
@@ -453,7 +470,7 @@ fun PlayerBatchDownloadSheet(
                     val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
 
                     val buttonText = when {
-                        isVipLocked -> "Unlock ${selectedQuality.label} with VIP 👑"
+                        !isVip -> "Unlock VIP to Download 👑"
                         totalSelectedBytes > 0 -> "Download (${selectedDownloadEpisodes.size}) · $displaySize"
                         selectedDownloadEpisodes.isNotEmpty() -> "Download (${selectedDownloadEpisodes.size})"
                         else -> "Download (${selectedQuality.label})"
@@ -461,8 +478,13 @@ fun PlayerBatchDownloadSheet(
 
                     Button(
                         onClick = {
-                            if (isVipLocked) {
-                                Toast.makeText(context, "${selectedQuality.label} is exclusive for VIP members! Upgrade now.", Toast.LENGTH_SHORT).show()
+                            // 🚫 ফ্রি ইউজারদের সরাসরি ব্লক করে VIP পেজে রিডাইরেক্ট
+                            if (!isVip) {
+                                Toast.makeText(
+                                    context,
+                                    "👑 লং ভিডিও ডাউনলোড শুধুমাত্র VIP মেম্বারদের জন্য প্রযোজ্য!",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                 onNavigateToVip()
                                 return@Button
                             }
@@ -476,14 +498,11 @@ fun PlayerBatchDownloadSheet(
                             val checkResult = DownloadQuotaManager.checkCanDownload(
                                 context = context,
                                 bytesToDownload = totalSelectedBytes,
-                                isVip = isVip
+                                isVip = isVip,
+                                isLongVideo = true // 👈 লং ভিডিও ফ্ল্যাগ
                             )
 
                             if (checkResult.canDownload) {
-                                if (!isVip) {
-                                    DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
-                                    todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
-                                }
                                 onDownloadSelected(targets)
                             } else {
                                 Toast.makeText(context, checkResult.message, Toast.LENGTH_LONG).show()
@@ -503,7 +522,7 @@ fun PlayerBatchDownloadSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (isVipLocked) {
+                            if (!isVip) {
                                 VipCrownMiniIcon(tint = Color(0xFF2B210E))
                                 Text(buttonText, color = Color(0xFF2B210E), fontSize = 13.sp, fontWeight = FontWeight.Black)
                             } else {
@@ -514,6 +533,7 @@ fun PlayerBatchDownloadSheet(
                     }
                 }
 
+                // ফুটার ইনফো টেক্সট
                 if (isVip) {
                     Text(
                         text = "👑 VIP Member: Unlimited HD Downloads",
@@ -523,12 +543,11 @@ fun PlayerBatchDownloadSheet(
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 } else {
-                    val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
-                    val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
                     Text(
-                        text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
-                        color = Color(0xFF94A3B8),
+                        text = "👑 লং ভিডিও ডাউনলোড VIP সংরক্ষিত (শর্টস ভিডিওতে দৈনিক ২ জিবি ফ্রি)",
+                        color = Color(0xFFFFB300),
                         fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 }
