@@ -113,10 +113,6 @@ private fun findActivityFromContext(context: Context): Activity? {
     return null
 }
 
-/**
- * 🎯 অটোমেটিক মিডিয়া ডিটেকশন হেল্পার:
- * সরাসরি ভিডিও ফাইল (.mp4, .m3u8, .mkv ইত্যাদি) নাকি কোনো থার্ডপার্টি এম্বেড আইফ্রেম প্লেয়ার
- */
 private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
     val url = rawUrl.trim().lowercase()
@@ -124,7 +120,6 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
     if (!url.startsWith("http://") && !url.startsWith("https://")) return false
 
-    // যদি কোনো এম্বেড লিঙ্ক বা আইফ্রেম থাকে
     if (url.contains("/e/") || url.contains("/embed") || url.contains("byse") ||
         url.contains("streamtape") || url.contains("streamwish") || url.contains("dood") ||
         url.contains("vidhide") || url.contains("youtube") || url.contains("iframe")
@@ -175,6 +170,8 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     val isUserLoggedIn = authState.isLoggedIn
+
+    // 👑 VIP স্ট্যাটাস চেকার
     val isUserVip = playerState.isVip ||
             authState.isVip ||
             (authState.userProfile?.isVip == true) ||
@@ -210,7 +207,7 @@ fun PlayerScreen(
 
     var isMediaSendingLock by remember { mutableStateOf(false) }
 
-    // কাস্টম বিজ্ঞাপন লোডিং
+    // কাস্টম অ্যাড কনফিগারেশন
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
     var lastMidrollTriggerSeconds by remember(currentActiveSlug) { mutableLongStateOf(0L) }
@@ -615,7 +612,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 একক অটো-রিজলভার (MP4, HLS/m3u8 বা Embed স্বয়ংক্রিয় প্লেব্যাক ইঞ্জিন)
+    // 🎯 একক অটো-রেজলভার (MP4, HLS/m3u8 বা Embed স্বয়ংক্রিয় প্লেব্যাক ইঞ্জিন)
     // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
@@ -629,14 +626,12 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            // সার্ভারের পাঠানো ফিল্ডগুলো স্বয়ংক্রিয়ভাবে স্ক্যান করা
             val appStream = currentEp.appStreamUrl?.trim() ?: ""
             val streamUrl = currentEp.directStreamUrl?.trim() ?: ""
             val videoUrl = currentEp.videoUrl?.trim() ?: ""
             val embedUrl = currentEp.embedUrl?.trim() ?: ""
             val webPlayerUrl = currentEp.webPlayerUrl?.trim() ?: ""
 
-            // ১. সরাসরি ভিডিও লিংক খোঁজা (.mp4 / .m3u8 ইত্যাদি)
             val directCandidate = when {
                 isDirectStreamableUrl(appStream) -> appStream
                 isDirectStreamableUrl(streamUrl) -> streamUrl
@@ -644,7 +639,6 @@ fun PlayerScreen(
                 else -> ""
             }
 
-            // ২. এম্বেড লিংক খোঁজা
             val embedCandidate = when {
                 embedUrl.isNotBlank() && embedUrl != "null" -> embedUrl
                 webPlayerUrl.isNotBlank() && webPlayerUrl != "null" -> webPlayerUrl
@@ -652,12 +646,10 @@ fun PlayerScreen(
                 else -> ""
             }
 
-            // সিদ্ধান্ত: সরাসরি ভিডিও নাকি এম্বেড
             val (resolvedUrl, isEmbed) = when {
                 directCandidate.isNotBlank() -> Pair(directCandidate, false)
                 embedCandidate.isNotBlank() -> Pair(embedCandidate, true)
                 else -> {
-                    // ফলব্যাক: Cloudflare R2 HLS বা ডিরেক্ট MP4
                     val fallback = currentEp.resolveR2StreamUrl(currentActiveSlug)
                     Pair(fallback, !isDirectStreamableUrl(fallback))
                 }
@@ -672,13 +664,11 @@ fun PlayerScreen(
             activeStreamUrl = resolvedUrl
 
             if (isEmbed) {
-                // এম্বেড প্লেয়ার চালু
                 useWebPlayerFallback = true
                 exoPlayer.stop()
                 exoPlayer.clearMediaItems()
                 persistentWebView.loadUrl(resolvedUrl)
             } else {
-                // ExoPlayer-এ সরাসরি প্লেব্যাক
                 useWebPlayerFallback = false
                 persistentWebView.loadUrl("about:blank")
                 try {
@@ -721,7 +711,7 @@ fun PlayerScreen(
             score
         }
 
-        shuffledRecommendations = sortedSimilar.take(15).shuffled()
+        shuffledRecommendations = sortedSimilar.take(20).shuffled()
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
@@ -779,7 +769,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // ভিডিও প্লেয়ার কন্টেইনার
+                // ভিডিও প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -932,7 +922,7 @@ fun PlayerScreen(
                             }
                         )
                     } else {
-                        // 🎯 পুল-টু-রিফ্রেশ বক্স: নিচে টানলে ক্যাশ ক্লিয়ার করে নতুন ডাটা ফেচ হবে
+                        // 🎯 পুল-টু-রিফ্রেশ বক্স
                         PullToRefreshBox(
                             isRefreshing = isRefreshing,
                             onRefresh = {
@@ -1033,13 +1023,18 @@ fun PlayerScreen(
                                     )
                                 }
 
+                                // =============================================================
+                                // 🌟 For you ট্যাব: এক লাইনে ৪টি করে কার্ড (4 Cards Per Row)
+                                // =============================================================
                                 if (selectedTabIndex == 0) {
-                                    val dramaRows = shuffledRecommendations.chunked(3)
+                                    val dramaRows = shuffledRecommendations.chunked(4)
                                     items(dramaRows.size) { rowIndex ->
                                         val rowDramas = dramaRows[rowIndex]
                                         Row(
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             for (drama in rowDramas) {
                                                 PlayerRecommendationCard(
@@ -1058,7 +1053,7 @@ fun PlayerScreen(
                                                     modifier = Modifier.weight(1f)
                                                 )
                                             }
-                                            repeat(3 - rowDramas.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                            repeat(4 - rowDramas.size) { Spacer(modifier = Modifier.weight(1f)) }
                                         }
                                     }
                                 }
@@ -1275,10 +1270,13 @@ fun PlayerScreen(
             }
         }
 
+        // 👑 লং ভিডিও VIP লকড ডাউনলোড শিট
         if (showDownloadSheet) {
             DownloadResourceSheet(
                 title = cleanShortTitle,
                 downloadUrl = downloadUrl,
+                isVip = isUserVip,
+                isLongVideo = true, // 👈 লং ভিডিও ফ্ল্যাগ
                 onDismiss = { showDownloadSheet = false },
                 onDownloadNow = {
                     showDownloadSheet = false
@@ -1293,7 +1291,8 @@ fun PlayerScreen(
                 onOpenDownloadsPage = {
                     showDownloadSheet = false
                     onNavigateToDownloads()
-                }
+                },
+                onNavigateToVip = onNavigateToVip
             )
         }
 
