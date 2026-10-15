@@ -37,6 +37,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -60,7 +62,6 @@ data class ReactionMeta(
     val emoji: String
 )
 
-// কুইক রিঅ্যাকশন ইমোজি লিস্ট
 val quickReactionsList = listOf(
     ReactionMeta("heart", "❤️"),
     ReactionMeta("like", "👍"),
@@ -74,7 +75,6 @@ val quickReactionsList = listOf(
     ReactionMeta("hundred", "💯")
 )
 
-// টেলিগ্রামের ফুল ৬৪টি ইমোজি লিস্ট
 val fullPickerReactionsList = listOf(
     ReactionMeta("heart", "❤️"), ReactionMeta("like", "👍"), ReactionMeta("dislike", "👎"),
     ReactionMeta("fire", "🔥"), ReactionMeta("love_face", "🥰"), ReactionMeta("clap", "👏"),
@@ -146,16 +146,74 @@ fun PlayerHeaderSection(
     val coroutineScope = rememberCoroutineScope()
     val pullDownOffsetY = remember { Animatable(0f) }
 
-    // পপআপ এবং ইন-প্লেস ইমোজি পিকারের স্টেট
     var showContextMenu by remember { mutableStateOf(false) }
     var isShowingFullEmojiPickerInPopup by remember { mutableStateOf(false) }
+    var isDismissingPopup by remember { mutableStateOf(false) }
 
-    // লাভ রিঅ্যাক্ট মূল লাইক কাউন্টারের সাথে থাকবে, বাকিগুলো পাশে দেখাবে
+    // 🌊 পপআপের প্রাকৃতিক এন্ট্রি ও এক্সিট স্প্রিং অ্যানিমেশন
+    val popupScale = remember { Animatable(0.35f) }
+    val popupAlpha = remember { Animatable(0f) }
+
+    fun dismissPopupSmoothly(onDone: () -> Unit = {}) {
+        if (isDismissingPopup) return
+        isDismissingPopup = true
+        coroutineScope.launch {
+            launch {
+                popupScale.animateTo(
+                    targetValue = 0.65f,
+                    animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing)
+                )
+            }
+            launch {
+                popupAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 140, easing = FastOutLinearInEasing)
+                )
+            }
+            delay(165)
+            showContextMenu = false
+            isShowingFullEmojiPickerInPopup = false
+            isDismissingPopup = false
+            onDone()
+        }
+    }
+
+    fun openPopupSmoothly() {
+        if (showContextMenu && !isDismissingPopup) {
+            dismissPopupSmoothly()
+        } else {
+            isDismissingPopup = false
+            isShowingFullEmojiPickerInPopup = false
+            showContextMenu = true
+        }
+    }
+
+    LaunchedEffect(showContextMenu) {
+        if (showContextMenu) {
+            popupScale.snapTo(0.35f)
+            popupAlpha.snapTo(0f)
+            launch {
+                popupAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing)
+                )
+            }
+            launch {
+                popupScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.72f, // সুন্দর মৃদু বাউন্স
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
     val activeOtherReactions = remember(reactions) {
         reactions.filter { it.key.lowercase() != "heart" && it.value > 0 }
     }
 
-    // লাভ রিঅ্যাক্টের বাউন্স অ্যানিমেশন
     val reactionAnimScale = remember { Animatable(1f) }
 
     fun triggerReactionWithBounce(key: String) {
@@ -186,7 +244,7 @@ fun PlayerHeaderSection(
                 .padding(bottom = 2.dp)
         ) {
             // =========================================================================
-            // 🎯 মূল হেডার লেআউট (টাইটেল, প্রি/নেক্সট এবং নীল দাগের পুরো কালো ইন্টারঅ্যাক্টিভ এরিয়া)
+            // ১. টাইটেল, প্রি/নেক্সট ও নীল দাগের পুরো কালো ইন্টারঅ্যাক্টিভ এরিয়া
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -195,11 +253,11 @@ fun PlayerHeaderSection(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 👈 বাম পাশের কলাম: ড্রামা টাইটেল ও মেটাডাটা
+                // 👈 বাম পাশের কলাম: টাইটেল ও মেটাডাটা
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 6.dp),
+                        .padding(end = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
@@ -211,7 +269,6 @@ fun PlayerHeaderSection(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // মেটাডাটা রো: সাল • রেটিং • ...more
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -241,7 +298,7 @@ fun PlayerHeaderSection(
                     }
                 }
 
-                // 👉 ডান পাশের কলাম: Pre/Next এবং আপনার নীল দাগ দেওয়া সম্পূর্ণ কালো এরিয়া
+                // 👉 ডান পাশের কলাম: Pre/Next এবং ছবির নীল দাগ দেওয়া সম্পূর্ণ কালো এরিয়া
                 Column(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -290,20 +347,19 @@ fun PlayerHeaderSection(
 
                     // =====================================================================
                     // 🎯 ছবির নীল দাগ দেওয়া সম্পূর্ণ কালো অংশ:
-                    // সিঙ্গেল ট্যাপ ➔ সাইড পপআপ ওপেন
+                    // সিঙ্গেল ট্যাপ ➔ স্মুথ পপআপ
                     // ডাবল ট্যাপ ➔ সরাসরি লাভ রিঅ্যাক্ট (❤️)
                     // =====================================================================
                     Box(
                         modifier = Modifier
-                            .widthIn(min = 180.dp)
-                            .heightIn(min = 36.dp)
+                            .widthIn(min = 190.dp)
+                            .heightIn(min = 40.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.Transparent)
                             .pointerInput(isLiked, likesCount, myReaction, reactions) {
                                 detectTapGestures(
                                     onTap = {
-                                        showContextMenu = !showContextMenu
-                                        isShowingFullEmojiPickerInPopup = false
+                                        openPopupSmoothly()
                                     },
                                     onDoubleTap = {
                                         triggerReactionWithBounce("heart")
@@ -402,15 +458,14 @@ fun PlayerHeaderSection(
         }
 
         // =========================================================================
-        // 🌟 ২ নম্বর ছবির হুবহু পপআপ (ক্লিক করা কালো অংশের সাথে অ্যাঙ্কর্ড, কোনো স্ক্রিন ডিম নেই)
+        // 🌟 ২ নম্বর ছবির হুবহু পপআপ (মাখনের মতো মসৃণ এন্ট্রি-এক্সিট ও ফ্লুইড গ্রোথ)
         // =========================================================================
         if (showContextMenu) {
             Popup(
                 alignment = Alignment.TopEnd,
                 offset = IntOffset(x = (-12).dp.value.toInt(), y = 64.dp.value.toInt()),
                 onDismissRequest = {
-                    showContextMenu = false
-                    isShowingFullEmojiPickerInPopup = false
+                    dismissPopupSmoothly()
                 },
                 properties = PopupProperties(
                     focusable = true,
@@ -418,18 +473,25 @@ fun PlayerHeaderSection(
                     dismissOnClickOutside = true
                 )
             ) {
-                AnimatedVisibility(
-                    visible = showContextMenu,
-                    enter = scaleIn(initialScale = 0.82f, animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(140)),
-                    exit = scaleOut(targetScale = 0.82f, animationSpec = tween(150, easing = FastOutSlowInEasing)) + fadeOut(tween(120))
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = popupScale.value
+                            scaleY = popupScale.value
+                            alpha = popupAlpha.value
+                            // 🎯 টাচ পয়েন্ট থেকে প্রাকৃতিক প্রসারণ
+                            transformOrigin = TransformOrigin(pivotFractionX = 0.92f, pivotFractionY = 0.05f)
+                        }
                 ) {
                     AnimatedContent(
                         targetState = isShowingFullEmojiPickerInPopup,
                         transitionSpec = {
                             if (targetState) {
-                                (slideInHorizontally { it / 3 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 3 } + fadeOut())
+                                (slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(180))) togetherWith
+                                (slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -it / 3 } + fadeOut(tween(150)))
                             } else {
-                                (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith (slideOutHorizontally { it / 3 } + fadeOut())
+                                (slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(180))) togetherWith
+                                (slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { it / 3 } + fadeOut(tween(150)))
                             }
                         },
                         label = "TelegramCardSwitch"
@@ -472,21 +534,21 @@ fun PlayerHeaderSection(
                                                         .clip(CircleShape)
                                                         .clickable {
                                                             triggerReactionWithBounce(item.key)
-                                                            showContextMenu = false
+                                                            dismissPopupSmoothly()
                                                         }
                                                         .padding(3.dp)
                                                 )
                                             }
                                         }
 
-                                        // ⌄ ড্রপডাউন বাটন (ক্লিক করলে এখানেই কার্ডের ভেতর ৬৪টি ইমোজি আসবে)
+                                        // ⌄ ড্রপডাউন বাটন (ক্লিক করলে ইন-প্লেস ৬৪টি ইমোজি আসবে)
                                         Box(
                                             modifier = Modifier
                                                 .size(26.dp)
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF333E50))
                                                 .clickable {
-                                                    isShowingFullEmojiPickerInPopup = true // 👈 ইন-প্লেস ইমোজি ওপেন
+                                                    isShowingFullEmojiPickerInPopup = true
                                                 },
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -530,8 +592,9 @@ fun PlayerHeaderSection(
                                             icon = Icons.AutoMirrored.Filled.Reply,
                                             label = "Reply",
                                             onClick = {
-                                                showContextMenu = false
-                                                onReplyClick()
+                                                dismissPopupSmoothly {
+                                                    onReplyClick()
+                                                }
                                             }
                                         )
 
@@ -541,11 +604,12 @@ fun PlayerHeaderSection(
                                             icon = Icons.Default.Link,
                                             label = "Copy Link",
                                             onClick = {
-                                                showContextMenu = false
-                                                val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
-                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                clipboard.setPrimaryClip(ClipData.newPlainText("Drama Link", shareUrl))
-                                                Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                                dismissPopupSmoothly {
+                                                    val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    clipboard.setPrimaryClip(ClipData.newPlainText("Drama Link", shareUrl))
+                                                    Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                                }
                                             }
                                         )
 
@@ -556,13 +620,14 @@ fun PlayerHeaderSection(
                                             label = if (isInWatchlist) "Added to Favorite" else "Favorite",
                                             iconColor = if (isInWatchlist) Color(0xFFFFB300) else Color.White,
                                             onClick = {
-                                                showContextMenu = false
-                                                onWatchlistClick()
-                                                Toast.makeText(
-                                                    context,
-                                                    if (isInWatchlist) "Removed from favorites" else "Added to favorites! ⭐",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
+                                                dismissPopupSmoothly {
+                                                    onWatchlistClick()
+                                                    Toast.makeText(
+                                                        context,
+                                                        if (isInWatchlist) "Removed from favorites" else "Added to favorites! ⭐",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
                                             }
                                         )
 
@@ -572,16 +637,17 @@ fun PlayerHeaderSection(
                                             icon = Icons.AutoMirrored.Filled.Forward,
                                             label = "Forward",
                                             onClick = {
-                                                showContextMenu = false
-                                                onForwardClick()
-                                                try {
-                                                    val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
-                                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                        type = "text/plain"
-                                                        putExtra(Intent.EXTRA_TEXT, "Watch ${content.displayName} on PlayDramaFlix: $shareUrl")
-                                                    }
-                                                    context.startActivity(Intent.createChooser(shareIntent, "Forward Drama"))
-                                                } catch (_: Exception) {}
+                                                dismissPopupSmoothly {
+                                                    onForwardClick()
+                                                    try {
+                                                        val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
+                                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                            type = "text/plain"
+                                                            putExtra(Intent.EXTRA_TEXT, "Watch ${content.displayName} on PlayDramaFlix: $shareUrl")
+                                                        }
+                                                        context.startActivity(Intent.createChooser(shareIntent, "Forward Drama"))
+                                                    } catch (_: Exception) {}
+                                                }
                                             }
                                         )
                                     }
@@ -614,14 +680,13 @@ fun PlayerHeaderSection(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            // ব্যাক বাটন (ক্লিক করলে আবার আগের মেনুতে ফেরত যাবে)
                                             Box(
                                                 modifier = Modifier
                                                     .size(28.dp)
                                                     .clip(CircleShape)
                                                     .background(Color(0xFF2C394B))
                                                     .clickable {
-                                                        isShowingFullEmojiPickerInPopup = false // 👈 ব্যাক করে মেনুতে ফিরবে
+                                                        isShowingFullEmojiPickerInPopup = false
                                                     },
                                                 contentAlignment = Alignment.Center
                                             ) {
@@ -649,15 +714,14 @@ fun PlayerHeaderSection(
                                                 .size(20.dp)
                                                 .clip(CircleShape)
                                                 .clickable {
-                                                    showContextMenu = false
-                                                    isShowingFullEmojiPickerInPopup = false
+                                                    dismissPopupSmoothly()
                                                 }
                                         )
                                     }
 
                                     HorizontalDivider(color = TelegramMenuBorder, thickness = 0.6.dp)
 
-                                    // ৮-কলামের পূর্ণাঙ্গ টেলিগ্রাম ইমোজি গ্রিড
+                                    // ৮-কলামের টেলিগ্রাম ইমোজি গ্রিড
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(8),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -673,8 +737,7 @@ fun PlayerHeaderSection(
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
                                                         triggerReactionWithBounce(item.key)
-                                                        showContextMenu = false
-                                                        isShowingFullEmojiPickerInPopup = false
+                                                        dismissPopupSmoothly()
                                                     },
                                                 contentAlignment = Alignment.Center
                                             ) {
