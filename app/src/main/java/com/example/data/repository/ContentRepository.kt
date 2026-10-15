@@ -25,13 +25,13 @@ class ContentRepository(
 
     companion object {
         private const val TAG = "ContentRepository"
-        // ⏱️ ক্যাশ মেয়াদ ৪ ঘণ্টার বদলে ৩ মিনিট করা হলো (যাতে নতুন পোস্ট করার সাথে সাথে চলে আসে)
+        // ⏱️ ক্যাশ মেয়াদ ৩ মিনিট
         private const val FEED_CACHE_TTL_MS = 3 * 60 * 1000L
-        // ⏱️ নতুন পর্বের আপডেট নিশ্চিত করতে ওয়াচ ক্যাশ ৮ ঘণ্টা থেকে কমিয়ে ২০ মিনিট করা হলো
+        // ⏱️ ওয়াচ ক্যাশ ২০ মিনিট
         private const val WATCH_CACHE_TTL_MS = 20 * 60 * 1000L
     }
 
-    // ⚡ Moshi JSON অ্যাডাপ্টার (লোকাল ডাটাবেজে দ্রুত ও নিরাপদ রূপান্তরের জন্য)
+    // ⚡ Moshi JSON অ্যাডাপ্টার
     private val moshi: Moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
 
     private val contentListAdapter: JsonAdapter<List<ContentItemDto>> = moshi.adapter(
@@ -97,13 +97,12 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // 🎬 ১. হোম ফিড কনটেন্ট (নতুন পোস্টের জন্য ইনস্ট্যান্ট লাইভ সিঙ্ক)
+    // 🎬 ১. হোম ফিড কনটেন্ট
     // =========================================================================
 
     suspend fun getContents(forceRefresh: Boolean = false): Result<List<ContentItemDto>> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        // ক) forceRefresh false হলে এবং ক্যাশ ৩ মিনিটের কম পুরোনো হলে লোকাল মেমোরি থেকে রিটার্ন করবে
         if (!forceRefresh) {
             val localFeed = contentCacheDao.getCachedHomeFeed("primary_home_feed")
             if (localFeed != null) {
@@ -117,13 +116,11 @@ class ContentRepository(
             }
         }
 
-        // খ) forceRefresh true হলে অথবা ৩ মিনিট পার হলে সরাসরি লাইভ সার্ভার থেকে আনবে
         try {
             val response = apiService.getContents()
             if (response.isSuccessful && response.body()?.data?.isNotEmpty() == true) {
                 val serverItems = response.body()!!.data
                 
-                // ফোনে ফ্রেশ ডাটা পার্মানেন্ট সেভ করা
                 val jsonStr = contentListAdapter.toJson(serverItems)
                 contentCacheDao.saveCachedHomeFeed(
                     CachedFeedEntity(
@@ -135,7 +132,6 @@ class ContentRepository(
                 Log.d(TAG, "✓ Fresh home feed fetched directly from server and cached.")
                 Result.success(serverItems)
             } else {
-                // সার্ভার এরর দিলে পুরোনো লোকাল ক্যাশ ফেরত দেওয়া
                 val fallbackList = runCatching {
                     contentCacheDao.getCachedHomeFeed("primary_home_feed")?.let { contentListAdapter.fromJson(it.jsonPayload) }
                 }.getOrNull()
@@ -151,7 +147,7 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // ⚡ ২. ওয়াচ ডিটেইলস ও পর্বের লিঙ্ক (ইনস্ট্যান্ট নতুন পর্ব আপডেট)
+    // ⚡ ২. ওয়াচ ডিটেইলস ও পর্বের লিঙ্ক (নিখুঁত 404 হ্যান্ডলিং)
     // =========================================================================
 
     suspend fun getWatchDetails(
@@ -161,7 +157,7 @@ class ContentRepository(
     ): Result<WatchDetailResponse> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        // ক) ক্যাশ চেক
+        // ক) ক্যাশ চেক (যদি ইতিপূর্বে লোড করা থাকে এবং অফলাইন থাকে)
         if (!forceRefresh) {
             val localCached = contentCacheDao.getCachedWatchDetail(slug)
             if (localCached != null) {
@@ -175,7 +171,7 @@ class ContentRepository(
             }
         }
 
-        // খ) মেমোরিতে না থাকলে বা মেয়াদ শেষ হলে সার্ভার থেকে ফ্রেশ পর্ব লোড
+        // খ) সার্ভার থেকে ডাটা লোড
         try {
             val response = apiService.getWatchDetails(slug)
             if (response.isSuccessful && response.body()?.content != null) {
@@ -193,7 +189,6 @@ class ContentRepository(
 
                 val finalBody = body.copy(servers = cleanedServers)
 
-                // 💾 নতুন পর্ব সহ ফোনে সেভ
                 val jsonStr = watchDetailAdapter.toJson(finalBody)
                 contentCacheDao.saveCachedWatchDetail(
                     CachedWatchDetailEntity(
@@ -205,17 +200,33 @@ class ContentRepository(
                 Log.d(TAG, "✓ Fresh watch details for '$slug' fetched and saved.")
                 Result.success(finalBody)
             } else {
+                // 🛑 সার্ভারে পোস্ট না থাকলে চেক করা
                 val fallbackCached = runCatching {
                     contentCacheDao.getCachedWatchDetail(slug)?.let { watchDetailAdapter.fromJson(it.jsonPayload) }
                 }.getOrNull()
-                Result.success(fallbackCached ?: getFallbackWatchDetails(slug, fallbackContent))
+
+                if (fallbackCached?.content != null && fallbackCached.episodes.isNotEmpty()) {
+                    Result.success(fallbackCached)
+                } else if (fallbackContent != null) {
+                    Result.success(getFallbackWatchDetails(slug, fallbackContent))
+                } else {
+                    // কোনো অস্তিত্ব নেই -> সরাসরি ফেইলিউর রিটার্ন যাতে 404 স্ক্রিন আসে
+                    Result.failure(Exception("Content not found on server: $slug"))
+                }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Watch details API failed, playing from offline Room DB: ${e.message}")
+            Log.w(TAG, "Watch details API failed: ${e.message}")
             val fallbackCached = runCatching {
                 contentCacheDao.getCachedWatchDetail(slug)?.let { watchDetailAdapter.fromJson(it.jsonPayload) }
             }.getOrNull()
-            Result.success(fallbackCached ?: getFallbackWatchDetails(slug, fallbackContent))
+
+            if (fallbackCached?.content != null && fallbackCached.episodes.isNotEmpty()) {
+                Result.success(fallbackCached)
+            } else if (fallbackContent != null) {
+                Result.success(getFallbackWatchDetails(slug, fallbackContent))
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -293,17 +304,14 @@ class ContentRepository(
         )
     }
 
+    /**
+     * 🎯 যদি ড্রামাটি পূর্বে পরিচিত না থাকে তবে কোনো ভুয়া অবজেক্ট তৈরি করবে না।
+     */
     fun getFallbackWatchDetails(slug: String, fallbackContent: ContentItemDto? = null): WatchDetailResponse {
-        val content = fallbackContent ?: ContentItemDto(
-            rawId = slug,
-            title = slug.replace("-", " ").replaceFirstChar { it.uppercase() },
-            slug = slug,
-            type = "shorts"
-        )
         return WatchDetailResponse(
-            success = true,
-            status = 200,
-            content = content,
+            success = fallbackContent != null,
+            status = if (fallbackContent != null) 200 else 404,
+            content = fallbackContent,
             episodes = emptyList()
         )
     }
