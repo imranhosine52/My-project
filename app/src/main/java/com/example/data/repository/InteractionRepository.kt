@@ -159,7 +159,7 @@ class InteractionRepository(
     }
 
     // =========================================================================
-    // ❤️ 3. REMOTE LIKE & ENGAGEMENT APIS
+    // ❤️ 3. REMOTE LIKE, REACTION & ENGAGEMENT APIS
     // =========================================================================
 
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> = withContext(Dispatchers.IO) {
@@ -182,9 +182,40 @@ class InteractionRepository(
         }
     }
 
-    suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> = withContext(Dispatchers.IO) {
+    /**
+     * 🌟 টেলিগ্রাম স্টাইল মাল্টি-ইমোজি রিঅ্যাকশন টগল
+     */
+    suspend fun toggleReaction(
+        contentId: Any,
+        reaction: String
+    ): Result<ReactionToggleResponse> = withContext(Dispatchers.IO) {
+        val savedUid = authRepository.getSavedUserId().takeIf { it.isNotBlank() }
         try {
-            val response = apiService.getInteractionStatus(contentId = contentId, episodeId = episodeId)
+            val response = apiService.toggleReaction(
+                ReactionToggleRequest(
+                    contentId = contentId,
+                    reaction = reaction,
+                    userId = savedUid
+                )
+            )
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("HTTP ${response.code()}: Failed to toggle reaction"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> = withContext(Dispatchers.IO) {
+        val savedUid = authRepository.getSavedUserId().takeIf { it.isNotBlank() }
+        try {
+            val response = apiService.getInteractionStatus(
+                contentId = contentId, 
+                episodeId = episodeId,
+                userId = savedUid // 👈 বর্তমান ইউজারের রিঅ্যাকশন জানার জন্য
+            )
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
                 if (body.effectiveViews > 0) {
@@ -200,7 +231,9 @@ class InteractionRepository(
                         views = cachedViews,
                         totalLikes = 0L,
                         isLiked = false,
-                        totalComments = 0
+                        totalComments = 0,
+                        myReaction = null,
+                        reactions = emptyMap()
                     )
                 )
             }
@@ -213,7 +246,9 @@ class InteractionRepository(
                     views = cachedViews,
                     totalLikes = 0L,
                     isLiked = false,
-                    totalComments = 0
+                    totalComments = 0,
+                    myReaction = null,
+                    reactions = emptyMap()
                 )
             )
         }
@@ -223,9 +258,6 @@ class InteractionRepository(
     // 💬 4. POST-WIDE COMMENTS & THREADED REPLIES
     // =========================================================================
 
-    /**
-     * 🎯 পুরো ড্রামার সব কমেন্ট একসাথে লোড করা (episodeId = null)
-     */
     suspend fun fetchCommentsList(
         contentId: Any,
         episodeId: Any? = null,
@@ -255,9 +287,6 @@ class InteractionRepository(
         Result.success(emptyList())
     }
 
-    /**
-     * ✍️ নতুন কমেন্ট পোস্ট করা (Cloudflare R2 ছবি সহ)
-     */
     suspend fun postNewComment(
         contentId: Any,
         episodeId: Any? = null,
@@ -274,7 +303,6 @@ class InteractionRepository(
             ?: savedProfile?.avatar?.takeIf { it.isNotBlank() } 
             ?: "https://lh3.googleusercontent.com/a/default-user"
 
-        // 🎯 ফিক্সড: AddCommentApiRequest এর সঠিক প্যারামিটার ব্যবহার
         val request = AddCommentApiRequest(
             contentId = contentId,
             episodeId = null,
@@ -318,7 +346,6 @@ class InteractionRepository(
             Log.w("InteractionRepo", "postNewComment ajax notice: ${e.message}")
         }
 
-        // লোকাল ফলব্যাক কমেন্ট (R2 অবতার সহ)
         Result.success(
             DramaApiComment(
                 rawId = System.currentTimeMillis(),
