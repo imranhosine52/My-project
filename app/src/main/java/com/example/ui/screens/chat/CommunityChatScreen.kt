@@ -62,8 +62,6 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
 import com.example.util.UserChatStatus
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -72,8 +70,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.*
 
-private val WhatsAppDarkBg = Color(0xFF0C1317)
-private val WhatsAppBarBg = Color(0xFF1F2C34)
+// 🎨 ২ নম্বর ছবির হুবহু টেলিগ্রাম ডার্ক থিম
+private val TelegramScreenBg = Color(0xFF0E1621)
+private val TelegramHeaderBg = Color(0xF217212B)
 
 private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
     if (actions.isEmpty()) return ""
@@ -174,12 +173,10 @@ fun CommunityChatScreen(
         ?: userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
         ?: authPrefs.getString("user_avatar", null)
 
-    // 🎯 ফিক্স: isUserVip এবং isVip দুটো ভ্যারিয়েবলই নিশ্চিত করা হলো যাতে রেফারেন্স এরর না হয়
     val isUserVip = remember(authState) {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
-    val isVip = isUserVip
 
     var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
@@ -587,11 +584,13 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎯 মূল কন্টেইনার: imePadding() প্যারেন্টে থাকার কারণে কিবোর্ডের মাথায় বসবে নির্ভুলভাবে
+    // =========================================================================
+    // 📱 মূল কন্টেইনার
+    // =========================================================================
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(WhatsAppDarkBg)
+            .background(TelegramScreenBg)
             .imePadding()
     ) {
         if (isSelectionMode) {
@@ -638,16 +637,19 @@ fun CommunityChatScreen(
                 }
             )
         } else {
+            // =========================================================================
+            // 🔝 ২ নম্বর ছবির হুবহু টেলিগ্রাম স্টাইল স্লিম ফ্রস্টেড হেডার
+            // =========================================================================
             Surface(
-                color = WhatsAppBarBg,
-                shadowElevation = 4.dp,
+                color = TelegramHeaderBg,
+                shadowElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -658,19 +660,45 @@ fun CommunityChatScreen(
                             .weight(1f)
                             .clickable { showGroupInfoScreen = true }
                     ) {
-                        IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
+                        IconButton(onClick = onBackClick, modifier = Modifier.size(34.dp)) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
 
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
-                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
-                            }
-                            Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                        // ২ নম্বর ছবির মতো চ্যানেল/গ্রুপ রাউন্ড অবতার
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2AABEE)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Groups,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.Center) {
+                            Text(
+                                text = "DramaFlix Community",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${liveStats.totalMembers} members, ${liveStats.onlineMembers} online",
+                                color = Color(0xFF7E8D9F),
+                                fontSize = 11.5.sp
+                            )
                         }
                     }
 
@@ -683,7 +711,7 @@ fun CommunityChatScreen(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Menu",
                                 tint = Color.White,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
@@ -741,6 +769,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // পিন করা মেসেজ ব্যানার
         pinnedMessageInfo?.let { pinInfo ->
             PinnedMessageBanner(
                 pinnedInfo = pinInfo,
@@ -761,6 +790,9 @@ fun CommunityChatScreen(
             )
         }
 
+        // =========================================================================
+        // 💬 মেসেজ লিস্ট
+        // =========================================================================
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -854,6 +886,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // টাইপিং/একশন স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -867,10 +900,10 @@ fun CommunityChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                JumpingDotsAnimation(dotColor = Color(0xFF00E676))
+                JumpingDotsAnimation(dotColor = Color(0xFF2AABEE))
                 Text(
                     text = actionText,
-                    color = Color(0xFF00E676),
+                    color = Color(0xFF2AABEE),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -879,6 +912,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // রিপ্লাই প্রিভিউ ব্যানার
         AnimatedVisibility(
             visible = replyingToMessage != null,
             enter = expandVertically(tween(200)) + fadeIn(tween(180)),
@@ -895,11 +929,21 @@ fun CommunityChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Box(modifier = Modifier.width(3.dp).height(30.dp).background(Color(0xFF2AABEE)))
                         Column {
                             Text(target.senderName, color = Color(0xFF2AABEE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" },
+                                color = Color.White.copy(0.7f),
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                     IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
@@ -909,6 +953,9 @@ fun CommunityChatScreen(
             }
         }
 
+        // =========================================================================
+        // ⌨️ ৩. নিচের স্লিম ইনপুট সেকশন (কোনো অপ্রয়োজনীয় সলিড ব্যাকগ্রাউন্ড ছাড়া)
+        // =========================================================================
         if (showTelegramMediaPicker) {
             TelegramMediaPickerSheet(
                 onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
@@ -1070,7 +1117,7 @@ fun CommunityChatScreen(
     if (showAttachMenu) {
         ModalBottomSheet(
             onDismissRequest = { showAttachMenu = false },
-            containerColor = WhatsAppBarBg
+            containerColor = Color(0xFF1F2C34)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("Share Media", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -1125,7 +1172,7 @@ fun CommunityChatScreen(
 
         ModalBottomSheet(
             onDismissRequest = { selectedActionMessage = null },
-            containerColor = WhatsAppBarBg
+            containerColor = Color(0xFF1F2C34)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Message Options", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
