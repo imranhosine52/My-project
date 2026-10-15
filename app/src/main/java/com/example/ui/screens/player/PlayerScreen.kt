@@ -28,18 +28,22 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -56,6 +60,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -178,21 +183,28 @@ fun PlayerScreen(
             (authState.userProfile?.plan?.lowercase() == "vip") ||
             (authState.userProfile?.plan?.lowercase() == "premium")
 
+    // 🎯 কমেন্ট ভিউ ফুলস্ক্রিন স্টেট (ভিডিওর নিচে সম্পূর্ণ কভার হয়ে যাবে)
+    var isDedicatedCommentsOpen by rememberSaveable { mutableStateOf(false) }
+
     fun handleBackNavigation() {
-        if (dramaHistoryStack.isNotEmpty()) {
-            val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
-            currentActiveSlug = prevSlug
-            viewModel.loadDramaDetails(prevSlug, context)
-        } else {
-            onBackClick()
+        when {
+            isDedicatedCommentsOpen -> {
+                isDedicatedCommentsOpen = false
+            }
+            dramaHistoryStack.isNotEmpty() -> {
+                val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
+                currentActiveSlug = prevSlug
+                viewModel.loadDramaDetails(prevSlug, context)
+            }
+            else -> {
+                onBackClick()
+            }
         }
     }
 
     BackHandler { handleBackNavigation() }
 
-    // =========================================================================
-    // 🛑 ১. ৪MD / NOT FOUND চেকার (পোস্ট না থাকলে সরাসরি NotFoundScreen আসবে)
-    // =========================================================================
+    // ৪MD / NOT FOUND চেকার
     if (playerState.isNotFound) {
         NotFoundScreen(
             onNavigateHome = {
@@ -310,6 +322,7 @@ fun PlayerScreen(
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
         completedAdClicks = 0
+        isDedicatedCommentsOpen = false
 
         val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.displayName
@@ -607,9 +620,7 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 একক অটো-রেজলভার (MP4, HLS/m3u8 বা Embed স্বয়ংক্রিয় প্লেব্যাক ইঞ্জিন)
-    // =========================================================================
+    // স্ট্রিম রেজলভার
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -688,9 +699,7 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 রিকমেন্ডেশন পুল সম্প্রসারণ ও ঠিক ৩২টি কার্ড নির্বাচন
-    // =========================================================================
+    // রিকমেন্ডেশন তালিকা (৩২টি কার্ড)
     LaunchedEffect(
         playerState.recommendations,
         homeState.popularDramas,
@@ -704,7 +713,6 @@ fun PlayerScreen(
         val currentCategories = content.categories.map { it.lowercase() }
         val currentDub = content.dubBadge.lowercase()
 
-        // সমস্ত ক্যাটাগরি থেকে বড় পুল তৈরি
         val allPool = (
             playerState.recommendations +
             homeState.popularDramas +
@@ -727,7 +735,6 @@ fun PlayerScreen(
             score
         }
 
-        // 🎯 নিশ্চিতভাবে ঠিক ৩২টি কার্ড নেওয়া হচ্ছে
         val targetCards = if (sortedSimilar.size >= 32) {
             sortedSimilar.take(32)
         } else {
@@ -793,7 +800,9 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // ভিডিও প্লেয়ার ফ্রেম
+                // =============================================================
+                // 📺 ১. ভিডিও প্লেয়ার ফ্রেম (উপরে ফিক্সড থাকবে)
+                // =============================================================
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -909,160 +918,311 @@ fun PlayerScreen(
                 }
 
                 // =============================================================
-                // 🔄 পোর্ট্রেট অংশ: পুল-টু-রিফ্রেশ কনটেইনার
+                // 🔄 ২. ভিডিও ফ্রেমের নিচের অংশ (পোর্ট্রেট মোড)
                 // =============================================================
                 if (!isAnyFullscreen) {
-                    if (selectedThreadParentComment != null) {
-                        CommentRepliesThreadView(
-                            parentComment = selectedThreadParentComment!!,
-                            dramaContent = content,
-                            currentUserAvatar = currentUserAvatar,
-                            userInitials = userInitials,
-                            replyText = threadReplyText,
-                            onReplyTextChange = { threadReplyText = it },
-                            onBackClick = { selectedThreadParentComment = null },
-                            onSendReply = {
-                                if (!isUserLoggedIn) {
-                                    Toast.makeText(context, "Please log in to reply", Toast.LENGTH_SHORT).show()
-                                    showAuthSheet = true
-                                    return@CommentRepliesThreadView
-                                }
-                                val text = threadReplyText.trim()
-                                if (text.isNotBlank()) {
-                                    viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
-                                    threadReplyText = ""
-                                    keyboardController?.hide()
-                                }
-                            },
-                            onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
-                            onDeleteComment = { commentId ->
-                                deletedCommentIds.add(commentId)
-                                val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-                                savedSet.add(commentId)
-                                deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
-
-                                persistentDramaComments.removeAll { it.id == commentId }
-                                Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    } else {
-                        PullToRefreshBox(
-                            isRefreshing = isRefreshing,
-                            onRefresh = {
-                                coroutineScope.launch {
-                                    isRefreshing = true
-                                    viewModel.loadDramaDetails(currentActiveSlug, context, forceRefresh = true)
-                                    viewModel.refreshComments()
-                                    delay(600)
-                                    isRefreshing = false
-                                    Toast.makeText(context, "✓ Updated to latest episodes & links!", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            state = pullRefreshState,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .pointerInput(selectedTabIndex) {
-                                    detectHorizontalDragGestures { _, dragAmount ->
-                                        if (dragAmount < -30f && selectedTabIndex == 0) {
-                                            selectedTabIndex = 1
-                                            viewModel.refreshComments()
-                                            coroutineScope.launch {
-                                                mainScrollListState.animateScrollToItem(3)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .background(Color(0xFF0C0F15))
+                    ) {
+                        // -------------------------------------------------------------
+                        // 🌟 ক) ডেডিকেটেড ফুল-স্ক্রিন কমেন্টস ভিউ (এপিসোডের ওপর পূর্ণ বিস্তার)
+                        // -------------------------------------------------------------
+                        if (isDedicatedCommentsOpen) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF10141D))
+                            ) {
+                                if (selectedThreadParentComment != null) {
+                                    CommentRepliesThreadView(
+                                        parentComment = selectedThreadParentComment!!,
+                                        dramaContent = content,
+                                        currentUserAvatar = currentUserAvatar,
+                                        userInitials = userInitials,
+                                        replyText = threadReplyText,
+                                        onReplyTextChange = { threadReplyText = it },
+                                        onBackClick = { selectedThreadParentComment = null },
+                                        onSendReply = {
+                                            if (!isUserLoggedIn) {
+                                                Toast.makeText(context, "Please log in to reply", Toast.LENGTH_SHORT).show()
+                                                showAuthSheet = true
+                                                return@CommentRepliesThreadView
                                             }
-                                        } else if (dragAmount > 30f && selectedTabIndex == 1) {
-                                            selectedTabIndex = 0
-                                            coroutineScope.launch {
-                                                mainScrollListState.animateScrollToItem(3)
+                                            val text = threadReplyText.trim()
+                                            if (text.isNotBlank()) {
+                                                viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
+                                                threadReplyText = ""
+                                                keyboardController?.hide()
+                                            }
+                                        },
+                                        onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
+                                        onDeleteComment = { commentId ->
+                                            deletedCommentIds.add(commentId)
+                                            val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                            savedSet.add(commentId)
+                                            deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
+
+                                            persistentDramaComments.removeAll { it.id == commentId }
+                                            Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                } else {
+                                    // কমেন্ট হেডার বার
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            IconButton(
+                                                onClick = { isDedicatedCommentsOpen = false },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                    contentDescription = "Back",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+
+                                            Text(
+                                                text = "Comments (${persistentDramaComments.size})",
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { isDedicatedCommentsOpen = false },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Close",
+                                                tint = Color(0xFF8E95A5),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
+
+                                    // কমেন্টগুলোর লিস্ট
+                                    if (persistentDramaComments.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "No comments yet. Be the first to comment!",
+                                                color = Color(0xFF8E95A5),
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth()
+                                        ) {
+                                            items(
+                                                count = persistentDramaComments.size,
+                                                key = { index -> persistentDramaComments[index].id }
+                                            ) { index ->
+                                                val comment = persistentDramaComments[index]
+                                                ModernCommentRowItem(
+                                                    comment = comment,
+                                                    currentUserAvatar = currentUserAvatar,
+                                                    currentUserName = currentUserName,
+                                                    currentUserId = currentUser?.id,
+                                                    onLike = {
+                                                        val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
+                                                        if (cIdx != -1) {
+                                                            val c = persistentDramaComments[cIdx]
+                                                            val newLiked = !c.isLiked
+                                                            val newCount = if (newLiked) c.likesCount + 1 else (c.likesCount - 1).coerceAtLeast(0)
+                                                            persistentDramaComments[cIdx] = c.copy(isLikedVal = newLiked, rawLikesCount = newCount)
+                                                        }
+                                                        viewModel.toggleCommentLike(comment.id)
+                                                    },
+                                                    onOpenReplies = { selectedThreadParentComment = comment },
+                                                    onShare = {
+                                                        try {
+                                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                                type = "text/plain"
+                                                                putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                            }
+                                                            context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+                                                        } catch (_: Exception) {}
+                                                    },
+                                                    onDeleteComment = { commentId ->
+                                                        deletedCommentIds.add(commentId)
+                                                        val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                                        savedSet.add(commentId)
+                                                        deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
+
+                                                        persistentDramaComments.removeAll { it.id == commentId }
+                                                        Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
                                             }
                                         }
                                     }
-                                }
-                        ) {
-                            LazyColumn(
-                                state = mainScrollListState,
-                                modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
-                                contentPadding = PaddingValues(bottom = 80.dp)
-                            ) {
-                                // 🌟 হেডার সেকশন: এখানে PlayerHeaderSection কল করা হয়েছে
-                                item {
-                                    PlayerHeaderSection(
-                                        content = content,
-                                        shortTitle = cleanShortTitle,
-                                        viewsCount = playerState.viewsCount,
-                                        likesCount = playerState.likesCount.toLong(),
-                                        isLiked = playerState.isLiked,
-                                        isInWatchlist = playerState.isInWatchlist,
-                                        isDescriptionExpanded = isDescriptionExpanded,
-                                        myReaction = playerState.myReaction, // 👈 লাইভ ইউজারের রিঅ্যাকশন
-                                        reactions = playerState.reactions, // 👈 সব ইমোজির মোট সংখ্যা
-                                        onPreviousClick = { viewModel.playPreviousEpisode() },
-                                        onNextClick = { viewModel.playNextEpisode() },
-                                        onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
-                                        onLikeClick = {
-                                            if (!isUserLoggedIn) showAuthSheet = true
-                                            else viewModel.toggleLikeDrama()
+
+                                    // ইনলাইন কমেন্ট ইনপুট (কীবোর্ড প্যাডিংসহ)
+                                    PlayerInlineCommentInput(
+                                        userInitials = userInitials,
+                                        currentUserAvatar = currentUserAvatar,
+                                        isLoggedIn = isUserLoggedIn,
+                                        text = inlineCommentText,
+                                        onTextChange = { inlineCommentText = it },
+                                        onOpenMediaPicker = { showCommentMediaPicker = true },
+                                        onRequireLogin = {
+                                            Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                            showAuthSheet = true
                                         },
-                                        onWatchlistClick = {
-                                            if (!isUserLoggedIn) showAuthSheet = true
-                                            else viewModel.toggleWatchlist()
-                                        },
-                                        onToggleReaction = { reactionKey ->
+                                        onSend = {
                                             if (!isUserLoggedIn) {
+                                                Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
                                                 showAuthSheet = true
-                                            } else {
-                                                viewModel.toggleReaction(reactionKey) // 👈 রিঅ্যাক্ট সাবমিট
+                                                return@PlayerInlineCommentInput
                                             }
-                                        },
-                                        onSwipeDownFullscreen = {
-                                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                        }
-                                    )
-                                }
-
-                                val displayEpisodes = effectiveEpisodes
-
-                                item {
-                                    PlayerEpisodesRow(
-                                        episodes = displayEpisodes,
-                                        currentEpNumber = currentEp?.episodeNumber ?: 1,
-                                        shouldLockEpisodes = shouldLockEpisodes,
-                                        onAllClick = { showAllEpisodesSheet = true },
-                                        onEpisodeSelect = { ep ->
-                                            if (shouldLockEpisodes && ep.isLocked) viewModel.showEpisodeUnlockModal(ep)
-                                            else viewModel.selectEpisode(ep)
-                                        }
-                                    )
-                                }
-
-                                item {
-                                    StartAppBanner(
-                                        isVip = isUserVip,
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                item {
-                                    PlayerTabsHeader(
-                                        selectedTabIndex = selectedTabIndex,
-                                        commentsCount = persistentDramaComments.size,
-                                        onTabSelected = { idx ->
-                                            selectedTabIndex = idx
-                                            if (idx == 1) viewModel.refreshComments()
-                                            coroutineScope.launch {
-                                                mainScrollListState.animateScrollToItem(3)
+                                            if (inlineCommentText.isNotBlank()) {
+                                                viewModel.postComment(inlineCommentText.trim())
+                                                inlineCommentText = ""
+                                                keyboardController?.hide()
                                             }
                                         },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(Color(0xFF0C0F15))
+                                            .navigationBarsPadding()
+                                            .imePadding()
                                     )
                                 }
+                            }
+                        } else {
+                            // -------------------------------------------------------------
+                            // 🎬 খ) স্বাভাবিক ভিউ: হেডার, এপিসোড রো, ব্যানার, রিকমেন্ডেশন
+                            // -------------------------------------------------------------
+                            PullToRefreshBox(
+                                isRefreshing = isRefreshing,
+                                onRefresh = {
+                                    coroutineScope.launch {
+                                        isRefreshing = true
+                                        viewModel.loadDramaDetails(currentActiveSlug, context, forceRefresh = true)
+                                        viewModel.refreshComments()
+                                        delay(600)
+                                        isRefreshing = false
+                                        Toast.makeText(context, "✓ Updated to latest episodes & links!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                state = pullRefreshState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(selectedTabIndex) {
+                                        detectHorizontalDragGestures { _, dragAmount ->
+                                            if (dragAmount < -30f && selectedTabIndex == 0) {
+                                                isDedicatedCommentsOpen = true
+                                            }
+                                        }
+                                    }
+                            ) {
+                                LazyColumn(
+                                    state = mainScrollListState,
+                                    modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
+                                    contentPadding = PaddingValues(bottom = 80.dp)
+                                ) {
+                                    // 🎯 ১. পরিমার্জিত হেডার সেকশন
+                                    item {
+                                        PlayerHeaderSection(
+                                            content = content,
+                                            shortTitle = cleanShortTitle,
+                                            viewsCount = playerState.viewsCount,
+                                            likesCount = playerState.likesCount.toLong(),
+                                            isLiked = playerState.isLiked,
+                                            isInWatchlist = playerState.isInWatchlist,
+                                            isDescriptionExpanded = isDescriptionExpanded,
+                                            myReaction = playerState.myReaction,
+                                            reactions = playerState.reactions,
+                                            onPreviousClick = { viewModel.playPreviousEpisode() },
+                                            onNextClick = { viewModel.playNextEpisode() },
+                                            onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
+                                            onLikeClick = {
+                                                if (!isUserLoggedIn) showAuthSheet = true
+                                                else viewModel.toggleLikeDrama()
+                                            },
+                                            onWatchlistClick = {
+                                                if (!isUserLoggedIn) showAuthSheet = true
+                                                else viewModel.toggleWatchlist()
+                                            },
+                                            onToggleReaction = { reactionKey ->
+                                                if (!isUserLoggedIn) showAuthSheet = true
+                                                else viewModel.toggleReaction(reactionKey)
+                                            },
+                                            onReplyClick = {
+                                                // 🎯 Reply ট্যাপে ফুল-স্ক্রিন কমেন্ট ভিউ ওপেন হবে
+                                                isDedicatedCommentsOpen = true
+                                            },
+                                            onForwardClick = { shareCurrentDrama() },
+                                            onSwipeDownFullscreen = {
+                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                            }
+                                        )
+                                    }
 
-                                // =============================================================
-                                // 🌟 For you ট্যাব: ৩২টি কার্ড ($4 \times 8$ গ্রিড - কোনো ফাঁকা জায়গা থাকবে না)
-                                // =============================================================
-                                if (selectedTabIndex == 0) {
+                                    // ২. এপিসোড তালিকা রো
+                                    item {
+                                        PlayerEpisodesRow(
+                                            episodes = effectiveEpisodes,
+                                            currentEpNumber = currentEp?.episodeNumber ?: 1,
+                                            shouldLockEpisodes = shouldLockEpisodes,
+                                            onAllClick = { showAllEpisodesSheet = true },
+                                            onEpisodeSelect = { ep ->
+                                                if (shouldLockEpisodes && ep.isLocked) viewModel.showEpisodeUnlockModal(ep)
+                                                else viewModel.selectEpisode(ep)
+                                            }
+                                        )
+                                    }
+
+                                    // ৩. ব্যানার বিজ্ঞাপন
+                                    item {
+                                        StartAppBanner(
+                                            isVip = isUserVip,
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
+                                        )
+                                    }
+
+                                    // ৪. ট্যাব হেডার (Comments ট্যাপেও ফুল কমেন্টস ভিউ আসবে)
+                                    item {
+                                        PlayerTabsHeader(
+                                            selectedTabIndex = selectedTabIndex,
+                                            commentsCount = persistentDramaComments.size,
+                                            onTabSelected = { idx ->
+                                                if (idx == 1) {
+                                                    isDedicatedCommentsOpen = true
+                                                } else {
+                                                    selectedTabIndex = 0
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF0C0F15))
+                                        )
+                                    }
+
+                                    // ৫. For you ট্যাব: ৩২টি রিকমেন্ডেশন কার্ড
                                     val dramaRows = shuffledRecommendations.chunked(4)
                                     items(dramaRows.size) { rowIndex ->
                                         val rowDramas = dramaRows[rowIndex]
@@ -1093,80 +1253,10 @@ fun PlayerScreen(
                                         }
                                     }
                                 }
-
-                                if (selectedTabIndex == 1) {
-                                    item {
-                                        PlayerInlineCommentInput(
-                                            userInitials = userInitials,
-                                            currentUserAvatar = currentUserAvatar,
-                                            isLoggedIn = isUserLoggedIn,
-                                            text = inlineCommentText,
-                                            onTextChange = { inlineCommentText = it },
-                                            onOpenMediaPicker = { showCommentMediaPicker = true },
-                                            onRequireLogin = {
-                                                Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
-                                                showAuthSheet = true
-                                            },
-                                            onSend = {
-                                                if (!isUserLoggedIn) {
-                                                    Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
-                                                    showAuthSheet = true
-                                                    return@PlayerInlineCommentInput
-                                                }
-                                                if (inlineCommentText.isNotBlank()) {
-                                                    viewModel.postComment(inlineCommentText.trim())
-                                                    inlineCommentText = ""
-                                                    keyboardController?.hide()
-                                                }
-                                            }
-                                        )
-                                    }
-
-                                    items(
-                                        count = persistentDramaComments.size,
-                                        key = { index -> persistentDramaComments[index].id }
-                                    ) { index ->
-                                        val comment = persistentDramaComments[index]
-                                        ModernCommentRowItem(
-                                            comment = comment,
-                                            currentUserAvatar = currentUserAvatar,
-                                            currentUserName = currentUserName,
-                                            currentUserId = currentUser?.id,
-                                            onLike = {
-                                                val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
-                                                if (cIdx != -1) {
-                                                    val c = persistentDramaComments[cIdx]
-                                                    val newLiked = !c.isLiked
-                                                    val newCount = if (newLiked) c.likesCount + 1 else (c.likesCount - 1).coerceAtLeast(0)
-                                                    persistentDramaComments[cIdx] = c.copy(isLikedVal = newLiked, rawLikesCount = newCount)
-                                                }
-                                                viewModel.toggleCommentLike(comment.id)
-                                            },
-                                            onOpenReplies = { selectedThreadParentComment = comment },
-                                            onShare = {
-                                                try {
-                                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                        type = "text/plain"
-                                                        putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
-                                                    }
-                                                    context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
-                                                } catch (_: Exception) {}
-                                            },
-                                            onDeleteComment = { commentId ->
-                                                deletedCommentIds.add(commentId)
-                                                val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-                                                savedSet.add(commentId)
-                                                deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
-
-                                                persistentDramaComments.removeAll { it.id == commentId }
-                                                Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
-                                    }
-                                }
                             }
                         }
 
+                        // সব পর্বের বটম শিট
                         if (showAllEpisodesSheet) {
                             PlayerAllEpisodesSheet(
                                 episodes = effectiveEpisodes,
@@ -1181,6 +1271,7 @@ fun PlayerScreen(
                             )
                         }
 
+                        // ব্যাচ ডাউনলোড শিট
                         if (showBatchDownloadDialog) {
                             PlayerBatchDownloadSheet(
                                 title = cleanShortTitle,
@@ -1244,6 +1335,7 @@ fun PlayerScreen(
             )
         }
 
+        // স্টিকার ও GIF বটম শিট
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
@@ -1306,6 +1398,7 @@ fun PlayerScreen(
             }
         }
 
+        // ডাউনলোড রিসোর্স শিট
         if (showDownloadSheet) {
             DownloadResourceSheet(
                 title = cleanShortTitle,
@@ -1331,10 +1424,12 @@ fun PlayerScreen(
             )
         }
 
+        // অথেন্টিকেশন ডায়ালগ
         if (showAuthSheet) {
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
+        // রিওয়ার্ডেড আনলক ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
@@ -1355,6 +1450,7 @@ fun PlayerScreen(
             )
         }
 
+        // আতশবাজি সেলিব্রেশন অ্যানিমেশন
         if (showFireworksCelebration) {
             CelebrationFireworksOverlay(
                 onDismiss = { showFireworksCelebration = false },
