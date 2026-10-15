@@ -142,6 +142,10 @@ class PlayDramaFlixRepository(
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> =
         interactionRepository.toggleInteractionLike(contentId, episodeId)
 
+    // 🌟 টেলিগ্রাম স্টাইল মাল্টি-ইমোজি রিঅ্যাকশন ডেলিগেশন
+    suspend fun toggleReaction(contentId: Any, reaction: String): Result<ReactionToggleResponse> =
+        interactionRepository.toggleReaction(contentId, reaction)
+
     suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> =
         interactionRepository.fetchInteractionStatus(contentId, episodeId)
 
