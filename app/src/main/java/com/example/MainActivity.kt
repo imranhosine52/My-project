@@ -14,8 +14,6 @@ import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -73,6 +71,7 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
+    data class NotFound(val message: String? = null) : Screen() // 👈 NotFoundScreen যুক্ত করা হলো
 }
 
 class MainActivity : ComponentActivity() {
@@ -404,6 +403,7 @@ private fun MainAppContent(
             is Screen.Vip -> BottomNavTab.VIP
             is Screen.Downloads -> BottomNavTab.DOWNLOADS
             is Screen.Profile -> BottomNavTab.ME
+            is Screen.NotFound -> BottomNavTab.HOME
             else -> BottomNavTab.HOME
         }
     }
@@ -435,7 +435,7 @@ private fun MainAppContent(
     // =========================================================================
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
-            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home) {
+            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home || newScreen is Screen.NotFound) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
 
@@ -447,7 +447,8 @@ private fun MainAppContent(
                     newScreen is Screen.Player || currentScreen is Screen.Player ||
                     newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
                     newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
-                    newScreen is Screen.Vip || currentScreen is Screen.Vip
+                    newScreen is Screen.Vip || currentScreen is Screen.Vip ||
+                    newScreen is Screen.NotFound || currentScreen is Screen.NotFound
 
             if (isExempted) {
                 currentScreen = newScreen
@@ -465,15 +466,20 @@ private fun MainAppContent(
         val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=") else null
         ShortTvNavHelper.activeSubTab = sourceSubTab
 
-        val home = viewModel.homeUiState.value
-        val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
-        val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
-
-        val isShorts = forceShorts || targetDrama?.isShorts == true || slug.contains("shorts", ignoreCase = true)
-        if (isShorts) {
-            navigateTo(Screen.ShortsPlayer(slug, sourceSubTab), BottomNavTab.SHORT_TV)
+        // 🎯 খালি অথবা ৪MD/Not-Found স্ল্যাগ চেক করে সরাসরি NotFoundScreen দেখানো
+        if (slug.isBlank() || slug.equals("404", ignoreCase = true) || slug.equals("not-found", ignoreCase = true)) {
+            navigateTo(Screen.NotFound("ড্রামা বা কনটেন্টটি খুঁজে পাওয়া যায়নি!"), BottomNavTab.HOME)
         } else {
-            navigateTo(Screen.Player(slug), null)
+            val home = viewModel.homeUiState.value
+            val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
+            val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
+
+            val isShorts = forceShorts || targetDrama?.isShorts == true || slug.contains("shorts", ignoreCase = true)
+            if (isShorts) {
+                navigateTo(Screen.ShortsPlayer(slug, sourceSubTab), BottomNavTab.SHORT_TV)
+            } else {
+                navigateTo(Screen.Player(slug), null)
+            }
         }
     }
 
@@ -513,6 +519,7 @@ private fun MainAppContent(
             is Screen.CommunityChat -> "Community Live Chat"
             is Screen.LocalGallery -> "Local Media Gallery"
             is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
+            is Screen.NotFound -> "404 Not Found Screen"
         }
         if (screenLabel != null) {
             AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
@@ -528,7 +535,8 @@ private fun MainAppContent(
             currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.LocalGallery ||
             currentScreen is Screen.Search ||
-            currentScreen is Screen.CommunityChat
+            currentScreen is Screen.CommunityChat ||
+            currentScreen is Screen.NotFound
 
     Box(
         modifier = Modifier
@@ -650,17 +658,35 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
+                        // =====================================================
+                        // 🚀 NotFoundScreen রাউটিং হ্যান্ডলিং
+                        // =====================================================
+                        is Screen.NotFound -> {
+                            NotFoundScreen(
+                                onNavigateHome = {
+                                    navigationBackStack.clear()
+                                    currentScreen = Screen.Home()
+                                    selectedTab = BottomNavTab.HOME
+                                },
+                                onNavigateSearch = {
+                                    navigateTo(Screen.Search, null)
+                                },
+                                onBackClick = { handleBackNavigation() },
+                                customMessage = targetScreen.message
+                            )
+                        }
                     }
                 }
             }
         }
 
         // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট (আপনার ফাইলে থাকা অরিজিনাল সিগনেচার অনুযায়ী)
+        // 💬 ফ্লোটিং চ্যাট উইজেট
         // =========================================================================
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
-                currentScreen is Screen.CommunityChat
+                currentScreen is Screen.CommunityChat ||
+                currentScreen is Screen.NotFound
 
         if (!shouldHideFloatingChat) {
             FloatingCommunityChatWidget(
