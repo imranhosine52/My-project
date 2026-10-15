@@ -60,6 +60,7 @@ data class HomeUiState(
 
 data class PlayerUiState(
     val isLoading: Boolean = false,
+    val isNotFound: Boolean = false, // 👈 404 নট-ফাউন্ড ট্র্যাকার
     val errorMessage: String? = null,
     val content: ContentItemDto? = null,
     val episodes: List<EpisodeDto> = emptyList(),
@@ -674,21 +675,22 @@ class DramaFlixViewModel(
     }
 
     // =========================================================================
-    // 🎯 ড্রামা লোড (সঠিক সেভ স্ট্যাটাস চেকার ও ইনস্ট্যান্ট রিসেট ফিক্স)
+    // 🎯 ড্রামা লোড (404 নট-ফাউন্ড হ্যান্ডলার সহ)
     // =========================================================================
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            // 🛑 ১. অন্য পোস্টে ঢোকার সাথে সাথে পূর্বের সেভ স্ট্যাটাস রিসেট (False) করা হচ্ছে
+            // ১. পূর্বের পোস্টের স্টেট রিসেট (isNotFound = false)
             _playerUiState.update { 
                 it.copy(
-                    isLoading = it.content == null, 
+                    isLoading = true, 
+                    isNotFound = false, // 👈 রিসেট
                     errorMessage = null, 
                     comments = emptyList(),
-                    isInWatchlist = false // 👈 ইনস্ট্যান্ট রিসেট
+                    isInWatchlist = false
                 ) 
             }
 
-            // 🔍 ২. শুধুমাত্র এই নির্দিষ্ট ড্রামাটির আসল সেভ স্ট্যাটাস লাইভ রুম ডিবি থেকে নেওয়া
+            // ২. এই ড্রামাটির আসল সেভ স্ট্যাটাস লাইভ রুম ডিবি থেকে নেওয়া
             watchlistObserverJob?.cancel()
             watchlistObserverJob = viewModelScope.launch {
                 repository.isItemInWatchlist(slug).collect { isSaved ->
@@ -706,6 +708,22 @@ class DramaFlixViewModel(
             if (detailsResult.isSuccess) {
                 val detail = detailsResult.getOrNull()
                 val contentItem = detail?.content ?: fallbackContent
+
+                // 🛑 পোস্ট যদি সার্ভার বা ডাটাবেজে না থাকে (404 Not Found)
+                if (contentItem == null || (detail != null && !detail.success)) {
+                    _playerUiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isNotFound = true, // 👈 404 ট্রিগার
+                            content = null,
+                            episodes = emptyList(),
+                            currentEpisode = null,
+                            errorMessage = "এই ড্রামা বা পোস্টটি খুঁজে পাওয়া যায়নি!"
+                        )
+                    }
+                    return@launch
+                }
+
                 val rawEps = detail?.episodes ?: emptyList()
                 val srvs = detail?.servers ?: emptyList()
 
@@ -732,11 +750,12 @@ class DramaFlixViewModel(
                 val initialEp = eps.firstOrNull()
                 val initialSrv = srvs.firstOrNull()
 
-                val stats = contentItem?.let { repository.getOrCreateDramaStats(it.slug, 120, 1500) }
+                val stats = repository.getOrCreateDramaStats(contentItem.slug, 120, 1500)
 
                 _playerUiState.update {
                     it.copy(
                         isLoading = false,
+                        isNotFound = false,
                         content = contentItem,
                         episodes = eps,
                         currentEpisode = initialEp,
@@ -744,39 +763,39 @@ class DramaFlixViewModel(
                         selectedServer = initialSrv,
                         isVip = isUserVip,
                         unlockedEpisodeNumbers = unlockedNumbers,
-                        likesCount = stats?.likesCount ?: 120,
-                        isLiked = stats?.isLiked ?: false,
-                        viewsCount = stats?.viewsCount ?: 1500L,
+                        likesCount = stats.likesCount,
+                        isLiked = stats.isLiked,
+                        viewsCount = stats.viewsCount,
                         recommendations = _homeUiState.value.trendingDramas.filter { rec -> rec.slug != slug }.take(8)
                     )
                 }
 
-                contentItem?.let { item ->
-                    val statusResult = repository.fetchInteractionStatus(item.id, null)
-                    if (statusResult.isSuccess) {
-                        val status = statusResult.getOrNull()
-                        if (status != null) {
-                            _playerUiState.update { current ->
-                                current.copy(
-                                    likesCount = status.effectiveLikes.toInt(),
-                                    isLiked = status.effectiveIsLiked,
-                                    viewsCount = status.effectiveViews
-                                )
-                            }
+                val statusResult = repository.fetchInteractionStatus(contentItem.id, null)
+                if (statusResult.isSuccess) {
+                    val status = statusResult.getOrNull()
+                    if (status != null) {
+                        _playerUiState.update { current ->
+                            current.copy(
+                                likesCount = status.effectiveLikes.toInt(),
+                                isLiked = status.effectiveIsLiked,
+                                viewsCount = status.effectiveViews
+                            )
                         }
                     }
                 }
 
-                contentItem?.let { item ->
-                    repository.recordVideoInteractionView(item.id)
-                }
-
+                repository.recordVideoInteractionView(contentItem.id)
                 refreshComments()
             } else {
+                // 🛑 সার্ভার এরর বা পোস্ট না পেলে
                 _playerUiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = "Could not load drama details"
+                        isNotFound = true, // 👈 404 ট্রিগার
+                        content = null,
+                        episodes = emptyList(),
+                        currentEpisode = null,
+                        errorMessage = "এই ড্রামা বা পোস্টটি খুঁজে পাওয়া যায়নি!"
                     )
                 }
             }
@@ -1223,7 +1242,7 @@ class DramaFlixViewModel(
     }
 
     // =========================================================================
-    // 🚪 সাইন-আউট (ওয়াচলিস্ট ও সমস্ত স্টেট ১০০% নিখুঁতভাবে ক্লিয়ার)
+    // 🚪 সাইন-আউট
     // =========================================================================
     fun signOut(context: Context) {
         viewModelScope.launch {
@@ -1231,7 +1250,6 @@ class DramaFlixViewModel(
             repository.clearUserSession()
             repository.subscriptionRepository.clearPendingSubscriptionRequest()
 
-            // 🎯 লোকাল ডেটাবেজ থেকে ওয়াচলিস্টের সমস্ত আইটেম ক্লিয়ার করা
             val currentWatchlist = _watchlistUiState.value.savedDramas
             currentWatchlist.forEach { item ->
                 repository.toggleWatchlist(item, isInList = true)
@@ -1261,9 +1279,8 @@ class DramaFlixViewModel(
                 )
             }
 
-            // 🎯 প্লেয়ার ও ওয়াচলিস্টের সেভ স্টেট পুরোপুরি ফলস
             _watchlistUiState.update { it.copy(savedDramas = emptyList()) }
-            _playerUiState.update { it.copy(isVip = false, isInWatchlist = false) }
+            _playerUiState.update { it.copy(isVip = false, isInWatchlist = false, isNotFound = false) }
             _activityUiState.update { ActivityUiState() }
         }
     }
