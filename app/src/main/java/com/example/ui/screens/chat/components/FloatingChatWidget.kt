@@ -49,7 +49,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -119,8 +118,6 @@ fun FloatingCommunityChatWidget(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivity(context) }
-    val configuration = LocalConfiguration.current
-    val screenHeight = configuration.screenHeightDp.dp
     val coroutineScope = rememberCoroutineScope()
     val miniListState = rememberLazyListState()
 
@@ -130,7 +127,7 @@ fun FloatingCommunityChatWidget(
 
     val isImeVisible = WindowInsets.isImeVisible
 
-    // 🎯 চ্যাট বক্স ওপেন থাকা অবস্থায় ডাবল কিবোর্ড প্যাডিং বন্ধ করতে SOFT_INPUT_ADJUST_NOTHING
+    // উইন্ডো ডাবল জাম্প বন্ধ রাখতে SOFT_INPUT_ADJUST_NOTHING
     DisposableEffect(isExpanded, activity) {
         if (isExpanded) {
             val originalMode = activity?.window?.attributes?.softInputMode ?: WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -304,7 +301,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // 🎯 কিবোর্ড ওপেন হলে মেসেজগুলো কিবোর্ডের মাথায় স্ক্রোল হয়ে যাবে
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && displayMessages.isNotEmpty()) {
             delay(120L)
@@ -417,22 +413,16 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // 🎯 কিবোর্ড ওপেন থাকা অবস্থায় ডাইনামিক অ্যাডাপটিভ হাইট (উপরে আকাশে ঠেকবে না)
-    val chatBoxHeight = if (isImeVisible) {
-        (screenHeight * 0.42f).coerceIn(290.dp, 350.dp)
-    } else {
-        475.dp
-    }
+    // =========================================================================
+    // 🎯 চ্যাট বক্সের সাইজ সর্বদা ১০০% ফিক্সড (কিবোর্ড ওপেন হলেও ছোট হবে না)
+    // =========================================================================
+    val fixedChatBoxHeight = 480.dp
 
-    // =========================================================================
-    // 🎯 মূল পজিশনিং কন্টেইনার:
-    // কিবোর্ড ওপেন হলে ঠিক কিবোর্ডের মাথায় (WindowInsets.ime) বসে থাকবে, নো এক্সট্রা গ্যাপ!
-    // =========================================================================
     Column(
         modifier = modifier
             .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
             .padding(
-                bottom = if (isImeVisible) 4.dp else 52.dp, // কিবোর্ড থাকলে মাত্র ৪dp মার্জিন
+                bottom = if (isImeVisible) 4.dp else 52.dp,
                 end = 10.dp
             ),
         horizontalAlignment = Alignment.End,
@@ -446,7 +436,7 @@ fun FloatingCommunityChatWidget(
             Surface(
                 modifier = Modifier
                     .width(330.dp)
-                    .height(chatBoxHeight) // 👈 ডাইনামিক উচ্চতা
+                    .height(fixedChatBoxHeight) // 👈 সাইজ সম্পূর্ণ অপরিবর্তিত ও ফিক্সড
                     .shadow(elevation = 18.dp, shape = RoundedCornerShape(16.dp)),
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0xFF10141D),
@@ -771,7 +761,7 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // রিপ্লাই ব্যানার
+                    // রিপ্লাই প্রিভিউ
                     AnimatedVisibility(visible = replyingToMessage != null) {
                         replyingToMessage?.let { target ->
                             Row(
@@ -790,7 +780,7 @@ fun FloatingCommunityChatWidget(
                                     Box(modifier = Modifier.width(2.dp).height(20.dp).background(Color(0xFF00E5FF)))
                                     Column {
                                         Text("Replying to ${target.senderName}", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                        Text(target.text.ifBlank { "Attachment" }, color = Color.White.copy(0.7f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(target.text.ifBlank { "Attachment" }, color = Color.White.copy(0.7f), fontSize = 9.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
                                 Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8692A6), modifier = Modifier.size(15.dp).clickable { replyingToMessage = null })
@@ -948,9 +938,7 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // =========================================================================
-        // 💬 কলাপ্সড ফ্লোটিং বাটন (কিবোর্ড ওপেন না থাকলে শুধু দৃশ্যমান)
-        // =========================================================================
+        // কলাপ্সড ফ্লোটিং বাটন (Help? Button)
         if (!isImeVisible) {
             Box(
                 modifier = Modifier
@@ -1041,7 +1029,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // প্রিভিউ ডায়ালগসমূহ
     previewImageUrl?.let { mediaUrl ->
         val isVideoSticker = mediaUrl.endsWith(".mp4", true) || mediaUrl.endsWith(".webm", true)
 
