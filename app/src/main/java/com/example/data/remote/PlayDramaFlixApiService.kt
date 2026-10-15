@@ -139,14 +139,21 @@ interface PlayDramaFlixApiService {
         @Body request: LikeToggleRequest
     ): Response<LikeToggleResponse>
 
-    // 3. Fetch Live Interaction Status (GET /api/v1/interaction/status)
+    // 🌟 3. Multi-Emoji Reaction Toggle (POST /api/v1/interaction/react)
+    @POST("interaction/react")
+    suspend fun toggleReaction(
+        @Body request: ReactionToggleRequest
+    ): Response<ReactionToggleResponse>
+
+    // 4. Fetch Live Interaction Status (GET /api/v1/interaction/status)
     @GET("interaction/status")
     suspend fun getInteractionStatus(
         @Query("content_id") contentId: Any,
-        @Query("episode_id") episodeId: Any? = null
+        @Query("episode_id") episodeId: Any? = null,
+        @Query("user_id") userId: Any? = null // 👈 ইউজারের নিজের রিঅ্যাক্ট পাওয়ার জন্য
     ): Response<InteractionStatusResponse>
 
-    // 4. Fetch Comments List (GET /api/v1/comments)
+    // 5. Fetch Comments List (GET /api/v1/comments)
     @GET("comments")
     suspend fun getComments(
         @Query("content_id") contentId: Any,
@@ -161,7 +168,7 @@ interface PlayDramaFlixApiService {
         @Query("episode_id") episodeId: Any? = null
     ): Response<CommentsListResponse>
 
-    // 5. Add New Comment (POST /api/v1/comments/add)
+    // 6. Add New Comment (POST /api/v1/comments/add)
     @POST("comments/add")
     suspend fun postComment(
         @Body request: AddCommentApiRequest
@@ -179,25 +186,25 @@ interface PlayDramaFlixApiService {
         @Field("comment_text") commentText: String
     ): Response<AddCommentResponse>
 
-    // 5b. Toggle Comment Like (POST /api/v1/comments/like)
+    // 7. Toggle Comment Like (POST /api/v1/comments/like)
     @POST("comments/like")
     suspend fun toggleCommentLike(
         @Body request: CommentLikeApiRequest
     ): Response<CommentLikeApiResponse>
 
-    // 5c. Record Comment Share (POST /api/v1/comments/share)
+    // 8. Record Comment Share (POST /api/v1/comments/share)
     @POST("comments/share")
     suspend fun recordCommentShare(
         @Body request: CommentShareApiRequest
     ): Response<CommentShareApiResponse>
 
-    // 6. Remote Version Check (GET /api/v1/app/version-check)
+    // 9. Remote Version Check (GET /api/v1/app/version-check)
     @GET("app/version-check")
     suspend fun checkAppVersion(
         @Query("current_version") currentVersion: String
     ): Response<AppVersionCheckResponse>
 
-    // 7. Unified User Auth & Profile APIs
+    // 10. Unified User Auth & Profile APIs
     @POST("auth/google")
     suspend fun authenticateGoogle(
         @Body request: GoogleAuthRequest
@@ -223,14 +230,14 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: String
     ): Response<UserProfileResponse>
 
-    // 8. Remote Ad Configuration (GET /api/v1/ads-config)
+    // 11. Remote Ad Configuration (GET /api/v1/ads-config)
     @GET("ads-config")
     suspend fun getAdsConfig(): Response<AdsConfigResponse>
 
     @GET("https://playdramaflix.com/api/v1/ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 
-    // 9. User Activity (Likes & Comments)
+    // 12. User Activity (Likes & Comments)
     @GET("activity")
     suspend fun getUserActivity(
         @Query("user_id") userId: Any,
@@ -243,15 +250,10 @@ interface PlayDramaFlixApiService {
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
-    // =========================================================================
-    // 🎬 10. কাস্টম ভিডিও বিজ্ঞাপন কনফিগারেশন ও ইভেন্ট ট্র্যাকিং
-    // =========================================================================
-    
-    // বিজ্ঞাপন লোড করা
+    // 13. কাস্টম ভিডিও বিজ্ঞাপন কনফিগারেশন ও ইভেন্ট ট্র্যাকিং
     @GET("custom-ads")
     suspend fun getCustomAdsConfig(): Response<CustomAdsConfigResponse>
 
-    // বিজ্ঞাপনের ভিউ ও ক্লিক ইভেন্ট ডাটাবেজে পাঠানো
     @POST("custom-ads/track")
     suspend fun trackCustomAdEvent(
         @Body request: TrackAdEventRequest
