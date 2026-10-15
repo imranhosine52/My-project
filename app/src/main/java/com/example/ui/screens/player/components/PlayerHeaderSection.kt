@@ -12,20 +12,20 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.*
@@ -37,14 +37,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.example.data.model.ContentItemDto
@@ -60,7 +61,7 @@ data class ReactionMeta(
     val emoji: String
 )
 
-// ১ নম্বর ছবির মতো কুইক ইমোজি তালিকা
+// কুইক ইমোজি বার
 val quickReactionsList = listOf(
     ReactionMeta("heart", "❤️"),
     ReactionMeta("like", "👍"),
@@ -74,6 +75,7 @@ val quickReactionsList = listOf(
     ReactionMeta("hundred", "💯")
 )
 
+// সম্পূর্ণ ৬৪টি ইমোজি
 val fullPickerReactionsList = listOf(
     ReactionMeta("heart", "❤️"), ReactionMeta("like", "👍"), ReactionMeta("dislike", "👎"),
     ReactionMeta("fire", "🔥"), ReactionMeta("love_face", "🥰"), ReactionMeta("clap", "👏"),
@@ -109,7 +111,8 @@ fun getEmojiSymbolForKey(key: String): String {
             "love_face" -> "🥰"
             "clap" -> "👏"
             "laugh" -> "😁"
-            "strawberry" -> "🍓"
+            "hundred" -> "💯"
+            "star_eyes" -> "🤩"
             else -> key
         }
 }
@@ -142,29 +145,31 @@ fun PlayerHeaderSection(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val pullDownOffsetY = remember { Animatable(0f) }
 
+    // পপআপ এবং ইন-প্লেস ইমোজি পিকারের স্টেট
     var showContextMenu by remember { mutableStateOf(false) }
-    var showFullTelegramGridDialog by remember { mutableStateOf(false) }
+    var isShowingFullEmojiPickerInPopup by remember { mutableStateOf(false) }
 
-    // লাভ রিঅ্যাক্টকে আলাদা না দেখিয়ে প্লেয়ারের মূল লাইকে মার্জ করা
+    // লাভ রিঅ্যাক্ট মূল লাইক কাউন্টারে যুক্ত থাকবে, এখানে বাকিগুলো দেখাবে
     val activeOtherReactions = remember(reactions) {
         reactions.filter { it.key.lowercase() != "heart" && it.value > 0 }
     }
 
-    // বাউন্সি রিয়্যাকশন অ্যানিমেশন স্কেল
+    // বাউন্স অ্যানিমেশন স্কেল
     val reactionAnimScale = remember { Animatable(1f) }
 
     fun triggerReactionWithBounce(key: String) {
         coroutineScope.launch {
             reactionAnimScale.snapTo(0.6f)
             reactionAnimScale.animateTo(
-                targetValue = 1.25f,
+                targetValue = 1.35f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessLow
                 )
             )
-            delay(100)
+            delay(120)
             reactionAnimScale.animateTo(1f, tween(150))
         }
 
@@ -179,7 +184,7 @@ fun PlayerHeaderSection(
         Column(modifier = Modifier.fillMaxWidth()) {
 
             // =========================================================================
-            // ১. টাইটেল এবং ডানপাশের Pre / Next বাটন
+            // ১. টাইটেল ও Pre / Next বাটন
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -241,7 +246,7 @@ fun PlayerHeaderSection(
             }
 
             // =========================================================================
-            // 🎯 ২. এক লাইনের নিখুঁত ব্যালান্সড বার (বামপাশে মেটাডাটা, ডানপাশে রিঅ্যাক্ট ও ভিউস)
+            // 🎯 ২. মেটাডাটা ও ইন্টারঅ্যাকশন বার (এক লাইনে, নো ব্যাকগ্রাউন্ড বক্স)
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -280,22 +285,29 @@ fun PlayerHeaderSection(
                     )
                 }
 
-                // 👉 ডান সাইডে: [বাকি ইমোজিগুলো] ➔ [❤️ লাভ] ➔ [👁️ ভিউস]
-                // এই পুরো সেকশনের যেকোনো জায়গায় ট্যাপ করলে পপআপ ভেসে উঠবে
+                // =====================================================================
+                // 🎯 ছবি ১-এর দাগ দেওয়া পুরো এরিয়া:
+                // সিঙ্গল ট্যাপ ➔ সাইড পপআপ ওপেন
+                // ডাবল ট্যাপ ➔ সরাসরি লাভ রিঅ্যাক্ট (❤️)
+                // =====================================================================
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            showContextMenu = !showContextMenu
+                        .pointerInput(isLiked, likesCount) {
+                            detectTapGestures(
+                                onTap = {
+                                    showContextMenu = !showContextMenu
+                                    isShowingFullEmojiPickerInPopup = false
+                                },
+                                onDoubleTap = {
+                                    triggerReactionWithBounce("heart")
+                                }
+                            )
                         }
-                        .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
+                        .padding(start = 12.dp, top = 2.dp, bottom = 2.dp)
                 ) {
-                    // ১. অন্যান্য রিঅ্যাকশনগুলো (এক লাইনেই স্বচ্ছ ব্যাকগ্রাউন্ডে থাকবে)
+                    // ১. অন্যান্য রিঅ্যাকশনগুলো (একদম ফ্রেশ, কোনো ব্যাকগ্রাউন্ড ছাড়া)
                     if (activeOtherReactions.isNotEmpty()) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -307,19 +319,19 @@ fun PlayerHeaderSection(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
-                                    Text(text = emojiChar, fontSize = 11.5.sp)
+                                    Text(text = emojiChar, fontSize = 12.sp)
                                     Text(
                                         text = count.toString(),
-                                        color = Color(0xFFB0B7C6),
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Bold
+                                        color = Color(0xFFCBD0DB),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
                         }
                     }
 
-                    // ২. লাভ রিঅ্যাক্ট (আলাদা কিছু নয়, প্লেয়ারের লাইকের সাথে যুক্ত)
+                    // ২. লাভ রিঅ্যাক্ট (মূল লাইক কাউন্টারের সাথে সিঙ্ক)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -334,12 +346,12 @@ fun PlayerHeaderSection(
                         Text(
                             text = formatCount(likesCount),
                             color = if (isLiked) Color(0xFFFF2A4B) else Color(0xFFCBD0DB),
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
 
-                    // ৩. সবার ডানে ভিউস কাউন্টার
+                    // ৩. সবার ডানে মোবাইলের কোণায় ভিউস কাউন্টার
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -353,7 +365,7 @@ fun PlayerHeaderSection(
                         Text(
                             text = formatCount(viewsCount),
                             color = Color(0xFFCBD0DB),
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -378,13 +390,16 @@ fun PlayerHeaderSection(
         }
 
         // =========================================================================
-        // 🌟 ৩. ১ নম্বর ছবির হুবহু পপআপ (ক্লিক করা জায়গার সাথে অ্যাঙ্কর্ড, নো স্ক্রিন ডিম/ডার্ক)
+        // 🌟 ৩. ছবির হুবহু পপআপ (ক্লিক করা জায়গার সাথে অ্যাঙ্কর্ড, কোনো স্ক্রিন ডিম/ডার্ক নেই)
         // =========================================================================
         if (showContextMenu) {
             Popup(
                 alignment = Alignment.TopEnd,
-                offset = IntOffset(x = (-12).dp.value.toInt(), y = 70.dp.value.toInt()),
-                onDismissRequest = { showContextMenu = false },
+                offset = IntOffset(x = (-12).dp.value.toInt(), y = 62.dp.value.toInt()),
+                onDismissRequest = {
+                    showContextMenu = false
+                    isShowingFullEmojiPickerInPopup = false
+                },
                 properties = PopupProperties(
                     focusable = true,
                     dismissOnBackPress = true,
@@ -393,232 +408,270 @@ fun PlayerHeaderSection(
             ) {
                 AnimatedVisibility(
                     visible = showContextMenu,
-                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(150)),
-                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150, easing = FastOutSlowInEasing)) + fadeOut(tween(120))
+                    enter = scaleIn(initialScale = 0.82f, animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(140)),
+                    exit = scaleOut(targetScale = 0.82f, animationSpec = tween(150, easing = FastOutSlowInEasing)) + fadeOut(tween(120))
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .width(260.dp),
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        // ক) উপরের স্লাইডিং ইমোজি বাবল
-                        Surface(
-                            shape = RoundedCornerShape(26.dp),
-                            color = TelegramDarkMenuBg,
-                            border = BorderStroke(0.8.dp, TelegramMenuBorder),
-                            shadowElevation = 14.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    // কন্টেন্ট সুইচিং (স্বাভাবিক মেনু বনাম ৬৪-ইমোজি গ্রিড)
+                    AnimatedContent(
+                        targetState = isShowingFullEmojiPickerInPopup,
+                        transitionSpec = {
+                            if (targetState) {
+                                (slideInHorizontally { it / 3 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 3 } + fadeOut())
+                            } else {
+                                (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith (slideOutHorizontally { it / 3 } + fadeOut())
+                            }
+                        },
+                        label = "TelegramMenuCardSwitch"
+                    ) { isFullEmojiMode ->
+                        if (!isFullEmojiMode) {
+                            // -------------------------------------------------------------
+                            // ক) রেগুলার মেনু: ইমোজি স্লাইডার + অ্যাকশন কার্ড
+                            // -------------------------------------------------------------
+                            Column(
+                                modifier = Modifier.width(260.dp),
+                                horizontalAlignment = Alignment.End
                             ) {
-                                // ↔️ হরাইজন্টাল স্লাইড করে ইমোজি পছন্দ করার বার
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                // ১. স্লাইডিং ইমোজি বাবল
+                                Surface(
+                                    shape = RoundedCornerShape(26.dp),
+                                    color = TelegramDarkMenuBg,
+                                    border = BorderStroke(0.8.dp, TelegramMenuBorder),
+                                    shadowElevation = 14.dp,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    quickReactionsList.forEach { item ->
-                                        Text(
-                                            text = item.emoji,
-                                            fontSize = 20.sp,
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // ↔️ ইমোজি স্ক্রোলিং বার
+                                        Row(
                                             modifier = Modifier
+                                                .weight(1f)
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            quickReactionsList.forEach { item ->
+                                                Text(
+                                                    text = item.emoji,
+                                                    fontSize = 20.sp,
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .clickable {
+                                                            triggerReactionWithBounce(item.key)
+                                                            showContextMenu = false
+                                                        }
+                                                        .padding(3.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // ⌄ ড্রপডাউন মোর বাটন (এখানেই ইন-প্লেস ৬৪ ইমোজি ওপেন হবে)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
                                                 .clip(CircleShape)
+                                                .background(Color(0xFF333E50))
                                                 .clickable {
-                                                    triggerReactionWithBounce(item.key)
-                                                    showContextMenu = false
-                                                }
-                                                .padding(3.dp)
+                                                    isShowingFullEmojiPickerInPopup = true // 👈 কার্ডের ভেতরেই ফুল ইমোজি গ্রিড ওপেন হবে
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.KeyboardArrowDown,
+                                                contentDescription = "More Emojis",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // স্পিচ বাবল কানেক্টিং টেইল
+                                Canvas(
+                                    modifier = Modifier
+                                        .size(18.dp, 8.dp)
+                                        .padding(end = 24.dp)
+                                ) {
+                                    val path = Path().apply {
+                                        moveTo(0f, 0f)
+                                        lineTo(size.width, 0f)
+                                        lineTo(size.width / 2f, size.height)
+                                        close()
+                                    }
+                                    drawPath(path = path, color = TelegramDarkMenuBg)
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                // ২. অপশন মেনু কার্ড (Reply, Copy Link, Favorite, Forward)
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = TelegramDarkMenuBg,
+                                    border = BorderStroke(0.8.dp, TelegramMenuBorder),
+                                    shadowElevation = 18.dp,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                        TelegramContextMenuItem(
+                                            icon = Icons.AutoMirrored.Filled.Reply,
+                                            label = "Reply",
+                                            onClick = {
+                                                showContextMenu = false
+                                                onReplyClick()
+                                            }
+                                        )
+
+                                        HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
+
+                                        TelegramContextMenuItem(
+                                            icon = Icons.Default.Link,
+                                            label = "Copy Link",
+                                            onClick = {
+                                                showContextMenu = false
+                                                val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                clipboard.setPrimaryClip(ClipData.newPlainText("Drama Link", shareUrl))
+                                                Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+
+                                        HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
+
+                                        TelegramContextMenuItem(
+                                            icon = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                            label = if (isInWatchlist) "Added to Favorite" else "Favorite",
+                                            iconColor = if (isInWatchlist) Color(0xFFFFB300) else Color.White,
+                                            onClick = {
+                                                showContextMenu = false
+                                                onWatchlistClick()
+                                                Toast.makeText(
+                                                    context,
+                                                    if (isInWatchlist) "Removed from favorites" else "Added to favorites! ⭐",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        )
+
+                                        HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
+
+                                        TelegramContextMenuItem(
+                                            icon = Icons.AutoMirrored.Filled.Forward,
+                                            label = "Forward",
+                                            onClick = {
+                                                showContextMenu = false
+                                                onForwardClick()
+                                                try {
+                                                    val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
+                                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "text/plain"
+                                                        putExtra(Intent.EXTRA_TEXT, "Watch ${content.displayName} on PlayDramaFlix: $shareUrl")
+                                                    }
+                                                    context.startActivity(Intent.createChooser(shareIntent, "Forward Drama"))
+                                                } catch (_: Exception) {}
+                                            }
                                         )
                                     }
                                 }
-
-                                // ⌄ ড্রপডাউন অ্যারো বাটন
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF333E50))
-                                        .clickable {
-                                            showContextMenu = false
-                                            showFullTelegramGridDialog = true
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "More",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
                             }
-                        }
-
-                        // স্পিচ বাবল কানেক্টিং টেইল
-                        Canvas(
-                            modifier = Modifier
-                                .size(18.dp, 8.dp)
-                                .padding(end = 24.dp)
-                        ) {
-                            val path = Path().apply {
-                                moveTo(0f, 0f)
-                                lineTo(size.width, 0f)
-                                lineTo(size.width / 2f, size.height)
-                                close()
-                            }
-                            drawPath(path = path, color = TelegramDarkMenuBg)
-                        }
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        // খ) নিচের অপশন মেনু কার্ড
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = TelegramDarkMenuBg,
-                            border = BorderStroke(0.8.dp, TelegramMenuBorder),
-                            shadowElevation = 18.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                // ১. Reply (সরাসরি কমেন্ট ট্যাব ও ইনপুট ফোকাস)
-                                TelegramContextMenuItem(
-                                    icon = Icons.AutoMirrored.Filled.Reply,
-                                    label = "Reply",
-                                    onClick = {
-                                        showContextMenu = false
-                                        onReplyClick()
-                                    }
-                                )
-
-                                HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
-
-                                // ২. Copy Link
-                                TelegramContextMenuItem(
-                                    icon = Icons.Default.Link,
-                                    label = "Copy Link",
-                                    onClick = {
-                                        showContextMenu = false
-                                        val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("Drama Link", shareUrl))
-                                        Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-
-                                HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
-
-                                // ৩. Favorite
-                                TelegramContextMenuItem(
-                                    icon = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    label = if (isInWatchlist) "Added to Favorite" else "Favorite",
-                                    iconColor = if (isInWatchlist) Color(0xFFFFB300) else Color.White,
-                                    onClick = {
-                                        showContextMenu = false
-                                        onWatchlistClick()
-                                        Toast.makeText(
-                                            context,
-                                            if (isInWatchlist) "Removed from favorites" else "Added to favorites! ⭐",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                )
-
-                                HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
-
-                                // ৪. Forward
-                                TelegramContextMenuItem(
-                                    icon = Icons.AutoMirrored.Filled.Forward,
-                                    label = "Forward",
-                                    onClick = {
-                                        showContextMenu = false
-                                        onForwardClick()
-                                        try {
-                                            val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
-                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, "Watch ${content.displayName} on PlayDramaFlix: $shareUrl")
-                                            }
-                                            context.startActivity(Intent.createChooser(shareIntent, "Forward Drama"))
-                                        } catch (_: Exception) {}
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // =========================================================================
-    // 🧸 সম্পূর্ণ ৬৪টি ইমোজি গ্রিড ডায়ালগ
-    // =========================================================================
-    if (showFullTelegramGridDialog) {
-        Dialog(onDismissRequest = { showFullTelegramGridDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = TelegramDarkMenuBg,
-                border = BorderStroke(1.dp, TelegramMenuBorder),
-                shadowElevation = 16.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-                    .padding(horizontal = 4.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Reactions",
-                            color = Color.White,
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color(0xFF8E95A5),
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .clickable { showFullTelegramGridDialog = false }
-                        )
-                    }
-
-                    HorizontalDivider(color = TelegramMenuBorder, thickness = 0.8.dp)
-
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(8),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 320.dp)
-                    ) {
-                        items(fullPickerReactionsList) { item ->
-                            Box(
+                        } else {
+                            // -------------------------------------------------------------
+                            // খ) ঠিক এই পজিশনেই ওপেন হওয়া ৬৪টি ইমোজি কার্ড (ব্যাক বাটন সহ)
+                            // -------------------------------------------------------------
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = TelegramDarkMenuBg,
+                                border = BorderStroke(0.8.dp, TelegramMenuBorder),
+                                shadowElevation = 18.dp,
                                 modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        triggerReactionWithBounce(item.key)
-                                        showFullTelegramGridDialog = false
-                                    },
-                                contentAlignment = Alignment.Center
+                                    .width(280.dp)
+                                    .wrapContentHeight()
                             ) {
-                                Text(text = item.emoji, fontSize = 21.sp)
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // 🔙 হেডার: ব্যাক বাটন + টাইটেল + ক্লোজ বাটন
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            // ব্যাক বাটন (আগের মেনুতে ফিরে যাওয়ার জন্য)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF2C394B))
+                                                    .clickable {
+                                                        isShowingFullEmojiPickerInPopup = false // 👈 ব্যাক করে আগের কার্ডে ফিরবে
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                    contentDescription = "Back",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+
+                                            Text(
+                                                text = "Reactions",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Close",
+                                            tint = Color(0xFF8E95A5),
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .clickable {
+                                                    showContextMenu = false
+                                                    isShowingFullEmojiPickerInPopup = false
+                                                }
+                                        )
+                                    }
+
+                                    HorizontalDivider(color = TelegramMenuBorder, thickness = 0.6.dp)
+
+                                    // ৮-কলামের টেলিগ্রাম ইমোজি গ্রিড
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(8),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 240.dp)
+                                    ) {
+                                        items(fullPickerReactionsList) { item ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .aspectRatio(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        triggerReactionWithBounce(item.key)
+                                                        showContextMenu = false
+                                                        isShowingFullEmojiPickerInPopup = false
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(text = item.emoji, fontSize = 20.sp)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -628,6 +681,7 @@ fun PlayerHeaderSection(
     }
 }
 
+// মেনু আইটেম কম্পোনেন্ট
 @Composable
 private fun TelegramContextMenuItem(
     icon: ImageVector,
