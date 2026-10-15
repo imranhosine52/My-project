@@ -37,6 +37,25 @@ data class LikeToggleResponse(
     val effectiveLikes: Long get() = totalLikes ?: likes ?: 0L
 }
 
+// =============================================================================
+// 🌟 টেলিগ্রাম স্টাইল মাল্টি-ইমোজি রিঅ্যাকশন মডেলস
+// =============================================================================
+@JsonClass(generateAdapter = true)
+data class ReactionToggleRequest(
+    @Json(name = "content_id") val contentId: Any,
+    @Json(name = "reaction") val reaction: String,
+    @Json(name = "user_id") val userId: Any? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ReactionToggleResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "status") val status: Int? = 200,
+    @Json(name = "content_id") val contentId: Any? = null,
+    @Json(name = "my_reaction") val myReaction: String? = null,
+    @Json(name = "reactions") val reactions: Map<String, Int> = emptyMap()
+)
+
 @JsonClass(generateAdapter = true)
 data class InteractionStatusResponse(
     @Json(name = "success") val success: Boolean = true,
@@ -47,11 +66,14 @@ data class InteractionStatusResponse(
     @Json(name = "likes") val likes: Long? = null,
     @Json(name = "is_liked") val isLiked: Boolean? = null,
     @Json(name = "liked") val liked: Boolean? = null,
-    @Json(name = "total_comments") val totalComments: Int? = null
+    @Json(name = "total_comments") val totalComments: Int? = null,
+    @Json(name = "my_reaction") val myReaction: String? = null, // 👈 ইউজারের বর্তমান রিঅ্যাক্ট
+    @Json(name = "reactions") val reactions: Map<String, Int>? = emptyMap() // 👈 সব ইমোজির লাইভ কাউন্ট
 ) {
     val effectiveViews: Long get() = totalViews ?: views ?: 0L
     val effectiveLikes: Long get() = totalLikes ?: likes ?: 0L
     val effectiveIsLiked: Boolean get() = isLiked ?: liked ?: false
+    val reactionsMap: Map<String, Int> get() = reactions ?: emptyMap()
 }
 
 @JsonClass(generateAdapter = true)
