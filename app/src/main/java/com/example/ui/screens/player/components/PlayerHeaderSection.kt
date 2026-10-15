@@ -150,7 +150,7 @@ fun PlayerHeaderSection(
     var isShowingFullEmojiPickerInPopup by remember { mutableStateOf(false) }
     var isDismissingPopup by remember { mutableStateOf(false) }
 
-    // 🌊 পপআপের প্রাকৃতিক এন্ট্রি ও এক্সিট স্প্রিং অ্যানিমেশন
+    // পপআপ ওপেন ও ক্লোজ অ্যানিমেশন
     val popupScale = remember { Animatable(0.35f) }
     val popupAlpha = remember { Animatable(0f) }
 
@@ -202,7 +202,7 @@ fun PlayerHeaderSection(
                 popupScale.animateTo(
                     targetValue = 1f,
                     animationSpec = spring(
-                        dampingRatio = 0.72f, // সুন্দর মৃদু বাউন্স
+                        dampingRatio = 0.72f,
                         stiffness = Spring.StiffnessMediumLow
                     )
                 )
@@ -214,20 +214,27 @@ fun PlayerHeaderSection(
         reactions.filter { it.key.lowercase() != "heart" && it.value > 0 }
     }
 
+    // =========================================================================
+    // 🎯 নির্দিষ্ট ইমোজির অ্যানিমেশন ট্র্যাকার
+    // =========================================================================
+    var animatingReactionKey by remember { mutableStateOf<String?>(null) }
     val reactionAnimScale = remember { Animatable(1f) }
 
     fun triggerReactionWithBounce(key: String) {
         coroutineScope.launch {
-            reactionAnimScale.snapTo(0.6f)
+            // শুধুমাত্র যেই ইমোজি পাঠানো হয়েছে সেটির কী (Key) সেট করা
+            animatingReactionKey = key.lowercase()
+            reactionAnimScale.snapTo(0.55f)
             reactionAnimScale.animateTo(
-                targetValue = 1.35f,
+                targetValue = 1.4f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessLow
                 )
             )
-            delay(120)
+            delay(130)
             reactionAnimScale.animateTo(1f, tween(150))
+            animatingReactionKey = null // অ্যানিমেশন শেষে রিসেট
         }
 
         if (key.equals("heart", ignoreCase = true)) {
@@ -243,9 +250,7 @@ fun PlayerHeaderSection(
                 .fillMaxWidth()
                 .padding(bottom = 2.dp)
         ) {
-            // =========================================================================
-            // ১. টাইটেল, প্রি/নেক্সট ও নীল দাগের পুরো কালো ইন্টারঅ্যাক্টিভ এরিয়া
-            // =========================================================================
+            // ১. টাইটেল ও Pre / Next বাটন
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -253,7 +258,6 @@ fun PlayerHeaderSection(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 👈 বাম পাশের কলাম: টাইটেল ও মেটাডাটা
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -298,12 +302,11 @@ fun PlayerHeaderSection(
                     }
                 }
 
-                // 👉 ডান পাশের কলাম: Pre/Next এবং ছবির নীল দাগ দেওয়া সম্পূর্ণ কালো এরিয়া
+                // ডান পাশের Pre/Next এবং কালো ইন্টারঅ্যাক্টিভ এরিয়া
                 Column(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    // Pre / Next বাটন রো
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -346,9 +349,7 @@ fun PlayerHeaderSection(
                     }
 
                     // =====================================================================
-                    // 🎯 ছবির নীল দাগ দেওয়া সম্পূর্ণ কালো অংশ:
-                    // সিঙ্গেল ট্যাপ ➔ স্মুথ পপআপ
-                    // ডাবল ট্যাপ ➔ সরাসরি লাভ রিঅ্যাক্ট (❤️)
+                    // 🎯 কালো ইন্টারঅ্যাক্টিভ এরিয়া:
                     // =====================================================================
                     Box(
                         modifier = Modifier
@@ -373,7 +374,7 @@ fun PlayerHeaderSection(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // ১. অন্যান্য রিঅ্যাকশনগুলো (একদম স্বচ্ছ, কোনো ব্যাকগ্রাউন্ড ছাড়া)
+                            // ১. অন্যান্য রিঅ্যাকশনসমূহ (🎯 শুধুমাত্র সিলেক্টেড ইমোজির স্কেল অ্যানিমেট হবে)
                             if (activeOtherReactions.isNotEmpty()) {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -381,9 +382,13 @@ fun PlayerHeaderSection(
                                 ) {
                                     activeOtherReactions.toList().take(3).forEach { (key, count) ->
                                         val emojiChar = getEmojiSymbolForKey(key)
+                                        val isThisEmojiAnimating = (animatingReactionKey.equals(key, ignoreCase = true))
+                                        val currentScale = if (isThisEmojiAnimating) reactionAnimScale.value else 1f
+
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier.scale(currentScale) // 👈 শুধুমাত্র এই ইমোজিতে স্কেল হবে
                                         ) {
                                             Text(text = emojiChar, fontSize = 12.sp)
                                             Text(
@@ -397,11 +402,14 @@ fun PlayerHeaderSection(
                                 }
                             }
 
-                            // ২. লাভ রিঅ্যাক্ট (❤️ লাইক কাউন্টারের সাথে সিঙ্ক)
+                            // ২. লাভ রিঅ্যাক্ট (🎯 শুধুমাত্র লাভ পাঠানো হলে অ্যানিমেট হবে)
+                            val isHeartAnimating = (animatingReactionKey.equals("heart", ignoreCase = true))
+                            val heartScale = if (isHeartAnimating) reactionAnimScale.value else 1f
+
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                modifier = Modifier.scale(reactionAnimScale.value)
+                                modifier = Modifier.scale(heartScale) // 👈 অন্য ইমোজি পাঠালে এটা ১f ফিক্সড থাকবে
                             ) {
                                 Icon(
                                     imageVector = if (isLiked || myReaction?.equals("heart", true) == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -417,7 +425,7 @@ fun PlayerHeaderSection(
                                 )
                             }
 
-                            // ৩. সবার ডানে মোবাইলের কোণায় ভিউস কাউন্টার (👁️)
+                            // ৩. ভিউস কাউন্টার
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -458,7 +466,7 @@ fun PlayerHeaderSection(
         }
 
         // =========================================================================
-        // 🌟 ২ নম্বর ছবির হুবহু পপআপ (মাখনের মতো মসৃণ এন্ট্রি-এক্সিট ও ফ্লুইড গ্রোথ)
+        // 🌟 টেলিগ্রাম পপআপ
         // =========================================================================
         if (showContextMenu) {
             Popup(
@@ -479,7 +487,6 @@ fun PlayerHeaderSection(
                             scaleX = popupScale.value
                             scaleY = popupScale.value
                             alpha = popupAlpha.value
-                            // 🎯 টাচ পয়েন্ট থেকে প্রাকৃতিক প্রসারণ
                             transformOrigin = TransformOrigin(pivotFractionX = 0.92f, pivotFractionY = 0.05f)
                         }
                 ) {
@@ -497,14 +504,10 @@ fun PlayerHeaderSection(
                         label = "TelegramCardSwitch"
                     ) { isFullEmojiMode ->
                         if (!isFullEmojiMode) {
-                            // -------------------------------------------------------------
-                            // ক) মূল মেনু কার্ড (ইমোজি স্লাইডার + Reply, Copy Link ইত্যাদি)
-                            // -------------------------------------------------------------
                             Column(
                                 modifier = Modifier.width(260.dp),
                                 horizontalAlignment = Alignment.End
                             ) {
-                                // ১. স্লাইডিং ইমোজি বাবল
                                 Surface(
                                     shape = RoundedCornerShape(26.dp),
                                     color = TelegramDarkMenuBg,
@@ -518,7 +521,6 @@ fun PlayerHeaderSection(
                                             .padding(horizontal = 6.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // ↔️ ইমোজি স্ক্রোলিং বার
                                         Row(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -533,7 +535,7 @@ fun PlayerHeaderSection(
                                                     modifier = Modifier
                                                         .clip(CircleShape)
                                                         .clickable {
-                                                            triggerReactionWithBounce(item.key)
+                                                            triggerReactionWithBounce(item.key) // 👈 নির্দিষ্ট ইমোজিতে বাউন্স শুরু হবে
                                                             dismissPopupSmoothly()
                                                         }
                                                         .padding(3.dp)
@@ -541,7 +543,6 @@ fun PlayerHeaderSection(
                                             }
                                         }
 
-                                        // ⌄ ড্রপডাউন বাটন (ক্লিক করলে ইন-প্লেস ৬৪টি ইমোজি আসবে)
                                         Box(
                                             modifier = Modifier
                                                 .size(26.dp)
@@ -562,7 +563,6 @@ fun PlayerHeaderSection(
                                     }
                                 }
 
-                                // স্পিচ বাবল কানেক্টিং টেইল
                                 Canvas(
                                     modifier = Modifier
                                         .size(18.dp, 8.dp)
@@ -579,7 +579,6 @@ fun PlayerHeaderSection(
 
                                 Spacer(modifier = Modifier.height(2.dp))
 
-                                // ২. অপশন মেনু কার্ড
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
                                     color = TelegramDarkMenuBg,
@@ -654,9 +653,6 @@ fun PlayerHeaderSection(
                                 }
                             }
                         } else {
-                            // -------------------------------------------------------------
-                            // খ) ঠিক এই পজিশনেই ওপেন হওয়া ৬৪টি ইমোজি কার্ড (ব্যাক ← বাটন সহ)
-                            // -------------------------------------------------------------
                             Surface(
                                 shape = RoundedCornerShape(18.dp),
                                 color = TelegramDarkMenuBg,
@@ -670,7 +666,6 @@ fun PlayerHeaderSection(
                                     modifier = Modifier.padding(10.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // 🔙 হেডার: ব্যাক বাটন (←) + টাইটেল + ক্লোজ বাটন
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -721,7 +716,6 @@ fun PlayerHeaderSection(
 
                                     HorizontalDivider(color = TelegramMenuBorder, thickness = 0.6.dp)
 
-                                    // ৮-কলামের টেলিগ্রাম ইমোজি গ্রিড
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(8),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -736,7 +730,7 @@ fun PlayerHeaderSection(
                                                     .aspectRatio(1f)
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
-                                                        triggerReactionWithBounce(item.key)
+                                                        triggerReactionWithBounce(item.key) // 👈 ফুল গ্রিড থেকেও নির্দিষ্ট ইমোজি অ্যানিমেট হবে
                                                         dismissPopupSmoothly()
                                                     },
                                                 contentAlignment = Alignment.Center
