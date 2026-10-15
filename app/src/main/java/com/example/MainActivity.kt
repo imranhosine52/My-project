@@ -14,6 +14,8 @@ import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent // 👈 এই লাইনটি মিসিং ছিল (এখন ঠিক করা হলো)
+import androidx.activity.enableEdgeToEdge   // 👈 এটিও যুক্ত করে দেওয়া হলো
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
