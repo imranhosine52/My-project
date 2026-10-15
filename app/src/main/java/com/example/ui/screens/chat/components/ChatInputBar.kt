@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,8 +30,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
-private val TelegramInputPill = Color(0xFF1E2834)
-private val WhatsAppGreenAction = Color(0xFF00A884)
+// 🎨 ২ নম্বর ছবির হুবহু টেলিগ্রাম কালার প্যালেট
+private val TelegramBlueBtn = Color(0xFF2AABEE)          // টেলিগ্রামের উজ্জ্বল গোলাকার ব্লু বাটন
+private val TelegramFieldBg = Color(0xFF212D3B)          // স্লিম ইনপুট ফিল্ড ব্যাকগ্রাউন্ড
+private val TelegramHintColor = Color(0xFF7E8D9F)        // হালকা সিলভার ওয়াটারমার্ক
+private val TelegramIconMuted = Color(0xFF8696A0)        // ইনপুটের ভেতরের আইকন কালার
 
 @Composable
 fun TelegramChatInputBar(
@@ -62,16 +66,17 @@ fun TelegramChatInputBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.Transparent)
+            .background(Color.Transparent) // 👈 কোনো অতিরিক্ত সলিড ব্যাকগ্রাউন্ড থাকবে না
+            .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
-        // মিডিয়া প্রিভিউ ব্যানার
+        // মিডিয়া প্রিভিউ
         AnimatedVisibility(visible = hasSelectedMedia) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(bottom = 4.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1E2834))
+                    .background(TelegramFieldBg)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -82,8 +87,8 @@ fun TelegramChatInputBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFF141A24)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -103,46 +108,47 @@ fun TelegramChatInputBar(
                                 imageVector = Icons.Default.PlayCircleFilled,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
                     Column {
                         Text(
-                            text = if (selectedVideoUri != null) "Video selected (Max 50MB)" else "${selectedImageUris.size} Photos selected",
+                            text = if (selectedVideoUri != null) "Video selected" else "${selectedImageUris.size} Photos selected",
                             color = Color.White,
-                            fontSize = 12.5.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Add caption below & tap Send",
-                            color = Color(0xFF00E5FF),
-                            fontSize = 11.sp
+                            text = "Add caption & tap send",
+                            color = TelegramBlueBtn,
+                            fontSize = 10.5.sp
                         )
                     }
                 }
 
                 IconButton(
                     onClick = onClearSelectedMedia,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Cancel",
                         tint = Color(0xFFFF5252),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
         }
 
-        // মূল ইনপুট বার
+        // =====================================================================
+        // 🎯 ২ নম্বর ছবির হুবহু আল্ট্রা-স্লিম টেলিগ্রাম ইনপুট বার
+        // =====================================================================
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.Bottom,
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (!isUserJoined) {
@@ -150,75 +156,82 @@ fun TelegramChatInputBar(
                     onClick = onJoinGroupClick,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreenAction)
+                        .height(42.dp),
+                    shape = RoundedCornerShape(21.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueBtn)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.GroupAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                        Text("JOIN COMMUNITY GROUP / জয়েন করুন", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                        Text("JOIN COMMUNITY GROUP", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             } else if (isRecordingVoice) {
+                // ভয়েস রেকর্ডিং স্লিম বার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(TelegramInputPill)
-                        .padding(horizontal = 14.dp),
+                        .height(40.dp) // 👈 স্লিম উচ্চতা
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(TelegramFieldBg)
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
-                        Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
+                        Text("${recordDurationSeconds}s", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = onCancelVoiceRecord) {
-                            Text("Cancel", color = Color(0xFFFF5252), fontSize = 13.sp)
+                        TextButton(
+                            onClick = onCancelVoiceRecord,
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("Cancel", color = Color(0xFFFF5252), fontSize = 12.sp)
                         }
                         Button(
                             onClick = onSendVoiceRecord,
-                            shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreenAction),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                            modifier = Modifier.height(34.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueBtn),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(30.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Send", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Send", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
                         }
                     }
                 }
             } else {
+                // 💬 ২ নম্বর ছবির মতো স্লিম ক্যাপসুল ইনপুট বক্স
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp, max = 130.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(TelegramInputPill)
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .height(40.dp) // 👈 পারফেক্ট চিকন/স্লিম টেলিগ্রাম সাইজ
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(TelegramFieldBg)
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // 🧸 স্মাইলি আইকন: চাপলে সরাসরি Stickers, GIFs ও Emoji প্যানেল খুলবে
+                    // বামে: স্টিকার/ইমোজি আইকন
                     Icon(
                         imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                         contentDescription = "Stickers & GIFs",
-                        tint = Color(0xFF8696A0),
+                        tint = TelegramIconMuted,
                         modifier = Modifier
-                            .size(24.dp)
-                            .clickable { onEmojiPackToggle() }
+                            .size(21.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onEmojiPackToggle() }
                     )
 
+                    // মাঝখানে: টেক্সট ইনপুট
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -228,8 +241,8 @@ fun TelegramChatInputBar(
                         if (messageText.isEmpty()) {
                             Text(
                                 text = if (hasSelectedMedia) "Add a caption..." else "Message",
-                                color = Color(0xFF8696A0),
-                                fontSize = 15.sp
+                                color = TelegramHintColor,
+                                fontSize = 14.sp
                             )
                         }
                         BasicTextField(
@@ -237,12 +250,10 @@ fun TelegramChatInputBar(
                             onValueChange = onMessageTextChange,
                             textStyle = TextStyle(
                                 color = Color.White,
-                                fontSize = 15.sp,
-                                lineHeight = 20.sp
+                                fontSize = 14.sp
                             ),
-                            cursorBrush = SolidColor(Color(0xFF00A884)),
-                            singleLine = false,
-                            maxLines = 5,
+                            cursorBrush = SolidColor(TelegramBlueBtn),
+                            singleLine = true,
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Text,
                                 imeAction = ImeAction.Default
@@ -251,21 +262,26 @@ fun TelegramChatInputBar(
                         )
                     }
 
+                    // ডানে: পিন/অ্যাটাচমেন্ট আইকন
                     Icon(
                         imageVector = Icons.Outlined.AttachFile,
                         contentDescription = "Attach File",
-                        tint = Color(0xFF8696A0),
+                        tint = TelegramIconMuted,
                         modifier = Modifier
-                            .size(23.dp)
-                            .clickable { onAttachClick() }
+                            .size(20.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onAttachClick() }
                     )
                 }
 
+                // সবার ডানে: টেলিগ্রামের গোল ব্লু অ্যাকশন বাটন (ভয়েস বা সেন্ড)
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(40.dp) // 👈 স্লিম ৪০dp সাইজ
                         .clip(CircleShape)
-                        .background(WhatsAppGreenAction)
+                        .background(TelegramBlueBtn)
                         .clickable {
                             if (messageText.isNotBlank() || hasSelectedMedia) {
                                 onSendMessage()
@@ -276,11 +292,25 @@ fun TelegramChatInputBar(
                     contentAlignment = Alignment.Center
                 ) {
                     if (isSending) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
                     } else if (messageText.isNotBlank() || hasSelectedMedia) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = Color.White,
+                            modifier = Modifier.size(17.dp)
+                        )
                     } else {
-                        Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(24.dp))
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Record Voice",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
