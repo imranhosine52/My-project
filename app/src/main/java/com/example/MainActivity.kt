@@ -14,8 +14,8 @@ import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent // 👈 এই লাইনটি মিসিং ছিল (এখন ঠিক করা হলো)
-import androidx.activity.enableEdgeToEdge   // 👈 এটিও যুক্ত করে দেওয়া হলো
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -73,7 +73,7 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
-    data class NotFound(val message: String? = null) : Screen() // 👈 NotFoundScreen যুক্ত করা হলো
+    data class NotFound(val message: String? = null) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -432,9 +432,6 @@ private fun MainAppContent(
         }
     }
 
-    // =========================================================================
-    // 🎯 সেন্ট্রাল নেভিগেশন ইঞ্জিন
-    // =========================================================================
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
             if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home || newScreen is Screen.NotFound) {
@@ -468,7 +465,6 @@ private fun MainAppContent(
         val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=") else null
         ShortTvNavHelper.activeSubTab = sourceSubTab
 
-        // 🎯 খালি অথবা ৪MD/Not-Found স্ল্যাগ চেক করে সরাসরি NotFoundScreen দেখানো
         if (slug.isBlank() || slug.equals("404", ignoreCase = true) || slug.equals("not-found", ignoreCase = true)) {
             navigateTo(Screen.NotFound("ড্রামা বা কনটেন্টটি খুঁজে পাওয়া যায়নি!"), BottomNavTab.HOME)
         } else {
@@ -660,9 +656,6 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
-                        // =====================================================
-                        // 🚀 NotFoundScreen রাউটিং হ্যান্ডলিং
-                        // =====================================================
                         is Screen.NotFound -> {
                             NotFoundScreen(
                                 onNavigateHome = {
@@ -683,7 +676,7 @@ private fun MainAppContent(
         }
 
         // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট
+        // 💬 ফ্লোটিং চ্যাট উইজেট (🎯 নো এক্সট্রা বটম প্যাডিং - উইজেট নিজে প্যাডিং কন্ট্রোল করবে)
         // =========================================================================
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
@@ -698,9 +691,7 @@ private fun MainAppContent(
                 currentUserAvatar = authState.userProfile?.avatar,
                 isVip = isVip,
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 50.dp, end = 12.dp)
+                modifier = Modifier.align(Alignment.BottomEnd) // 👈 .padding(bottom = 50.dp) বাদ দেওয়া হয়েছে
             )
         }
 
