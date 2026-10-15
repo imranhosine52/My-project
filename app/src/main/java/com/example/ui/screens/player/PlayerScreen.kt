@@ -427,14 +427,6 @@ fun PlayerScreen(
             }
     }
 
-    // 🛑 নট ফাউন্ড হলে সাথে সাথে প্লেয়ার বন্ধ
-    LaunchedEffect(playerState.isNotFound) {
-        if (playerState.isNotFound) {
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-        }
-    }
-
     var isWebLoading by remember { mutableStateOf(false) }
 
     val persistentWebView = remember {
@@ -616,14 +608,14 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 একক অটো-রেজলভার
+    // 🎯 একক অটো-রেজলভার (MP4, HLS/m3u8 বা Embed স্বয়ংক্রিয় প্লেব্যাক ইঞ্জিন)
     // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
         currentActiveSlug
     ) {
-        if (currentEp != null && !playerState.isNotFound) {
+        if (currentEp != null) {
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
                 viewModel.showEpisodeUnlockModal(currentEp)
@@ -696,7 +688,9 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 রিকমেন্ডেশন পুল
+    // =========================================================================
+    // 🎯 রিকমেন্ডেশন পুল সম্প্রসারণ ও ঠিক ৩২টি কার্ড নির্বাচন
+    // =========================================================================
     LaunchedEffect(
         playerState.recommendations,
         homeState.popularDramas,
@@ -710,6 +704,7 @@ fun PlayerScreen(
         val currentCategories = content.categories.map { it.lowercase() }
         val currentDub = content.dubBadge.lowercase()
 
+        // সমস্ত ক্যাটাগরি থেকে বড় পুল তৈরি
         val allPool = (
             playerState.recommendations +
             homeState.popularDramas +
@@ -732,6 +727,7 @@ fun PlayerScreen(
             score
         }
 
+        // 🎯 নিশ্চিতভাবে ঠিক ৩২টি কার্ড নেওয়া হচ্ছে
         val targetCards = if (sortedSimilar.size >= 32) {
             sortedSimilar.take(32)
         } else {
@@ -912,7 +908,9 @@ fun PlayerScreen(
                     }
                 }
 
-                // পোর্ট্রেট অংশ
+                // =============================================================
+                // 🔄 পোর্ট্রেট অংশ: পুল-টু-রিফ্রেশ কনটেইনার
+                // =============================================================
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -986,6 +984,7 @@ fun PlayerScreen(
                                 modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
                                 contentPadding = PaddingValues(bottom = 80.dp)
                             ) {
+                                // 🌟 হেডার সেকশন: এখানে PlayerHeaderSection কল করা হয়েছে
                                 item {
                                     PlayerHeaderSection(
                                         content = content,
@@ -995,6 +994,8 @@ fun PlayerScreen(
                                         isLiked = playerState.isLiked,
                                         isInWatchlist = playerState.isInWatchlist,
                                         isDescriptionExpanded = isDescriptionExpanded,
+                                        myReaction = playerState.myReaction, // 👈 লাইভ ইউজারের রিঅ্যাকশন
+                                        reactions = playerState.reactions, // 👈 সব ইমোজির মোট সংখ্যা
                                         onPreviousClick = { viewModel.playPreviousEpisode() },
                                         onNextClick = { viewModel.playNextEpisode() },
                                         onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
@@ -1002,7 +1003,17 @@ fun PlayerScreen(
                                             if (!isUserLoggedIn) showAuthSheet = true
                                             else viewModel.toggleLikeDrama()
                                         },
-                                        onWatchlistClick = { viewModel.toggleWatchlist() },
+                                        onWatchlistClick = {
+                                            if (!isUserLoggedIn) showAuthSheet = true
+                                            else viewModel.toggleWatchlist()
+                                        },
+                                        onToggleReaction = { reactionKey ->
+                                            if (!isUserLoggedIn) {
+                                                showAuthSheet = true
+                                            } else {
+                                                viewModel.toggleReaction(reactionKey) // 👈 রিঅ্যাক্ট সাবমিট
+                                            }
+                                        },
                                         onSwipeDownFullscreen = {
                                             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                         }
@@ -1048,7 +1059,9 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // For you ট্যাব
+                                // =============================================================
+                                // 🌟 For you ট্যাব: ৩২টি কার্ড ($4 \times 8$ গ্রিড - কোনো ফাঁকা জায়গা থাকবে না)
+                                // =============================================================
                                 if (selectedTabIndex == 0) {
                                     val dramaRows = shuffledRecommendations.chunked(4)
                                     items(dramaRows.size) { rowIndex ->
