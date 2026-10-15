@@ -6,9 +6,11 @@
 package com.example.ui.screens.chat
 
 import android.Manifest
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
@@ -16,6 +18,7 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -70,9 +73,17 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.*
 
-// 🎨 ২ নম্বর ছবির হুবহু টেলিগ্রাম ডার্ক থিম
 private val TelegramScreenBg = Color(0xFF0E1621)
 private val TelegramHeaderBg = Color(0xF217212B)
+
+private fun findActivity(context: Context): Activity? {
+    var ctx = context
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
     if (actions.isEmpty()) return ""
@@ -105,9 +116,19 @@ fun CommunityChatScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
+
+    // 🎯 ডাবল কিবোর্ড প্যাডিং বন্ধ করতে SOFT_INPUT_ADJUST_NOTHING সেট করা
+    DisposableEffect(activity) {
+        val originalMode = activity?.window?.attributes?.softInputMode ?: WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        onDispose {
+            activity?.window?.setSoftInputMode(originalMode)
+        }
+    }
 
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val chatPrefs = remember { context.getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE) }
@@ -341,10 +362,11 @@ fun CommunityChatScreen(
         }
     }
 
+    // 🎯 কিবোর্ড ওপেন হওয়ার সাথে সাথে লাস্ট মেসেজে মসৃণ স্ক্রোল
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
-            delay(100L)
+            delay(120L)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
@@ -585,13 +607,12 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 📱 মূল কন্টেইনার
+    // 📱 মূল কন্টেইনার (এখানে কোনো ভুল imePadding নেই)
     // =========================================================================
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(TelegramScreenBg)
-            .imePadding()
     ) {
         if (isSelectionMode) {
             val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
@@ -638,7 +659,7 @@ fun CommunityChatScreen(
             )
         } else {
             // =========================================================================
-            // 🔝 ২ নম্বর ছবির হুবহু টেলিগ্রাম স্টাইল স্লিম ফ্রস্টেড হেডার
+            // 🔝 টেলিগ্রাম স্টাইল স্লিম ফ্রস্টেড হেডার
             // =========================================================================
             Surface(
                 color = TelegramHeaderBg,
@@ -669,7 +690,6 @@ fun CommunityChatScreen(
                             )
                         }
 
-                        // ২ নম্বর ছবির মতো চ্যানেল/গ্রুপ রাউন্ড অবতার
                         Box(
                             modifier = Modifier
                                 .size(38.dp)
@@ -886,7 +906,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // টাইপিং/একশন স্ট্যাটাস
+        // লাইভ টাইপিং/অ্যাকশন স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -954,125 +974,129 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // ⌨️ ৩. নিচের স্লিম ইনপুট সেকশন (কোনো অপ্রয়োজনীয় সলিড ব্যাকগ্রাউন্ড ছাড়া)
+        // ⌨️ ৩. বটম ইনপুট কন্টেইনার (🎯 সরাসরি কিবোর্ডের সাথে লেগে থাকবে, নো গ্যাপ)
         // =========================================================================
-        if (showTelegramMediaPicker) {
-            TelegramMediaPickerSheet(
-                onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
-                onSendGif = { gifUrl -> sendStickerOrGifMessage(gifUrl) },
-                onSelectEmoji = { emoji -> messageText += emoji },
-                onClose = { showTelegramMediaPicker = false },
-                modifier = Modifier.fillMaxWidth()
-            )
-        } else {
-            if (!isUserLoggedIn) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF1E2834),
-                    border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .navigationBarsPadding()
-                        .clickable { showAuthSheet = true }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Log in to join chat & send messages",
-                            color = Color(0xFF2AABEE),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            } else if (isCurrentUserBlocked) {
-                Surface(
-                    color = Color(0xFF261214),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
-                        Text(
-                            text = "You are blocked by Admin from sending messages in this community group.",
-                            color = Color(0xFFFF5252),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.ime.union(WindowInsets.navigationBars)
+                )
+        ) {
+            if (showTelegramMediaPicker) {
+                TelegramMediaPickerSheet(
+                    onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
+                    onSendGif = { gifUrl -> sendStickerOrGifMessage(gifUrl) },
+                    onSelectEmoji = { emoji -> messageText += emoji },
+                    onClose = { showTelegramMediaPicker = false },
+                    modifier = Modifier.fillMaxWidth()
+                )
             } else {
-                TelegramChatInputBar(
-                    isUserJoined = isUserJoined,
-                    isRecordingVoice = isRecordingVoice,
-                    recordDurationSeconds = recordDurationSeconds,
-                    messageText = messageText,
-                    currentUserAvatar = currentUserAvatar,
-                    currentUserName = currentUserName,
-                    selectedImageUris = selectedImageUris,
-                    selectedVideoUri = selectedVideoUri,
-                    isGroupMuted = isGroupMuted,
-                    isSending = isSending,
-                    onJoinGroupClick = {
-                        isUserJoined = true
-                        chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
-                        Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
-                    },
-                    onMessageTextChange = { newText ->
-                        messageText = newText
-                        if (newText.isNotBlank()) {
-                            typingStatusJob?.cancel()
-                            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
-                            typingStatusJob = coroutineScope.launch {
-                                delay(3500L)
+                if (!isUserLoggedIn) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF1E2834),
+                        border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .clickable { showAuthSheet = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Log in to join chat & send messages",
+                                color = Color(0xFF2AABEE),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else if (isCurrentUserBlocked) {
+                    Surface(
+                        color = Color(0xFF261214),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                            Text(
+                                text = "You are blocked by Admin from sending messages in this community group.",
+                                color = Color(0xFFFF5252),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else {
+                    TelegramChatInputBar(
+                        isUserJoined = isUserJoined,
+                        isRecordingVoice = isRecordingVoice,
+                        recordDurationSeconds = recordDurationSeconds,
+                        messageText = messageText,
+                        currentUserAvatar = currentUserAvatar,
+                        currentUserName = currentUserName,
+                        selectedImageUris = selectedImageUris,
+                        selectedVideoUri = selectedVideoUri,
+                        isGroupMuted = isGroupMuted,
+                        isSending = isSending,
+                        onJoinGroupClick = {
+                            isUserJoined = true
+                            chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
+                            Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                        },
+                        onMessageTextChange = { newText ->
+                            messageText = newText
+                            if (newText.isNotBlank()) {
+                                typingStatusJob?.cancel()
+                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
+                                typingStatusJob = coroutineScope.launch {
+                                    delay(3500L)
+                                    FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                                }
+                            } else {
+                                typingStatusJob?.cancel()
                                 FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
                             }
-                        } else {
-                            typingStatusJob?.cancel()
+                        },
+                        onToggleMuteClick = {
+                            val newState = !isGroupMuted
+                            isGroupMuted = newState
+                            chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                            FirebaseChatManager.toggleGroupNotification(!newState)
+                            Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                        },
+                        onEmojiPackToggle = {
+                            focusManager.clearFocus()
+                            showTelegramMediaPicker = !showTelegramMediaPicker
+                        },
+                        onAttachClick = { showAttachMenu = true },
+                        onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
+                        onClearSelectedMedia = {
+                            selectedImageUris = emptyList()
+                            selectedVideoUri = null
                             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                        }
-                    },
-                    onToggleMuteClick = {
-                        val newState = !isGroupMuted
-                        isGroupMuted = newState
-                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                        FirebaseChatManager.toggleGroupNotification(!newState)
-                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
-                    },
-                    onEmojiPackToggle = {
-                        focusManager.clearFocus()
-                        showTelegramMediaPicker = !showTelegramMediaPicker
-                    },
-                    onAttachClick = { showAttachMenu = true },
-                    onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
-                    onClearSelectedMedia = {
-                        selectedImageUris = emptyList()
-                        selectedVideoUri = null
-                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                    },
-                    onStartVoiceRecord = { startRecordingVoice() },
-                    onCancelVoiceRecord = { cancelVoiceRecording() },
-                    onSendVoiceRecord = { stopAndSendVoice() },
-                    onSendMessage = { sendMessage() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                )
+                        },
+                        onStartVoiceRecord = { startRecordingVoice() },
+                        onCancelVoiceRecord = { cancelVoiceRecording() },
+                        onSendVoiceRecord = { stopAndSendVoice() },
+                        onSendMessage = { sendMessage() },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     }
