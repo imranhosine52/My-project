@@ -2,14 +2,19 @@
 
 package com.example.ui.screens.player.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -19,21 +24,27 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Forward
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.AddReaction
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.ContentItemDto
 import com.example.ui.theme.GoldVip
 import com.example.ui.theme.TealAccent
@@ -42,96 +53,47 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 // =============================================================================
-// 🎭 ইমোজি মেটাডাটা ও টেলিগ্রাম ম্যাপিং
+// 🎭 ইমোজি মেটাডাটা
 // =============================================================================
 data class ReactionMeta(
     val key: String,
     val emoji: String
 )
 
-// ছবি ১: কুইক বারের প্রধান ৬টি ইমোজি
+// ১ নম্বর ছবির শীর্ষের ৭টি কুইক ইমোজি
 val quickReactionsList = listOf(
-    ReactionMeta("heart", "❤️"),
-    ReactionMeta("like", "👍"),
-    ReactionMeta("fire", "🔥"),
-    ReactionMeta("love_face", "🥰"),
-    ReactionMeta("clap", "👏"),
-    ReactionMeta("laugh", "😁")
-)
-
-// ছবি ২: টেলিগ্রামের সম্পূর্ণ ৬৪টি ইমোজি গ্রিড
-val fullPickerReactionsList = listOf(
-    // Row 1
     ReactionMeta("heart", "❤️"),
     ReactionMeta("like", "👍"),
     ReactionMeta("dislike", "👎"),
     ReactionMeta("fire", "🔥"),
     ReactionMeta("love_face", "🥰"),
     ReactionMeta("clap", "👏"),
-    ReactionMeta("laugh", "😁"),
-    ReactionMeta("thinking", "🤔"),
-    // Row 2
-    ReactionMeta("mind_blown", "🤯"),
-    ReactionMeta("scream", "😱"),
-    ReactionMeta("swearing", "🤬"),
-    ReactionMeta("cry_sad", "😢"),
-    ReactionMeta("party", "🎉"),
-    ReactionMeta("star_eyes", "🤩"),
-    ReactionMeta("vomit", "🤮"),
-    ReactionMeta("poop", "💩"),
-    // Row 3
-    ReactionMeta("pray", "🙏"),
-    ReactionMeta("ok_hand", "👌"),
-    ReactionMeta("dove", "🕊️"),
-    ReactionMeta("clown", "🤡"),
-    ReactionMeta("yawn", "🥱"),
-    ReactionMeta("smirk", "😏"),
-    ReactionMeta("heart_eyes", "😍"),
-    ReactionMeta("whale", "🐳"),
-    // Row 4
-    ReactionMeta("heart_fire", "❤️‍🔥"),
-    ReactionMeta("moon", "🌚"),
-    ReactionMeta("hotdog", "🌭"),
-    ReactionMeta("hundred", "💯"),
-    ReactionMeta("rofl", "🤣"),
-    ReactionMeta("lightning", "⚡"),
-    ReactionMeta("banana", "🍌"),
-    ReactionMeta("trophy", "🏆"),
-    // Row 5
-    ReactionMeta("broken_heart", "💔"),
-    ReactionMeta("raised_eyebrow", "🤨"),
-    ReactionMeta("neutral", "😐"),
-    ReactionMeta("strawberry", "🍓"),
-    ReactionMeta("champagne", "🍾"),
-    ReactionMeta("kiss", "💋"),
-    ReactionMeta("middle_finger", "🖕"),
-    ReactionMeta("devil", "😈"),
-    // Row 6
-    ReactionMeta("sleepy", "😴"),
-    ReactionMeta("cry", "😭"),
-    ReactionMeta("nerd", "🤓"),
-    ReactionMeta("ghost", "👻"),
-    ReactionMeta("developer", "👩‍💻"),
-    ReactionMeta("eyes", "👀"),
-    ReactionMeta("pumpkin", "🎃"),
-    ReactionMeta("see_no_evil", "🙈"),
-    // Row 7
-    ReactionMeta("angel", "😇"),
-    ReactionMeta("fearful", "😨"),
-    ReactionMeta("handshake", "🤝"),
-    ReactionMeta("writing", "✍️"),
-    ReactionMeta("hug", "🤗"),
-    ReactionMeta("salute", "🫡"),
-    ReactionMeta("santa", "🎅"),
-    ReactionMeta("tree", "🎄"),
-    // Row 8
-    ReactionMeta("snowman", "☃️"),
-    ReactionMeta("nails", "💅"),
-    ReactionMeta("zany", "🤪"),
-    ReactionMeta("moyai", "🗿"),
-    ReactionMeta("cool", "🆒"),
-    ReactionMeta("cupid", "💘"),
-    ReactionMeta("hear_no_evil", "🙉"),
+    ReactionMeta("laugh", "😁")
+)
+
+// টেলিগ্রামের ফুল ৬৪টি ইমোজি গ্রিড
+val fullPickerReactionsList = listOf(
+    ReactionMeta("heart", "❤️"), ReactionMeta("like", "👍"), ReactionMeta("dislike", "👎"),
+    ReactionMeta("fire", "🔥"), ReactionMeta("love_face", "🥰"), ReactionMeta("clap", "👏"),
+    ReactionMeta("laugh", "😁"), ReactionMeta("thinking", "🤔"), ReactionMeta("mind_blown", "🤯"),
+    ReactionMeta("scream", "😱"), ReactionMeta("swearing", "🤬"), ReactionMeta("cry_sad", "😢"),
+    ReactionMeta("party", "🎉"), ReactionMeta("star_eyes", "🤩"), ReactionMeta("vomit", "🤮"),
+    ReactionMeta("poop", "💩"), ReactionMeta("pray", "🙏"), ReactionMeta("ok_hand", "👌"),
+    ReactionMeta("dove", "🕊️"), ReactionMeta("clown", "🤡"), ReactionMeta("yawn", "🥱"),
+    ReactionMeta("smirk", "😏"), ReactionMeta("heart_eyes", "😍"), ReactionMeta("whale", "🐳"),
+    ReactionMeta("heart_fire", "❤️‍🔥"), ReactionMeta("moon", "🌚"), ReactionMeta("hotdog", "🌭"),
+    ReactionMeta("hundred", "💯"), ReactionMeta("rofl", "🤣"), ReactionMeta("lightning", "⚡"),
+    ReactionMeta("banana", "🍌"), ReactionMeta("trophy", "🏆"), ReactionMeta("broken_heart", "💔"),
+    ReactionMeta("raised_eyebrow", "🤨"), ReactionMeta("neutral", "😐"), ReactionMeta("strawberry", "🍓"),
+    ReactionMeta("champagne", "🍾"), ReactionMeta("kiss", "💋"), ReactionMeta("middle_finger", "🖕"),
+    ReactionMeta("devil", "😈"), ReactionMeta("sleepy", "😴"), ReactionMeta("cry", "😭"),
+    ReactionMeta("nerd", "🤓"), ReactionMeta("ghost", "👻"), ReactionMeta("developer", "👩‍💻"),
+    ReactionMeta("eyes", "👀"), ReactionMeta("pumpkin", "🎃"), ReactionMeta("see_no_evil", "🙈"),
+    ReactionMeta("angel", "😇"), ReactionMeta("fearful", "😨"), ReactionMeta("handshake", "🤝"),
+    ReactionMeta("writing", "✍️"), ReactionMeta("hug", "🤗"), ReactionMeta("salute", "🫡"),
+    ReactionMeta("santa", "🎅"), ReactionMeta("tree", "🎄"), ReactionMeta("snowman", "☃️"),
+    ReactionMeta("nails", "💅"), ReactionMeta("zany", "🤪"), ReactionMeta("moyai", "🗿"),
+    ReactionMeta("cool", "🆒"), ReactionMeta("cupid", "💘"), ReactionMeta("hear_no_evil", "🙉"),
     ReactionMeta("unicorn", "🦄")
 )
 
@@ -139,27 +101,20 @@ fun getEmojiSymbolForKey(key: String): String {
     return fullPickerReactionsList.find { it.key.equals(key, ignoreCase = true) }?.emoji
         ?: when (key.lowercase()) {
             "heart" -> "❤️"
-            "strawberry" -> "🍓"
             "like" -> "👍"
+            "dislike" -> "👎"
             "fire" -> "🔥"
-            "laugh" -> "😁"
-            "cry" -> "😭"
             "love_face" -> "🥰"
-            "hug" -> "🤗"
-            "giggle" -> "🤭"
-            "blush" -> "☺️"
-            "star_eyes" -> "🤩"
-            "angry" -> "😡"
-            "tired" -> "😫"
-            "sweat" -> "😓"
-            "devil" -> "😈"
             "clap" -> "👏"
-            "vomit" -> "🤮"
-            "clown" -> "🤡"
-            "cool" -> "😎"
+            "laugh" -> "😁"
+            "strawberry" -> "🍓"
             else -> key
         }
 }
+
+private val TelegramDarkMenuBg = Color(0xFF232D3B)
+private val TelegramMenuBorder = Color(0xFF323F52)
+private val TelegramMenuText = Color(0xFFE4ECF5)
 
 @Composable
 fun PlayerHeaderSection(
@@ -178,16 +133,20 @@ fun PlayerHeaderSection(
     onLikeClick: () -> Unit,
     onWatchlistClick: () -> Unit,
     onToggleReaction: (String) -> Unit = {},
+    onReplyClick: () -> Unit = {},
+    onForwardClick: () -> Unit = {},
     onSwipeDownFullscreen: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val pullDownOffsetY = remember { Animatable(0f) }
 
-    var showQuickReactionBubble by remember { mutableStateOf(false) }
+    // ১ নম্বর ছবির হুবহু টেলিগ্রাম মেনু ও ফুল ইমোজি পিকারের স্টেট
+    var showTelegramContextMenu by remember { mutableStateOf(false) }
     var showFullTelegramGridDialog by remember { mutableStateOf(false) }
 
-    // সক্রিয় রিঅ্যাকশনগুলো বের করা (যেগুলোর সংখ্যা ০-এর বেশি)
+    // যেসব ইমোজি অলরেডি দেওয়া হয়েছে
     val activeReactions = remember(reactions) {
         reactions.filter { it.value > 0 }
     }
@@ -229,11 +188,13 @@ fun PlayerHeaderSection(
                 )
             }
     ) {
-        // ১. টাইটেল ও Pre / Next বাটন
+        // =========================================================================
+        // ১. টাইটেল ও Pre / Next বাটন রো
+        // =========================================================================
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 4.dp),
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -289,17 +250,21 @@ fun PlayerHeaderSection(
             }
         }
 
-        // ২. মেটাডাটা ও অ্যাকশন আইকন (সাল, রেটিং, ভিউ, লাভ, বুকমার্ক)
+        // =========================================================================
+        // 🎯 ২. একক অল-ইন-ওয়ান সিঙ্গেল লাইন (মেটাডাটা + ভিউস + লাভ/রিঅ্যাক্ট + ইমোজি ট্যাগস)
+        // কোনো অতিরিক্ত নিচের লাইন ছাড়াই সব উপাদান পাশাপাশি থাকবে
+        // =========================================================================
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // বাঁয়ে: সাল, রেটিং, more
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = content.releaseYear.ifBlank { "2026" },
@@ -308,205 +273,115 @@ fun PlayerHeaderSection(
                     fontWeight = FontWeight.Medium
                 )
                 Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
-                Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(13.dp))
+                Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(12.dp))
                 Text(
-                    text = if (content.rating > 0) String.format(Locale.US, "%.1f", content.rating) else "8.9",
+                    text = if (content.rating > 0) String.format(Locale.US, "%.1f", content.rating) else "8.5",
                     color = GoldVip,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
                 Text(
                     text = if (isDescriptionExpanded) "less" else "...more",
                     color = TealAccent,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable { onToggleDescription() }
                 )
             }
 
+            Spacer(modifier = Modifier.weight(1f))
+
+            // 🎯 ডানে: [👁️ Views] [❤️ Reaction (পপআপ ট্রিগার)] [এক্টিভ ইমোজি পিলস]
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // ভিউজ কাউন্টার
+                // ১. ভিউজ অপশন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(Icons.Default.Visibility, contentDescription = "Views", tint = Color(0xFF00E5FF), modifier = Modifier.size(15.dp))
-                    Text(formatCount(viewsCount), color = Color(0xFFCCD0DB), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                }
-
-                // লাইক বাটন (ট্যাপে লাইক, পাশে রিঅ্যাক্ট অপশন)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { onLikeClick() }
+                    horizontalArrangement = Arrangement.spacedBy(3.5.dp)
                 ) {
                     Icon(
-                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Like",
-                        tint = if (isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
-                        modifier = Modifier.size(15.dp)
+                        imageVector = Icons.Default.Visibility,
+                        contentDescription = "Views",
+                        tint = Color(0xFF8E95A5),
+                        modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = formatCount(likesCount),
-                        color = if (isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
-                        fontSize = 11.5.sp,
+                        text = formatCount(viewsCount),
+                        color = Color(0xFFCBD0DB),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
-                // বুকমার্ক আইকন
-                Icon(
-                    imageVector = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                    contentDescription = "Bookmark",
-                    tint = if (isInWatchlist) TealAccent else Color(0xFFADB3C2),
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clickable { onWatchlistClick() }
-                )
-            }
-        }
-
-        // =========================================================================
-        // 💬 ৩. কুইক রিঅ্যাকশন বাবল (আপনার ছবি ১: ❤️ 👍 🔥 🥰 👏 😁 ⌄)
-        // =========================================================================
-        AnimatedVisibility(
-            visible = showQuickReactionBubble,
-            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(180)) + fadeIn(),
-            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF1E2536),
-                    border = BorderStroke(1.dp, Color(0xFF2E384D)),
-                    shadowElevation = 8.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        quickReactionsList.forEach { item ->
-                            Text(
-                                text = item.emoji,
-                                fontSize = 21.sp,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        onToggleReaction(item.key)
-                                        showQuickReactionBubble = false
-                                    }
-                                    .padding(4.dp)
-                            )
-                        }
-
-                        // ⌄ ড্রপডাউন অ্যারো বাটন (ফুল গ্রিড খুলবে)
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF283448))
-                                .clickable {
-                                    showQuickReactionBubble = false
-                                    showFullTelegramGridDialog = true
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "More Reactions",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // =========================================================================
-        // 🌟 ৪. টেলিগ্রাম স্টাইল লাইভ রিঅ্যাকশন পিল রো (❤️ 54, 🍓 3... + ➕)
-        // =========================================================================
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // ➕ রিঅ্যাকশন খোলার বাটন
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF161C26),
-                border = BorderStroke(0.8.dp, Color(0xFF2B3648)),
-                modifier = Modifier
-                    .height(28.dp)
-                    .clickable { showQuickReactionBubble = !showQuickReactionBubble }
-            ) {
+                // ২. লাভ/রিঅ্যাক্ট অপশন (এখানে ক্লিক করলে ১ নম্বর ছবির পপআপ মেনু আসবে)
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(3.5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showTelegramContextMenu = true } // 👈 পপআপ ওপেন
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.AddReaction,
-                        contentDescription = "Add Reaction",
-                        tint = Color(0xFF00E5FF),
+                        imageVector = if (isLiked || myReaction != null) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Reactions",
+                        tint = if (isLiked || myReaction != null) Color(0xFFFF2A4B) else Color(0xFFADB3C2),
                         modifier = Modifier.size(15.dp)
                     )
-                    Text("React", color = Color(0xFF00E5FF), fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = formatCount(likesCount),
+                        color = if (isLiked || myReaction != null) Color(0xFFFF2A4B) else Color(0xFFCBD0DB),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
-            }
 
-            // লাইভ পিলস তালিকা
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                items(activeReactions.toList()) { (key, count) ->
-                    val isMyChoice = (myReaction.equals(key, ignoreCase = true))
-                    val emojiChar = getEmojiSymbolForKey(key)
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (isMyChoice) Color(0xFF163244) else Color(0xFF151922),
-                        border = BorderStroke(
-                            width = if (isMyChoice) 1.2.dp else 0.8.dp,
-                            color = if (isMyChoice) Color(0xFF00E5FF) else Color(0xFF263244)
-                        ),
-                        modifier = Modifier
-                            .height(28.dp)
-                            .clickable { onToggleReaction(key) }
+                // ৩. সক্রিয় রিঅ্যাকশনগুলো (একই লাইনে স্ক্রোলযোগ্য)
+                if (activeReactions.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.widthIn(max = 140.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(text = emojiChar, fontSize = 13.5.sp)
-                            Text(
-                                text = count.toString(),
-                                color = if (isMyChoice) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        items(activeReactions.toList()) { (key, count) ->
+                            val isMyChoice = (myReaction.equals(key, ignoreCase = true))
+                            val emojiChar = getEmojiSymbolForKey(key)
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isMyChoice) Color(0xFF1B3245) else Color(0xFF161A23),
+                                border = BorderStroke(
+                                    width = 0.6.dp,
+                                    color = if (isMyChoice) Color(0xFF00E5FF) else Color(0xFF293245)
+                                ),
+                                modifier = Modifier
+                                    .height(22.dp)
+                                    .clickable { onToggleReaction(key) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(text = emojiChar, fontSize = 11.sp)
+                                    Text(
+                                        text = count.toString(),
+                                        color = if (isMyChoice) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        // ৩. ডেসক্রিপশন
+        // ডেসক্রিপশন এক্সপ্যান্ড
         if (isDescriptionExpanded) {
             Column(
                 modifier = Modifier
@@ -524,14 +399,186 @@ fun PlayerHeaderSection(
     }
 
     // =========================================================================
-    // 🧸 ৫. টেলিগ্রাম ফুল ইমোজি গ্রিড ডায়ালগ (আপনার ছবি ২: ৬৪টি ইমোজি)
+    // 🌟 ১ নম্বর ছবির হুবহু টেলিগ্রাম স্টাইল কনটেক্সট পপআপ মেনু
+    // =========================================================================
+    if (showTelegramContextMenu) {
+        Dialog(
+            onDismissRequest = { showTelegramContextMenu = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.50f))
+                    .clickable { showTelegramContextMenu = false },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(260.dp)
+                        .clickable(enabled = false) {}, // ক্লিক পাস-থ্রু প্রতিরোধ
+                    horizontalAlignment = Alignment.End
+                ) {
+                    // ১. উপরের ফ্লোটিং ইমোজি পিল বাবল
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(26.dp))
+                            .background(TelegramDarkMenuBg)
+                            .border(0.8.dp, TelegramMenuBorder, RoundedCornerShape(26.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            quickReactionsList.forEach { item ->
+                                Text(
+                                    text = item.emoji,
+                                    fontSize = 20.sp,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            onToggleReaction(item.key)
+                                            showTelegramContextMenu = false
+                                        }
+                                        .padding(2.dp)
+                                )
+                            }
+
+                            // ⌄ ড্রপডাউন অ্যারো
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF333E50))
+                                    .clickable {
+                                        showTelegramContextMenu = false
+                                        showFullTelegramGridDialog = true
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "More",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // স্পিচ বাবল টেইল (ছোট ত্রিভুজ পয়েন্টার)
+                    Canvas(
+                        modifier = Modifier
+                            .size(16.dp, 8.dp)
+                            .padding(end = 24.dp)
+                    ) {
+                        val path = Path().apply {
+                            moveTo(0f, 0f)
+                            lineTo(size.width, 0f)
+                            lineTo(size.width / 2f, size.height)
+                            close()
+                        }
+                        drawPath(path = path, color = TelegramDarkMenuBg)
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // ২. নিচের অপশন মেনু কার্ড
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = TelegramDarkMenuBg,
+                        border = BorderStroke(0.8.dp, TelegramMenuBorder),
+                        shadowElevation = 16.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        ) {
+                            // ১. Reply
+                            TelegramContextMenuItem(
+                                icon = Icons.AutoMirrored.Filled.Reply,
+                                label = "Reply",
+                                onClick = {
+                                    showTelegramContextMenu = false
+                                    onReplyClick()
+                                }
+                            )
+
+                            HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
+
+                            // ২. Copy Link
+                            TelegramContextMenuItem(
+                                icon = Icons.Default.Link,
+                                label = "Copy Link",
+                                onClick = {
+                                    showTelegramContextMenu = false
+                                    val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Drama Link", shareUrl))
+                                    Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+
+                            HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
+
+                            // ৩. Favorite
+                            TelegramContextMenuItem(
+                                icon = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                label = if (isInWatchlist) "Added to Favorite" else "Favorite",
+                                iconColor = if (isInWatchlist) Color(0xFFFFB300) else Color.White,
+                                onClick = {
+                                    showTelegramContextMenu = false
+                                    onWatchlistClick()
+                                    Toast.makeText(
+                                        context,
+                                        if (isInWatchlist) "Removed from favorites" else "Added to favorites! ⭐",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+
+                            HorizontalDivider(color = TelegramMenuBorder.copy(alpha = 0.5f), thickness = 0.6.dp)
+
+                            // ৪. Forward
+                            TelegramContextMenuItem(
+                                icon = Icons.AutoMirrored.Filled.Forward,
+                                label = "Forward",
+                                onClick = {
+                                    showTelegramContextMenu = false
+                                    onForwardClick()
+                                    try {
+                                        val shareUrl = "https://playdramaflix.com/watch/${content.slug}"
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "Watch ${content.displayName} on PlayDramaFlix: $shareUrl")
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Forward Drama"))
+                                    } catch (_: Exception) {}
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🧸 সম্পূর্ণ ৬৪টি ইমোজি গ্রিড ডায়ালগ
     // =========================================================================
     if (showFullTelegramGridDialog) {
         Dialog(onDismissRequest = { showFullTelegramGridDialog = false }) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF1E2536),
-                border = BorderStroke(1.dp, Color(0xFF2E384D)),
+                color = TelegramDarkMenuBg,
+                border = BorderStroke(1.dp, TelegramMenuBorder),
                 shadowElevation = 16.dp,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -564,9 +611,8 @@ fun PlayerHeaderSection(
                         )
                     }
 
-                    HorizontalDivider(color = Color(0xFF2B3548), thickness = 0.8.dp)
+                    HorizontalDivider(color = TelegramMenuBorder, thickness = 0.8.dp)
 
-                    // ৮-কলামের টেলিগ্রাম গ্রিড
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(8),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -593,6 +639,39 @@ fun PlayerHeaderSection(
                 }
             }
         }
+    }
+}
+
+// =============================================================================
+// 🔘 পপআপ মেনু রো কম্পোনেন্ট
+// =============================================================================
+@Composable
+private fun TelegramContextMenuItem(
+    icon: ImageVector,
+    label: String,
+    iconColor: Color = Color.White,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = iconColor,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = label,
+            color = TelegramMenuText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
