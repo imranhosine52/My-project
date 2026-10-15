@@ -178,6 +178,34 @@ fun PlayerScreen(
             (authState.userProfile?.plan?.lowercase() == "vip") ||
             (authState.userProfile?.plan?.lowercase() == "premium")
 
+    fun handleBackNavigation() {
+        if (dramaHistoryStack.isNotEmpty()) {
+            val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
+            currentActiveSlug = prevSlug
+            viewModel.loadDramaDetails(prevSlug, context)
+        } else {
+            onBackClick()
+        }
+    }
+
+    BackHandler { handleBackNavigation() }
+
+    // =========================================================================
+    // 🛑 ১. ৪MD / NOT FOUND চেকার (পোস্ট না থাকলে সরাসরি NotFoundScreen আসবে)
+    // =========================================================================
+    if (playerState.isNotFound) {
+        NotFoundScreen(
+            onNavigateHome = {
+                dramaHistoryStack.clear()
+                onBackClick()
+            },
+            onNavigateSearch = { onBackClick() },
+            onBackClick = { handleBackNavigation() },
+            customMessage = "আপনি যে ড্রামা বা ভিডিওটি দেখতে চেয়েছেন তা সার্ভারে পাওয়া যায়নি অথবা মুছে ফেলা হয়েছে।"
+        )
+        return
+    }
+
     val content = playerState.content
         ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
         ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
@@ -190,7 +218,6 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
-    // 🔄 পুল-টু-রিফ্রেশ স্টেট
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
@@ -370,37 +397,6 @@ fun PlayerScreen(
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    fun handleBackNavigation() {
-        if (activeCustomVideoAd != null) {
-            return
-        } else if (showCommentMediaPicker) {
-            showCommentMediaPicker = false
-        } else if (embedCustomView != null) {
-            embedCustomViewCallback?.onCustomViewHidden()
-            embedCustomView = null
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        } else if (showBatchDownloadDialog) {
-            showBatchDownloadDialog = false
-        } else if (showAllEpisodesSheet) {
-            showAllEpisodesSheet = false
-        } else if (isDeviceLandscape) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        } else if (selectedThreadParentComment != null) {
-            selectedThreadParentComment = null
-        } else if (dramaHistoryStack.isNotEmpty()) {
-            val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
-            currentActiveSlug = prevSlug
-            persistentDramaComments.clear()
-            selectedThreadParentComment = null
-            inlineCommentText = ""
-            viewModel.loadDramaDetails(prevSlug, context)
-        } else {
-            onBackClick()
-        }
-    }
-
-    BackHandler { handleBackNavigation() }
-
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -429,6 +425,14 @@ fun PlayerScreen(
                     true
                 )
             }
+    }
+
+    // 🛑 নট ফাউন্ড হলে সাথে সাথে প্লেয়ার বন্ধ
+    LaunchedEffect(playerState.isNotFound) {
+        if (playerState.isNotFound) {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+        }
     }
 
     var isWebLoading by remember { mutableStateOf(false) }
@@ -612,14 +616,14 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 একক অটো-রেজলভার (MP4, HLS/m3u8 বা Embed স্বয়ংক্রিয় প্লেব্যাক ইঞ্জিন)
+    // 🎯 একক অটো-রেজলভার
     // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
         currentActiveSlug
     ) {
-        if (currentEp != null) {
+        if (currentEp != null && !playerState.isNotFound) {
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
                 viewModel.showEpisodeUnlockModal(currentEp)
@@ -692,9 +696,7 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 রিকমেন্ডেশন পুল সম্প্রসারণ ও ঠিক ৩২টি কার্ড নির্বাচন
-    // =========================================================================
+    // 🎯 রিকমেন্ডেশন পুল
     LaunchedEffect(
         playerState.recommendations,
         homeState.popularDramas,
@@ -708,7 +710,6 @@ fun PlayerScreen(
         val currentCategories = content.categories.map { it.lowercase() }
         val currentDub = content.dubBadge.lowercase()
 
-        // সমস্ত ক্যাটাগরি থেকে বড় পুল তৈরি
         val allPool = (
             playerState.recommendations +
             homeState.popularDramas +
@@ -731,7 +732,6 @@ fun PlayerScreen(
             score
         }
 
-        // 🎯 নিশ্চিতভাবে ঠিক ৩২টি কার্ড নেওয়া হচ্ছে
         val targetCards = if (sortedSimilar.size >= 32) {
             sortedSimilar.take(32)
         } else {
@@ -912,9 +912,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // =============================================================
-                // 🔄 পোর্ট্রেট অংশ: পুল-টু-রিফ্রেশ কনটেইনার
-                // =============================================================
+                // পোর্ট্রেট অংশ
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -1050,9 +1048,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // =============================================================
-                                // 🌟 For you ট্যাব: ৩২টি কার্ড ($4 \times 8$ গ্রিড - কোনো ফাঁকা জায়গা থাকবে না)
-                                // =============================================================
+                                // For you ট্যাব
                                 if (selectedTabIndex == 0) {
                                     val dramaRows = shuffledRecommendations.chunked(4)
                                     items(dramaRows.size) { rowIndex ->
