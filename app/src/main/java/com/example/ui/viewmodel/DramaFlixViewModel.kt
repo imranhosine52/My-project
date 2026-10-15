@@ -60,7 +60,7 @@ data class HomeUiState(
 
 data class PlayerUiState(
     val isLoading: Boolean = false,
-    val isNotFound: Boolean = false, // 👈 404 নট-ফাউন্ড ট্র্যাকার
+    val isNotFound: Boolean = false,
     val errorMessage: String? = null,
     val content: ContentItemDto? = null,
     val episodes: List<EpisodeDto> = emptyList(),
@@ -71,6 +71,8 @@ data class PlayerUiState(
     val isLiked: Boolean = false,
     val likesCount: Int = 0,
     val viewsCount: Long = 0L,
+    val myReaction: String? = null, // 👈 ইউজারের বর্তমান রিঅ্যাক্ট (যেমন: "heart", "fire")
+    val reactions: Map<String, Int> = emptyMap(), // 👈 সমস্ত ইমোজির লাইভ কাউন্ট
     val comments: List<DramaApiComment> = emptyList(),
     val isCommentsLoading: Boolean = false,
     val isPostingComment: Boolean = false,
@@ -173,7 +175,6 @@ class DramaFlixViewModel(
     )
     val authUiState: StateFlow<AuthUiState> = _authUiState.asStateFlow()
 
-    // 🎯 ওয়াচলিস্ট ট্র্যাকিং জব
     private var watchlistObserverJob: Job? = null
 
     init {
@@ -675,22 +676,22 @@ class DramaFlixViewModel(
     }
 
     // =========================================================================
-    // 🎯 ড্রামা লোড (404 নট-ফাউন্ড হ্যান্ডলার সহ)
+    // 🎯 ড্রামা লোড (404 নট-ফাউন্ড ও লাইভ রিঅ্যাকশন লোডার সহ)
     // =========================================================================
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            // ১. পূর্বের পোস্টের স্টেট রিসেট (isNotFound = false)
             _playerUiState.update { 
                 it.copy(
                     isLoading = true, 
-                    isNotFound = false, // 👈 রিসেট
+                    isNotFound = false,
                     errorMessage = null, 
                     comments = emptyList(),
-                    isInWatchlist = false
+                    isInWatchlist = false,
+                    reactions = emptyMap(),
+                    myReaction = null
                 ) 
             }
 
-            // ২. এই ড্রামাটির আসল সেভ স্ট্যাটাস লাইভ রুম ডিবি থেকে নেওয়া
             watchlistObserverJob?.cancel()
             watchlistObserverJob = viewModelScope.launch {
                 repository.isItemInWatchlist(slug).collect { isSaved ->
@@ -709,12 +710,11 @@ class DramaFlixViewModel(
                 val detail = detailsResult.getOrNull()
                 val contentItem = detail?.content ?: fallbackContent
 
-                // 🛑 পোস্ট যদি সার্ভার বা ডাটাবেজে না থাকে (404 Not Found)
                 if (contentItem == null || (detail != null && !detail.success)) {
                     _playerUiState.update {
                         it.copy(
                             isLoading = false,
-                            isNotFound = true, // 👈 404 ট্রিগার
+                            isNotFound = true,
                             content = null,
                             episodes = emptyList(),
                             currentEpisode = null,
@@ -770,6 +770,7 @@ class DramaFlixViewModel(
                     )
                 }
 
+                // 🌟 লাইভ এনগেজমেন্ট স্ট্যাটাস ও রিঅ্যাকশন লোড
                 val statusResult = repository.fetchInteractionStatus(contentItem.id, null)
                 if (statusResult.isSuccess) {
                     val status = statusResult.getOrNull()
@@ -778,7 +779,9 @@ class DramaFlixViewModel(
                             current.copy(
                                 likesCount = status.effectiveLikes.toInt(),
                                 isLiked = status.effectiveIsLiked,
-                                viewsCount = status.effectiveViews
+                                viewsCount = status.effectiveViews,
+                                reactions = status.reactionsMap,
+                                myReaction = status.myReaction
                             )
                         }
                     }
@@ -787,16 +790,65 @@ class DramaFlixViewModel(
                 repository.recordVideoInteractionView(contentItem.id)
                 refreshComments()
             } else {
-                // 🛑 সার্ভার এরর বা পোস্ট না পেলে
                 _playerUiState.update {
                     it.copy(
                         isLoading = false,
-                        isNotFound = true, // 👈 404 ট্রিগার
+                        isNotFound = true,
                         content = null,
                         episodes = emptyList(),
                         currentEpisode = null,
                         errorMessage = "এই ড্রামা বা পোস্টটি খুঁজে পাওয়া যায়নি!"
                     )
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🌟 টেলিগ্রাম স্টাইল মাল্টি-ইমোজি রিঅ্যাকশন টগল ফাংশন
+    // =========================================================================
+    fun toggleReaction(reactionKey: String) {
+        val content = _playerUiState.value.content ?: return
+        val currentReactions = _playerUiState.value.reactions.toMutableMap()
+        val currentMyReaction = _playerUiState.value.myReaction
+
+        // ১. অপটিমিস্টিক UI আপডেট (ইনস্ট্যান্ট রেসপন্স)
+        val newMyReaction: String?
+        if (currentMyReaction == reactionKey) {
+            // আন-রিঅ্যাক্ট
+            newMyReaction = null
+            val cnt = currentReactions[reactionKey] ?: 0
+            if (cnt > 0) currentReactions[reactionKey] = cnt - 1
+        } else {
+            // যদি আগে অন্য কোনো রিঅ্যাকশন দেওয়া থাকে সেটি মাইনাস করা
+            if (currentMyReaction != null) {
+                val prevCnt = currentReactions[currentMyReaction] ?: 0
+                if (prevCnt > 0) currentReactions[currentMyReaction] = prevCnt - 1
+            }
+            // নতুনটি প্লাস করা
+            newMyReaction = reactionKey
+            currentReactions[reactionKey] = (currentReactions[reactionKey] ?: 0) + 1
+        }
+
+        _playerUiState.update {
+            it.copy(
+                myReaction = newMyReaction,
+                reactions = currentReactions
+            )
+        }
+
+        // ২. ব্যাকগ্রাউন্ডে সার্ভার সিঙ্ক
+        viewModelScope.launch {
+            val result = repository.toggleReaction(content.id, reactionKey)
+            if (result.isSuccess) {
+                val resp = result.getOrNull()
+                if (resp != null) {
+                    _playerUiState.update {
+                        it.copy(
+                            myReaction = resp.myReaction,
+                            reactions = resp.reactions
+                        )
+                    }
                 }
             }
         }
@@ -1280,7 +1332,14 @@ class DramaFlixViewModel(
             }
 
             _watchlistUiState.update { it.copy(savedDramas = emptyList()) }
-            _playerUiState.update { it.copy(isVip = false, isInWatchlist = false, isNotFound = false) }
+            _playerUiState.update { 
+                it.copy(
+                    isVip = false, 
+                    isInWatchlist = false, 
+                    isNotFound = false,
+                    myReaction = null
+                ) 
+            }
             _activityUiState.update { ActivityUiState() }
         }
     }
