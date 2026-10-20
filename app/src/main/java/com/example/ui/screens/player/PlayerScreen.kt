@@ -28,6 +28,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -204,7 +205,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ৪MD / NOT FOUND চেকার
+    // 404 / NOT FOUND চেকার
     if (playerState.isNotFound) {
         NotFoundScreen(
             onNavigateHome = {
@@ -249,7 +250,6 @@ fun PlayerScreen(
     // কাস্টম অ্যাড কনফিগারেশন
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
-    var lastMidrollTriggerSeconds by remember(currentActiveSlug) { mutableLongStateOf(0L) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -265,10 +265,6 @@ fun PlayerScreen(
                 }
             } catch (_: Exception) {}
         }
-    }
-
-    val customLongAds = remember(customAdsConfig) {
-        customAdsConfig?.ads?.filter { it.placement == "long_video" || it.placement == "all" } ?: emptyList()
     }
 
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
@@ -410,23 +406,37 @@ fun PlayerScreen(
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
+    // =========================================================================
+    // 🚀 ExoPlayer-এর ৩-মিনিটের হাই-স্পিড মেমোরি বাফার ইঞ্জিন (২ মিনিট সামনে, ১ মিনিট পেছনে)
+    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(15000)
-            .setUserAgent("PlayDramaFlix Native Player")
+            .setReadTimeoutMs(20000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android) PlayDramaFlix Native Player")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        val fastStartLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2000, 15000, 1000, 2000)
+        // 🎯 ২ মিনিট (১২০,০০০ মি.সে.) সিডিএন প্রি-ডাউনলোড ও ১ মিনিট (৬০,০০০ মি.সে.) ব্যাক-বাফার
+        val highSpeedLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 120_000,
+                /* maxBufferMs = */ 180_000,
+                /* bufferForPlaybackMs = */ 1500,
+                /* bufferForPlaybackAfterRebufferMs = */ 2500
+            )
+            .setBackBuffer(
+                /* backBufferDurationMs = */ 60_000,
+                /* retainBackBufferFromKeyframe = */ true
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(fastStartLoadControl)
+            .setLoadControl(highSpeedLoadControl)
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
@@ -588,34 +598,14 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // মিডরোল বিজ্ঞাপন চেক
-    LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
+    // টাইম ও ওয়াচ প্রগ্রেস আপডেট লুপ
+    LaunchedEffect(isPlaying, isUserVip) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
             if (totalDurationMs > 0) {
                 viewModel.updateWatchProgress(currentPositionMs, totalDurationMs)
             }
-
-            val currentSec = (currentPositionMs / 1000L).toInt()
-
-            if (!isUserVip && activeCustomVideoAd == null && customAdsConfig?.customAdsEnabled == true) {
-                val longRules = customAdsConfig?.longVideoRules
-                if (longRules?.enabled == true && customLongAds.isNotEmpty()) {
-                    val repeatIntervalSec = (longRules.repeatIntervalSeconds).coerceAtLeast(60)
-                    val firstAdDelaySec = (longRules.firstAdDelaySeconds).coerceAtLeast(0)
-
-                    val isFirstAdTime = lastMidrollTriggerSeconds == 0L && currentSec >= firstAdDelaySec
-                    val isRepeatAdTime = lastMidrollTriggerSeconds > 0L && (currentSec - lastMidrollTriggerSeconds) >= repeatIntervalSec
-
-                    if (isFirstAdTime || isRepeatAdTime) {
-                        lastMidrollTriggerSeconds = currentSec.toLong()
-                        exoPlayer.pause()
-                        activeCustomVideoAd = customLongAds.random()
-                    }
-                }
-            }
-
             delay(500L)
         }
     }
@@ -801,7 +791,7 @@ fun PlayerScreen(
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =============================================================
-                // 📺 ১. ভিডিও প্লেয়ার ফ্রেম (উপরে ফিক্সড থাকবে)
+                // 📺 ১. ভিডিও প্লেয়ার ফ্রেম
                 // =============================================================
                 Box(
                     modifier = if (isAnyFullscreen) {
@@ -927,9 +917,6 @@ fun PlayerScreen(
                             .fillMaxWidth()
                             .background(Color(0xFF0C0F15))
                     ) {
-                        // -------------------------------------------------------------
-                        // 🌟 ক) ডেডিকেটেড ফুল-স্ক্রিন কমেন্টস ভিউ (এপিসোডের ওপর পূর্ণ বিস্তার)
-                        // -------------------------------------------------------------
                         if (isDedicatedCommentsOpen) {
                             Column(
                                 modifier = Modifier
@@ -970,7 +957,6 @@ fun PlayerScreen(
                                         }
                                     )
                                 } else {
-                                    // কমেন্ট হেডার বার
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1017,7 +1003,6 @@ fun PlayerScreen(
 
                                     HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
 
-                                    // কমেন্টগুলোর লিস্ট
                                     if (persistentDramaComments.isEmpty()) {
                                         Box(
                                             modifier = Modifier
@@ -1081,7 +1066,6 @@ fun PlayerScreen(
                                         }
                                     }
 
-                                    // ইনলাইন কমেন্ট ইনপুট (কীবোর্ড প্যাডিংসহ)
                                     PlayerInlineCommentInput(
                                         userInitials = userInitials,
                                         currentUserAvatar = currentUserAvatar,
@@ -1113,9 +1097,6 @@ fun PlayerScreen(
                                 }
                             }
                         } else {
-                            // -------------------------------------------------------------
-                            // 🎬 খ) স্বাভাবিক ভিউ: হেডার, এপিসোড রো, ব্যানার, রিকমেন্ডেশন
-                            // -------------------------------------------------------------
                             PullToRefreshBox(
                                 isRefreshing = isRefreshing,
                                 onRefresh = {
@@ -1144,7 +1125,6 @@ fun PlayerScreen(
                                     modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
                                     contentPadding = PaddingValues(bottom = 80.dp)
                                 ) {
-                                    // 🎯 ১. পরিমার্জিত হেডার সেকশন
                                     item {
                                         PlayerHeaderSection(
                                             content = content,
@@ -1172,7 +1152,6 @@ fun PlayerScreen(
                                                 else viewModel.toggleReaction(reactionKey)
                                             },
                                             onReplyClick = {
-                                                // 🎯 Reply ট্যাপে ফুল-স্ক্রিন কমেন্ট ভিউ ওপেন হবে
                                                 isDedicatedCommentsOpen = true
                                             },
                                             onForwardClick = { shareCurrentDrama() },
@@ -1182,7 +1161,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // ২. এপিসোড তালিকা রো
                                     item {
                                         PlayerEpisodesRow(
                                             episodes = effectiveEpisodes,
@@ -1196,7 +1174,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // ৩. ব্যানার বিজ্ঞাপন
                                     item {
                                         StartAppBanner(
                                             isVip = isUserVip,
@@ -1204,7 +1181,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // ৪. ট্যাব হেডার (Comments ট্যাপেও ফুল কমেন্টস ভিউ আসবে)
                                     item {
                                         PlayerTabsHeader(
                                             selectedTabIndex = selectedTabIndex,
@@ -1222,7 +1198,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // ৫. For you ট্যাব: ৩২টি রিকমেন্ডেশন কার্ড
                                     val dramaRows = shuffledRecommendations.chunked(4)
                                     items(dramaRows.size) { rowIndex ->
                                         val rowDramas = dramaRows[rowIndex]
@@ -1256,7 +1231,6 @@ fun PlayerScreen(
                             }
                         }
 
-                        // সব পর্বের বটম শিট
                         if (showAllEpisodesSheet) {
                             PlayerAllEpisodesSheet(
                                 episodes = effectiveEpisodes,
@@ -1271,7 +1245,6 @@ fun PlayerScreen(
                             )
                         }
 
-                        // ব্যাচ ডাউনলোড শিট
                         if (showBatchDownloadDialog) {
                             PlayerBatchDownloadSheet(
                                 title = cleanShortTitle,
@@ -1304,7 +1277,6 @@ fun PlayerScreen(
             }
         }
 
-        // কাস্টম অ্যাড ডায়ালগ
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
             CustomVideoAdDialog(
@@ -1335,7 +1307,6 @@ fun PlayerScreen(
             )
         }
 
-        // স্টিকার ও GIF বটম শিট
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
@@ -1398,7 +1369,6 @@ fun PlayerScreen(
             }
         }
 
-        // ডাউনলোড রিসোর্স শিট
         if (showDownloadSheet) {
             DownloadResourceSheet(
                 title = cleanShortTitle,
@@ -1424,12 +1394,10 @@ fun PlayerScreen(
             )
         }
 
-        // অথেন্টিকেশন ডায়ালগ
         if (showAuthSheet) {
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
-        // রিওয়ার্ডেড আনলক ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
@@ -1450,7 +1418,6 @@ fun PlayerScreen(
             )
         }
 
-        // আতশবাজি সেলিব্রেশন অ্যানিমেশন
         if (showFireworksCelebration) {
             CelebrationFireworksOverlay(
                 onDismiss = { showFireworksCelebration = false },
