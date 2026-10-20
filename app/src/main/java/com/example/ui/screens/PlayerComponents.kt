@@ -92,11 +92,11 @@ fun SleekSkipIconOnline(
     color: Color = Color.White
 ) {
     Box(
-        modifier = modifier.size(42.dp),
+        modifier = modifier.size(38.dp),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(34.dp)) {
-            val strokeWidth = 1.6.dp.toPx()
+        Canvas(modifier = Modifier.size(30.dp)) {
+            val strokeWidth = 1.5.dp.toPx()
             val diameter = size.minDimension - strokeWidth
             val arcSize = Size(diameter, diameter)
             val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
@@ -126,36 +126,42 @@ fun SleekSkipIconOnline(
         Text(
             text = "10",
             color = color,
-            fontSize = 10.5.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Bold
         )
     }
 }
 
 // -------------------------------------------------------------
-// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার (৮ মিনিট পর পর ডট/মার্কার সহ)
+// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার (সিডিএন বাফার লাইন ও ৮ মিনিট অ্যাড ডট সহ)
 // -------------------------------------------------------------
 @Composable
 fun SleekOnlineTimeline(
     currentPositionMs: Long,
     totalDurationMs: Long,
+    bufferedPositionMs: Long = 0L,              // 👈 ২ মিনিট সামনে বাফার হওয়া সিডিএন প্রোগ্রেস
     onSeekStarted: () -> Unit,
     onSeeking: (Long) -> Unit,
     onSeekFinished: (Long) -> Unit,
     modifier: Modifier = Modifier,
     activeColor: Color = Color(0xFF00E5FF),
-    inactiveColor: Color = Color.White.copy(alpha = 0.28f),
-    adCueFractions: List<Float> = emptyList(), // 👈 ৮ মিনিট পর পর কিউ-পয়েন্ট ফ্র্যাকশনস (০.০ থেকে ১.০)
-    adDotColor: Color = Color(0xFFFFCC00)       // 👈 স্পনসর মার্কার কালার (গোল্ডেন/ইয়েলো)
+    bufferedColor: Color = Color.White.copy(alpha = 0.40f), // 👈 বাফার ট্র্যাক লাইন কালার
+    inactiveColor: Color = Color.White.copy(alpha = 0.16f),
+    adCueFractions: List<Float> = emptyList(),  // 👈 ৮ মিনিট পর পর ডট বা মার্কারের ভগ্নাংশ
+    adDotColor: Color = Color(0xFFFFCC00)        // 👈 স্পনসর মার্কার কালার
 ) {
     val progress = if (totalDurationMs > 0) {
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
+    val bufferedProgress = if (totalDurationMs > 0) {
+        (bufferedPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(20.dp) // 👈 কমপ্যাক্ট উচ্চতা
             .pointerInput(totalDurationMs) {
                 detectTapGestures { offset ->
                     val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -183,14 +189,14 @@ fun SleekOnlineTimeline(
             },
         contentAlignment = Alignment.CenterStart
     ) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(10.dp)) {
             val centerY = size.height / 2f
-            val trackHeight = 2.8.dp.toPx()
-            val thumbRadius = 5.2.dp.toPx()
-            val adDotRadius = 2.4.dp.toPx()
+            val trackHeight = 1.6.dp.toPx() // 👈 অনেক চিকন আল্ট্রা-স্লিম দাগ (Ultra-thin)
+            val thumbRadius = 3.6.dp.toPx() // 👈 ছোট ও স্লিম থাম্ব
+            val adDotRadius = 2.0.dp.toPx() // 👈 ছোট কিউ-মার্কার ডট
             val trackWidth = size.width
 
-            // ১. ব্যাকগ্রাউন্ড ট্র্যাক
+            // ১. ব্যাকগ্রাউন্ড ইনঅ্যাক্টিভ ট্র্যাক
             drawLine(
                 color = inactiveColor,
                 start = Offset(0f, centerY),
@@ -199,26 +205,38 @@ fun SleekOnlineTimeline(
                 cap = StrokeCap.Round
             )
 
-            // ২. প্লেড অংশ (সায়ান লাইন)
-            val activeEnd = trackWidth * progress
-            if (activeEnd > 0) {
+            // ২. সিডিএন প্রি-ডাউনলোড বাফার ট্র্যাক (প্লেহেডের সামনে ২ মিনিট পর্যন্ত যা ডাউনলোড হয়েছে)
+            val bufferedEnd = trackWidth * bufferedProgress
+            if (bufferedEnd > 0) {
                 drawLine(
-                    color = activeColor,
+                    color = bufferedColor,
                     start = Offset(0f, centerY),
-                    end = Offset(activeEnd, centerY),
+                    end = Offset(bufferedEnd.coerceIn(0f, trackWidth), centerY),
                     strokeWidth = trackHeight,
                     cap = StrokeCap.Round
                 )
             }
 
-            // 🎯 ৩. ৮ মিনিট পর পর স্পনসর অ্যাড কিউ ডট/মার্কার (স্ক্রিনশটের মতো ডট আঁকা)
+            // ৩. কারেন্ট প্লেড অংশ (সায়ান লাইন)
+            val activeEnd = trackWidth * progress
+            if (activeEnd > 0) {
+                drawLine(
+                    color = activeColor,
+                    start = Offset(0f, centerY),
+                    end = Offset(activeEnd.coerceIn(0f, trackWidth), centerY),
+                    strokeWidth = trackHeight,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // ৪. ৮ মিনিট পর পর স্পনসর অ্যাড মার্কার ডট (স্ক্রিনশটের মতো ডট আঁকা)
             for (fraction in adCueFractions) {
                 if (fraction in 0.01f..0.99f) {
                     val dotCenterX = trackWidth * fraction
-                    // ডটের বর্ডার ও সেন্ট্রাল ডট
+                    // ডটের পেছনের কালো রিং যাতে লাইনের ওপর স্পষ্টভাবে ফুটে ওঠে
                     drawCircle(
-                        color = Color.Black.copy(alpha = 0.5f),
-                        radius = adDotRadius + 1.2.dp.toPx(),
+                        color = Color.Black.copy(alpha = 0.7f),
+                        radius = adDotRadius + 0.8.dp.toPx(),
                         center = Offset(dotCenterX, centerY)
                     )
                     drawCircle(
@@ -229,7 +247,7 @@ fun SleekOnlineTimeline(
                 }
             }
 
-            // ৪. বর্তমান পজিশনের থাম্ব (Seek Thumb)
+            // ৫. প্লেহেড থাম্ব
             drawCircle(
                 color = activeColor,
                 radius = thumbRadius,
@@ -250,29 +268,29 @@ fun EqualizerBarsIcon(
     val infiniteTransition = rememberInfiniteTransition(label = "equalizer_bars")
 
     val h1 by infiniteTransition.animateFloat(
-        initialValue = 3f, targetValue = 13f,
+        initialValue = 3f, targetValue = 11f,
         animationSpec = infiniteRepeatable(tween(420, easing = LinearEasing), RepeatMode.Reverse),
         label = "bar1"
     )
     val h2 by infiniteTransition.animateFloat(
-        initialValue = 13f, targetValue = 4f,
+        initialValue = 11f, targetValue = 3f,
         animationSpec = infiniteRepeatable(tween(520, easing = LinearEasing), RepeatMode.Reverse),
         label = "bar2"
     )
     val h3 by infiniteTransition.animateFloat(
-        initialValue = 5f, targetValue = 14f,
+        initialValue = 4f, targetValue = 12f,
         animationSpec = infiniteRepeatable(tween(380, easing = LinearEasing), RepeatMode.Reverse),
         label = "bar3"
     )
 
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.2.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        Box(modifier = Modifier.width(2.2.dp).height(h1.dp).background(tint, RoundedCornerShape(1.dp)))
-        Box(modifier = Modifier.width(2.2.dp).height(h2.dp).background(tint, RoundedCornerShape(1.dp)))
-        Box(modifier = Modifier.width(2.2.dp).height(h3.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(1.8.dp).height(h1.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(1.8.dp).height(h2.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(1.8.dp).height(h3.dp).background(tint, RoundedCornerShape(1.dp)))
     }
 }
 
@@ -533,12 +551,12 @@ fun CelebrationFireworksOverlay(
 ) {
     val particles = remember {
         val colors = listOf(
-            Color(0xFFFFD700),
-            Color(0xFF00E5FF),
-            Color(0xFF00E676),
-            Color(0xFFFF2A55),
-            Color(0xFFA855F7),
-            Color(0xFFFF9100)
+            Color(0xFFFFD700), // Gold
+            Color(0xFF00E5FF), // Cyan
+            Color(0xFF00E676), // Green
+            Color(0xFFFF2A55), // Red / Pink
+            Color(0xFFA855F7), // Purple
+            Color(0xFFFF9100)  // Orange
         )
         List(75) {
             val angle = Random.nextDouble(0.0, Math.PI * 2)
