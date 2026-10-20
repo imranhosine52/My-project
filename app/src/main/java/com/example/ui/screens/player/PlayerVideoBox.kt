@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/player/PlayerVideoBox.kt ---
+
 @file:OptIn(
     ExperimentalMaterial3Api::class,
     ExperimentalLayoutApi::class,
@@ -44,12 +46,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -62,8 +61,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -77,10 +74,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -115,20 +110,12 @@ import java.net.URL
 import java.util.Locale
 import kotlin.math.abs
 
-private data class LiveDanmakuItem(
-    val id: Long,
-    val text: String,
-    val lineIndex: Int,
-    val startDelayMs: Long
-)
-
 private data class SideDrawerQualityItem(
     val key: String,
     val label: String,
     val isVipOnly: Boolean
 )
 
-// 🎧 রিয়েল অডিও ট্র্যাক মডেল
 data class RealAudioTrack(
     val id: String,
     val language: String,
@@ -157,59 +144,86 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// 🎯 ৩ নম্বর ছবির হুবহু স্কিপ ইন্ডিকেটর: "+10 ▶" অথবা "◀ -10"
+// =========================================================================
+// 🎯 ৩ নম্বর ছবির হুবহু ডায়াগনাল ফুলস্ক্রিন এক্সপ্যান্ড অ্যারো আইকন
+// =========================================================================
+@Composable
+fun DiagonalFullscreenIcon(
+    modifier: Modifier = Modifier,
+    color: Color = Color.White
+) {
+    Canvas(modifier = modifier.size(17.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = 1.7.dp.toPx()
+
+        // ↖ Top-Left Arrow
+        drawLine(color, Offset(w * 0.12f, h * 0.46f), Offset(w * 0.12f, h * 0.12f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.12f, h * 0.12f), Offset(w * 0.46f, h * 0.12f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.12f, h * 0.12f), Offset(w * 0.40f, h * 0.40f), stroke, StrokeCap.Round)
+
+        // ↘ Bottom-Right Arrow
+        drawLine(color, Offset(w * 0.88f, h * 0.54f), Offset(w * 0.88f, h * 0.88f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.88f, h * 0.88f), Offset(w * 0.54f, h * 0.88f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.88f, h * 0.88f), Offset(w * 0.60f, h * 0.60f), stroke, StrokeCap.Round)
+    }
+}
+
+// =========================================================================
+// 🎯 ২ নম্বর ছবির হুবহু ডাবল ট্যাপ স্কিপ টেক্সট ও শেভরন (+10 > / < -10)
+// =========================================================================
 @Composable
 fun OttDoubleTapSkipBadge(
     isForward: Boolean,
     skipSeconds: Int = 10,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.68f),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.25f)),
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         modifier = modifier
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-        ) {
-            if (!isForward) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp).rotate(180f)
-                )
-            }
+        if (!isForward) {
             Text(
-                text = if (isForward) "+$skipSeconds" else "-$skipSeconds",
+                text = "<",
                 color = Color.White,
-                fontSize = 14.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-            )
-            if (isForward) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
+                style = TextStyle(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.Black.copy(alpha = 0.9f),
+                        blurRadius = 8f
+                    )
                 )
-            }
+            )
+        }
+        Text(
+            text = if (isForward) "+$skipSeconds" else "-$skipSeconds",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            style = TextStyle(
+                shadow = androidx.compose.ui.graphics.Shadow(
+                    color = Color.Black.copy(alpha = 0.9f),
+                    blurRadius = 8f
+                )
+            )
+        )
+        if (isForward) {
+            Text(
+                text = ">",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                style = TextStyle(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.Black.copy(alpha = 0.9f),
+                        blurRadius = 8f
+                    )
+                )
+            )
         }
     }
-}
-
-private fun isValidDanmakuText(text: String): Boolean {
-    val clean = text.trim().lowercase()
-    if (clean.isBlank()) return false
-    if (clean.startsWith("http://") || clean.startsWith("https://")) return false
-    if (clean.endsWith(".m4a") || clean.endsWith(".mp3") || clean.contains("chat_audio") || clean.contains("/audio/")) return false
-    if (clean.endsWith(".webp") || clean.endsWith(".gif") || clean.endsWith(".png") || clean.endsWith(".jpg") || clean.contains("/stickers/")) return false
-    if (clean.contains("tenor.com") || clean.contains("giphy.com") || clean.contains("cdn.playdramaflix.com") || clean.contains("workers.dev")) return false
-    return true
 }
 
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
@@ -256,37 +270,6 @@ private fun formatSize(bytes: Long, isCalculating: Boolean): String {
     } else {
         String.format(Locale.US, "%.1f MB", mb)
     }
-}
-
-private fun extractDanmakuText(comment: Any): String {
-    if (comment is String) return comment
-    val clazz = comment.javaClass
-    val candidateNames = listOf("commentText", "text", "comment", "content", "message", "body")
-    for (name in candidateNames) {
-        try {
-            val getterName = "get" + name.replaceFirstChar { it.uppercase() }
-            val method = clazz.methods.find { it.name.equals(getterName, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
-            if (method != null && method.parameterCount == 0) {
-                val res = method.invoke(comment)
-                if (res != null && res.toString().isNotBlank() && !res.toString().startsWith("DramaApiComment(")) {
-                    return res.toString()
-                }
-            }
-        } catch (_: Exception) {}
-        try {
-            val field = clazz.declaredFields.find { it.name.equals(name, ignoreCase = true) }
-            if (field != null) {
-                field.isAccessible = true
-                val res = field.get(comment)
-                if (res != null && res.toString().isNotBlank() && !res.toString().startsWith("DramaApiComment(")) {
-                    return res.toString()
-                }
-            }
-        } catch (_: Exception) {}
-    }
-    val str = comment.toString()
-    val regex = Regex("""commentText=([^,\)]+)""")
-    return regex.find(str)?.groupValues?.get(1) ?: str.take(40)
 }
 
 private fun formatTimeDisplay(millis: Long): String {
@@ -344,25 +327,10 @@ fun PlayerVideoBox(
     val context = LocalContext.current
     val activity = remember(context) { findActivity(context) }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-    val isKeyboardOpen = imeBottomPadding > 0.dp
-
-    DisposableEffect(Unit) {
-        activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        onDispose {
-            activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
-        }
-    }
 
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
-
-    var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
-    var showEmojiPicker by remember { mutableStateOf(false) }
 
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
@@ -377,11 +345,14 @@ fun PlayerVideoBox(
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
     var currentAudioLabel by rememberSaveable { mutableStateOf("Audio") }
 
+    // 🔊 সাউন্ড স্টেট
+    var isMuted by remember { mutableStateOf(false) }
+
     // 🎯 সিডিএন বাফার প্রগ্রেস
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ৮ মিনিট পর পর ডট/মার্কার ফ্র্যাকশনস
-    val eightMinutesMs = 8 * 60 * 1000L // 480,000 ms
+    // 🎯 ৮ মিনিট পর পর ডট ফ্র্যাকশনস
+    val eightMinutesMs = 8 * 60 * 1000L
     val adCueFractions = remember(totalDurationMs, isVip) {
         if (isVip || totalDurationMs <= eightMinutesMs) {
             emptyList()
@@ -391,30 +362,18 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🎯 ঐচ্ছিক ডাইরেক্ট ক্লিক স্পনসর ট্রিগার (৮ মিনিটে পৌঁছালে স্ক্রিনে হালকা স্পনসর বাবল আসবে, ভিডিও থামবে না)
+    // 🎯 ৮ মিনিটের স্পনসর ডাইরেক্ট ক্লিক ট্রিগার
     val isNearAdCuePoint = remember(currentPositionMs, totalDurationMs, isVip) {
         if (isVip || totalDurationMs <= eightMinutesMs) false
         else {
-            val windowMs = 6000L // মার্কারের আগে-পরে ৬ সেকেন্ড
+            val windowMs = 6000L
             val rem = currentPositionMs % eightMinutesMs
             currentPositionMs >= (eightMinutesMs - windowMs) && (rem <= windowMs || rem >= (eightMinutesMs - windowMs))
         }
     }
 
-    val popularEmojis = remember {
-        listOf(
-            "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "🥲", "🥹", "😊", "😇", "🙂", "🙃", "😉",
-            "😍", "🥰", "😘", "😗", "😚", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔",
-            "🤐", "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "😮‍💨", "🤥", "😌", "😔", "😪", "🤤",
-            "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "🤯", "🤠", "🥳", "🥸",
-            "😎", "🤓", "🧐", "😕", "😟", "🙁", "😮", "😯", "😲", "😳", "🥺", "😦", "😧", "😨", "😰",
-            "😥", "😢", "😭", "😱", "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠", "🤬",
-            "❤️", "💔", "💖", "🔥", "👍", "👎", "👏", "🙌", "🫶", "🤝", "🙏", "🎉", "✨", "☕", "🎂"
-        )
-    }
-
     var showSideDrawer by remember { mutableStateOf(false) }
-    var sideDrawerType by remember { mutableStateOf("playlist") } // "playlist", "download", "speed", "quality", "audio", "for_you"
+    var sideDrawerType by remember { mutableStateOf("playlist") }
 
     val downloadQualityOptions = remember(episodes) {
         val detected = mutableListOf<SideDrawerQualityItem>()
@@ -453,32 +412,10 @@ fun PlayerVideoBox(
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
-
     var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
-    var commentInputText by remember { mutableStateOf("") }
 
     val speedOptions = remember { listOf(4.0f, 3.0f, 2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
     var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
-
-    val danmakuList = remember { mutableStateListOf<LiveDanmakuItem>() }
-
-    LaunchedEffect(comments) {
-        if (comments.isNotEmpty() && danmakuList.isEmpty()) {
-            comments.take(20).forEachIndexed { index, c ->
-                val text = extractDanmakuText(c)
-                if (isValidDanmakuText(text)) {
-                    danmakuList.add(
-                        LiveDanmakuItem(
-                            id = System.currentTimeMillis() + index,
-                            text = text,
-                            lineIndex = danmakuList.size % 3,
-                            startDelayMs = (danmakuList.size * 2200L)
-                        )
-                    )
-                }
-            }
-        }
-    }
 
     LaunchedEffect(selectedDownloadEpisodes.toList(), selectedDownloadQualityKey) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
@@ -528,20 +465,18 @@ fun PlayerVideoBox(
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
-    // 🎯 ওটিটি স্ক্রিন হরাইজন্টাল ড্র্যাগ স্ক্রাব স্টেট
+    // 🎯 ওটিটি ড্র্যাগ স্ক্রাব স্টেট
     var isHorizontalScrubbing by remember { mutableStateOf(false) }
     var scrubTargetPositionMs by remember { mutableLongStateOf(0L) }
-    var scrubDeltaSeconds by remember { mutableIntStateOf(0) }
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // 🎯 ডাবল-ট্যাপ স্কিপ অ্যানিমেশন ট্র্যাকার (ছবি ৩)
+    // 🎯 ডাবল-ট্যাপ অ্যানিমেশন ট্র্যাকার (ছবি ২)
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
-    // 🎧 অডিও ও ভিডিও ট্র্যাক এক্সট্র্যাকশন
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -583,8 +518,8 @@ fun PlayerVideoBox(
                             lang.contains("bn") || lang.contains("ben") || format.label?.contains("bangla", true) == true -> "Bangla (বাংলা)"
                             lang.contains("hi") || lang.contains("hin") || format.label?.contains("hindi", true) == true -> "Hindi (हिन्दी)"
                             lang.contains("en") || lang.contains("eng") || format.label?.contains("english", true) == true -> "English"
-                            lang.contains("ko") || lang.contains("kor") || format.label?.contains("korean", true) == true -> "Korean (한국어)"
-                            lang.contains("zh") || lang.contains("chi") || format.label?.contains("chinese", true) == true -> "Chinese (中文)"
+                            lang.contains("ko") || lang.contains("kor") || format.label?.contains("korean", true) == true -> "Korean"
+                            lang.contains("zh") || lang.contains("chi") || format.label?.contains("chinese", true) == true -> "Chinese"
                             lang.contains("ja") || lang.contains("jpn") || format.label?.contains("japanese", true) == true -> "Japanese"
                             else -> format.label?.takeIf { it.isNotBlank() } ?: "Audio Track ${foundAudioTracks.size + 1}"
                         }
@@ -711,7 +646,6 @@ fun PlayerVideoBox(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // 🎯 বাফার পজিশন লাইভ ট্র্যাকিং লুপ
     LaunchedEffect(isPlaying, isUserSeeking) {
         while (isPlaying) {
             bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
@@ -734,8 +668,8 @@ fun PlayerVideoBox(
         }
     }
 
-    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker, isKeyboardOpen) {
-        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker && !isKeyboardOpen) {
+    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer) {
+        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer) {
             delay(5000L)
             isControlsVisible = false
         }
@@ -749,7 +683,6 @@ fun PlayerVideoBox(
                     .build()
                 isControlsVisible = false
                 showSideDrawer = false
-                showEmojiPicker = false
                 activity?.enterPictureInPictureMode(params)
             } catch (_: Exception) {
                 activity?.enterPictureInPictureMode()
@@ -779,11 +712,8 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                // =============================================================
-                // 🖐️ মাল্টি-জেসচার ডিটেক্টর (OTT Horizontal Drag, Volume, Brightness & Zoom)
-                // =============================================================
-                .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer, showEmojiPicker) {
-                    if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
+                .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer) {
+                    if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
 
                     awaitEachGesture {
                         val firstDown = awaitFirstDown(requireUnconsumed = false)
@@ -832,13 +762,11 @@ fun PlayerVideoBox(
                                 totalDragY += dragY
                                 totalDragX += dragX
 
-                                // ১. ভার্টিক্যাল ড্র্যাগ (ভলিউম ও ব্রাইটনেস)
                                 if (!isVerticalDragging && !isHorizontalDragging && abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
                                     isVerticalDragging = true
                                     if (isLeft) showBrightnessOverlay = true else showVolumeOverlay = true
                                 }
 
-                                // 🎯 ২. ওটিটি হরাইজন্টাল ড্র্যাগ (আঙুল দিয়ে টেনে টাইমলাইন স্ক্রাবিং)
                                 if (!isVerticalDragging && !isHorizontalDragging && abs(totalDragX) > touchSlop && abs(totalDragX) > abs(totalDragY)) {
                                     if (!(isDeviceLandscape && isRightEdge && totalDragX < 0)) {
                                         isHorizontalDragging = true
@@ -864,7 +792,6 @@ fun PlayerVideoBox(
                                     change.consume()
                                 } else if (isHorizontalDragging) {
                                     val deltaSec = (totalDragX / 5.5f).toInt()
-                                    scrubDeltaSeconds = deltaSec
                                     val targetPos = (startScrubPos + (deltaSec * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
                                     scrubTargetPositionMs = targetPos
                                     change.consume()
@@ -876,7 +803,6 @@ fun PlayerVideoBox(
                             }
                         } while (event.changes.any { it.pressed })
 
-                        // ড্র্যাগ শেষ হলে এক্সিকিউট করা
                         if (isHorizontalDragging) {
                             onSeekFinished(scrubTargetPositionMs)
                             exoPlayer.seekTo(scrubTargetPositionMs)
@@ -887,11 +813,8 @@ fun PlayerVideoBox(
                         isHorizontalScrubbing = false
                     }
                 }
-                // =============================================================
-                // 🎯 ডাবল-ট্যাপ স্কিপ ও সিঙ্গেল-ট্যাপ হ্যান্ডলার
-                // =============================================================
-                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, showEmojiPicker, isUserSeeking) {
-                    if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
+                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking) {
+                    if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
 
                     detectTapGestures(
                         onPress = {
@@ -917,12 +840,11 @@ fun PlayerVideoBox(
                         onTap = {
                             if (!isPiPActive) {
                                 if (showSideDrawer) showSideDrawer = false
-                                else if (showEmojiPicker) showEmojiPicker = false
                                 else isControlsVisible = !isControlsVisible
                             }
                         },
                         onDoubleTap = { offset ->
-                            if (!isScreenLocked && !showSideDrawer && !isPiPActive && !showEmojiPicker) {
+                            if (!isScreenLocked && !showSideDrawer && !isPiPActive) {
                                 if (zoomScale > 1.05f) {
                                     zoomScale = 1.0f
                                     zoomOffset = Offset.Zero
@@ -999,38 +921,78 @@ fun PlayerVideoBox(
             }
 
             // =============================================================
-            // 🎯 ওটিটি স্ক্রিন হরাইজন্টাল ড্র্যাগ স্ক্রাব ইন্ডিকেটর
+            // 🎯 ১ নম্বর ছবির হুবহু স্ক্রিন টেনে স্কিপ করার ডিজাইন (কোনো ব্যাকগ্রাউন্ড ছাড়া)
             // =============================================================
             if (isHorizontalScrubbing) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.75f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.align(Alignment.Center)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    // Time: 5:15 / 48:39 (Current Time in Cyan/Green, Total in White)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Text(
-                            text = "${formatTimeDisplay(scrubTargetPositionMs)} / ${formatTimeDisplay(totalDurationMs)}",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = if (scrubDeltaSeconds >= 0) "[+${scrubDeltaSeconds}s]" else "[-${abs(scrubDeltaSeconds)}s]",
+                            text = formatTimeDisplay(scrubTargetPositionMs),
                             color = Color(0xFF00E5FF),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            style = TextStyle(
+                                shadow = androidx.compose.ui.graphics.Shadow(
+                                    color = Color.Black,
+                                    blurRadius = 8f
+                                )
+                            )
+                        )
+                        Text(
+                            text = "/",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Normal,
+                            style = TextStyle(
+                                shadow = androidx.compose.ui.graphics.Shadow(
+                                    color = Color.Black,
+                                    blurRadius = 8f
+                                )
+                            )
+                        )
+                        Text(
+                            text = formatTimeDisplay(totalDurationMs),
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            style = TextStyle(
+                                shadow = androidx.compose.ui.graphics.Shadow(
+                                    color = Color.Black,
+                                    blurRadius = 8f
+                                )
+                            )
+                        )
+                    }
+
+                    // ছবি ১ অনুযায়ী নিচে ছোট ও স্লিম প্রগ্রেস লাইন
+                    val scrubFraction = if (totalDurationMs > 0) (scrubTargetPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f) else 0f
+                    Box(
+                        modifier = Modifier
+                            .width(135.dp)
+                            .height(2.8.dp)
+                            .clip(RoundedCornerShape(1.4.dp))
+                            .background(Color.White.copy(alpha = 0.35f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(scrubFraction)
+                                .background(Color(0xFF00E5FF))
                         )
                     }
                 }
             }
 
             // =============================================================
-            // 🎯 ডাবল-ট্যাপ অ্যানিমেশন ওভারলে (ছবি ৩ এর মতো +10 ▶ / ◀ -10)
+            // 🎯 ২ নম্বর ছবির হুবহু ডাবল-ট্যাপ অ্যানিমেশন (+10 > / < -10)
             // =============================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showLeftDoubleTapAnim,
@@ -1038,7 +1000,7 @@ fun PlayerVideoBox(
                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.8f),
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 38.dp)
+                    .padding(start = 44.dp)
             ) {
                 OttDoubleTapSkipBadge(isForward = false, skipSeconds = 10)
             }
@@ -1049,12 +1011,12 @@ fun PlayerVideoBox(
                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.8f),
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 38.dp)
+                    .padding(end = 44.dp)
             ) {
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // 🎯 ৮ মিনিট পর পর ঐচ্ছিক স্পনসর ডাইরেক্ট ক্লিক ট্রিগার (ভিডিও থামবে না)
+            // ৮ মিনিটের স্পনসর ডাইরেক্ট ক্লিক ট্রিগার
             if (isNearAdCuePoint && !isVip) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -1084,25 +1046,6 @@ fun PlayerVideoBox(
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
                         )
-                    }
-                }
-            }
-
-            if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(130.dp)
-                        .align(Alignment.TopStart)
-                        .padding(top = 18.dp)
-                ) {
-                    danmakuList.forEach { item ->
-                        key(item.id) {
-                            FloatingDanmakuRow(
-                                item = item,
-                                screenWidthPx = configuration.screenWidthDp * 3f
-                            )
-                        }
                     }
                 }
             }
@@ -1201,8 +1144,11 @@ fun PlayerVideoBox(
                     }
                 }
             } else {
+                // =============================================================
+                // 🔝 ওপরের বার: মাঝখানের দাগ ছাড়া শেভরন '<' ব্যাক বাটন
+                // =============================================================
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isKeyboardOpen,
+                    visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(240)) + fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -1212,12 +1158,18 @@ fun PlayerVideoBox(
                             .fillMaxWidth()
                             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
                             .then(if (isDeviceLandscape) Modifier.statusBarsPadding() else Modifier)
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        // 🎯 মাঝখানের দাগ ছাড়া পিওর শেভরন '<'
                         IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
                         }
 
                         if (isDeviceLandscape) {
@@ -1237,11 +1189,9 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // =============================================================
-                // 🎯 সেন্ট্রাল কন্ট্রোল (ছবি ২ অনুযায়ী ১০ সেকেন্ড বাটন বাতিল, শুধু প্লে/পজ)
-                // =============================================================
+                // সেন্ট্রাল প্লে/পজ বাটন
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isKeyboardOpen,
+                    visible = isControlsVisible && !isScreenLocked,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
                     modifier = Modifier.align(Alignment.Center)
@@ -1262,7 +1212,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                if (isDeviceLandscape && !isKeyboardOpen) {
+                if (isDeviceLandscape) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
                         enter = fadeIn(),
@@ -1286,15 +1236,13 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (আল্ট্রা-স্লিম টাইমলাইন ও ছোট কমপ্যাক্ট আইকন)
+                // 🔝 ৫ নম্বর ছবির হুবহু বটম কন্ট্রোল বার (কমেন্ট বক্স রিমুভড, [▶] [🔊] 00:07 / 40:13)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = (isControlsVisible || isKeyboardOpen) && !isScreenLocked && !showEmojiPicker,
+                    visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .then(if (isDeviceLandscape && isKeyboardOpen) Modifier.imePadding() else Modifier)
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
                     Column(
                         modifier = Modifier
@@ -1312,39 +1260,77 @@ fun PlayerVideoBox(
                             .padding(horizontal = 6.dp, vertical = 0.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        // =============================================================
-                        // 📱 পোর্ট্রেট মোড (আল্ট্রা-স্লিম টাইমলাইন + ছোট বাটনসমূহ)
-                        // =============================================================
-                        if (!isDeviceLandscape) {
-                            // ১. ১ম লাইন: আল্ট্রা-স্লিম টাইমলাইন (বাফার ট্র্যাক ও ৮-মিনিট ডট সহ)
-                            SleekOnlineTimeline(
-                                currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
-                                totalDurationMs = totalDurationMs,
-                                bufferedPositionMs = bufferedPositionMs, // 👈 সিডিএন বাফার লাইন
-                                adCueFractions = adCueFractions,         // 👈 ৮ মিনিট পর পর ডট
-                                onSeekStarted = { isUserSeeking = true },
-                                onSeeking = { scrubPosition = it },
-                                onSeekFinished = { targetPos ->
-                                    onSeekFinished(targetPos)
-                                    isUserSeeking = false
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(10.dp)
-                            )
+                        // ১. আল্ট্রা-স্লিম টাইমলাইন (সিডিএন বাফার লাইন ও ৮-মিনিট ডট সহ)
+                        SleekOnlineTimeline(
+                            currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
+                            totalDurationMs = totalDurationMs,
+                            bufferedPositionMs = bufferedPositionMs,
+                            adCueFractions = adCueFractions,
+                            onSeekStarted = { isUserSeeking = true },
+                            onSeeking = { scrubPosition = it },
+                            onSeekFinished = { targetPos ->
+                                onSeekFinished(targetPos)
+                                isUserSeeking = false
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(10.dp)
+                        )
 
-                            // ২. ২য় লাইন: বামে সময় (`00:07 / 40:13`) এবং ডানে ছোট কন্ট্রোল আইকন
+                        // ২. ৫ নম্বর ছবির হুবহু বটম বার:
+                        // বামে: [▶ / ⏸] [🔊 / 🔇] 00:07 / 40:13
+                        // ডানে: [Speed] [HD] [Audio] [Download] [Diagonal Fullscreen (ছবি ৩)]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 1.dp, bottom = 3.dp, start = 4.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // 👈 ৫ নম্বর ছবির বামপাশের গ্রুপ
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 0.dp, bottom = 2.dp, start = 4.dp, end = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // বাঁয়ে: 00:07 / 40:13
+                                // ছোট প্লে/পজ বাটন (▶ / ⏸)
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .clickable { onPlayPauseClick() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play/Pause",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+
+                                // সাউন্ড অন/অফ বাটন (🔊 / 🔇)
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            isMuted = !isMuted
+                                            exoPlayer.volume = if (isMuted) 0f else 1f
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = "Mute/Unmute",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+
+                                // টাইম কাউন্টার (00:07 / 40:13)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
                                 ) {
                                     Text(
                                         text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
@@ -1354,451 +1340,97 @@ fun PlayerVideoBox(
                                     )
                                     Text(
                                         text = "/",
-                                        color = Color.White.copy(alpha = 0.45f),
+                                        color = Color.White.copy(alpha = 0.50f),
                                         fontSize = 10.5.sp
                                     )
                                     Text(
                                         text = formatTimeDisplay(totalDurationMs),
-                                        color = Color.White.copy(alpha = 0.65f),
+                                        color = Color.White.copy(alpha = 0.70f),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Normal
                                     )
                                 }
-
-                                // ডানে: ছোট স্পিড, কোয়ালিটি, অডিও ট্র্যাক, ডাউনলোড ও ফুলস্ক্রিন
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // ⏱️ স্পিড বাটন (ছোট)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .clickable {
-                                                sideDrawerType = "speed"
-                                                showSideDrawer = true
-                                            }
-                                            .padding(horizontal = 3.dp, vertical = 2.dp)
-                                    ) {
-                                        Icon(Icons.Outlined.Speed, contentDescription = "Speed", tint = Color.White, modifier = Modifier.size(13.dp))
-                                        Text(text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    // 🎯 কোয়ালিটি বাটন (ছোট)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .clickable {
-                                                sideDrawerType = "quality"
-                                                showSideDrawer = true
-                                            }
-                                            .padding(horizontal = 3.dp, vertical = 2.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .border(width = 0.8.dp, color = Color.White, shape = RoundedCornerShape(2.dp))
-                                                .padding(horizontal = 2.dp, vertical = 0.5.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text("HD", color = Color.White, fontSize = 6.5.sp, fontWeight = FontWeight.Black, lineHeight = 7.sp)
-                                        }
-                                        Text(text = currentQualityLabel, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    // 🎧 মাল্টিপল অডিও বাটন (ছোট)
-                                    if (availableAudioTracks.size > 1) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .clickable {
-                                                    sideDrawerType = "audio"
-                                                    showSideDrawer = true
-                                                }
-                                                .padding(horizontal = 3.dp, vertical = 2.dp)
-                                        ) {
-                                            Icon(Icons.Outlined.Audiotrack, contentDescription = "Audio Track", tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
-                                            Text(text = currentAudioLabel, color = Color(0xFF00E5FF), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-
-                                    // ⬇ ডাউনলোড বাটন (ছোট)
-                                    IconButton(
-                                        onClick = { onDownloadClick?.invoke() },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(17.dp))
-                                    }
-
-                                    // ⛶ ফুলস্ক্রিন বাটন (ছবি ১ অনুযায়ী ছোট ও স্পষ্ট)
-                                    IconButton(
-                                        onClick = onToggleFullscreen,
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Fullscreen,
-                                            contentDescription = "Fullscreen",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(19.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            // =============================================================
-                            // 📺 ল্যান্ডস্কেপ মোড
-                            // =============================================================
-                            if (!isKeyboardOpen) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
-                                        color = Color.White,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-
-                                    SleekOnlineTimeline(
-                                        currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
-                                        totalDurationMs = totalDurationMs,
-                                        bufferedPositionMs = bufferedPositionMs,
-                                        adCueFractions = adCueFractions,
-                                        onSeekStarted = { isUserSeeking = true },
-                                        onSeeking = { scrubPosition = it },
-                                        onSeekFinished = { targetPos ->
-                                            onSeekFinished(targetPos)
-                                            isUserSeeking = false
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    Text(
-                                        text = formatTimeDisplay(totalDurationMs),
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
                             }
 
+                            // 👉 ডানপাশের কমপ্যাক্ট বাটনসমূহ
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
                             ) {
+                                // ⏱️ স্পিড
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.then(if (isKeyboardOpen) Modifier.fillMaxWidth() else Modifier.weight(1f, fill = false))
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            sideDrawerType = "speed"
+                                            showSideDrawer = true
+                                        }
+                                        .padding(horizontal = 3.dp, vertical = 2.dp)
                                 ) {
-                                    if (!isKeyboardOpen) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(if (isDanmakuEnabled) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                                                .clickable { isDanmakuEnabled = !isDanmakuEnabled },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Subtitles,
-                                                contentDescription = "Danmaku Toggle",
-                                                tint = if (isDanmakuEnabled) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-
-                                    if (isDanmakuEnabled) {
-                                        Row(
-                                            modifier = Modifier
-                                                .then(if (isKeyboardOpen) Modifier.fillMaxWidth() else Modifier.widthIn(max = 320.dp))
-                                                .height(38.dp)
-                                                .clip(RoundedCornerShape(19.dp))
-                                                .background(Color(0xFF181B24))
-                                                .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), RoundedCornerShape(19.dp))
-                                                .padding(horizontal = 10.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                                contentDescription = "Emoji",
-                                                tint = Color.White.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(18.dp).clickable { showEmojiPicker = true }
-                                            )
-
-                                            Box(modifier = Modifier.weight(1f)) {
-                                                if (commentInputText.isEmpty()) {
-                                                    Text("Say something...", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
-                                                }
-                                                BasicTextField(
-                                                    value = commentInputText,
-                                                    onValueChange = { if (it.length <= 60) commentInputText = it },
-                                                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                                                    cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                                                    singleLine = true,
-                                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                                    keyboardActions = KeyboardActions(
-                                                        onSend = {
-                                                            if (commentInputText.isNotBlank()) {
-                                                                val text = commentInputText.trim()
-                                                                onSendComment(text)
-                                                                if (isValidDanmakuText(text)) {
-                                                                    danmakuList.add(LiveDanmakuItem(id = System.currentTimeMillis(), text = text, lineIndex = (0..2).random(), startDelayMs = 0L))
-                                                                }
-                                                                commentInputText = ""
-                                                                keyboardController?.hide()
-                                                            }
-                                                        }
-                                                    ),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-
-                                            Text(
-                                                text = "${60 - commentInputText.length}",
-                                                color = Color.White.copy(alpha = 0.35f),
-                                                fontSize = 9.5.sp
-                                            )
-
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Send",
-                                                tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
-                                                modifier = Modifier
-                                                    .size(20.dp)
-                                                    .clickable(enabled = commentInputText.isNotBlank()) {
-                                                        val text = commentInputText.trim()
-                                                        onSendComment(text)
-                                                        if (isValidDanmakuText(text)) {
-                                                            danmakuList.add(LiveDanmakuItem(id = System.currentTimeMillis(), text = text, lineIndex = (0..2).random(), startDelayMs = 0L))
-                                                        }
-                                                        commentInputText = ""
-                                                        keyboardController?.hide()
-                                                    }
-                                            )
-                                        }
-                                    }
+                                    Icon(Icons.Outlined.Speed, contentDescription = "Speed", tint = Color.White, modifier = Modifier.size(13.dp))
+                                    Text(text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                if (!isKeyboardOpen) {
+                                // 🎯 কোয়ালিটি
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            sideDrawerType = "quality"
+                                            showSideDrawer = true
+                                        }
+                                        .padding(horizontal = 3.dp, vertical = 2.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .border(width = 0.8.dp, color = Color.White, shape = RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 2.dp, vertical = 0.5.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("HD", color = Color.White, fontSize = 6.5.sp, fontWeight = FontWeight.Black, lineHeight = 7.sp)
+                                    }
+                                    Text(text = currentQualityLabel, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                // 🎧 অডিও
+                                if (availableAudioTracks.size > 1) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .clickable {
+                                                sideDrawerType = "audio"
+                                                showSideDrawer = true
+                                            }
+                                            .padding(horizontal = 3.dp, vertical = 2.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            modifier = Modifier
-                                                .clickable {
-                                                    sideDrawerType = "speed"
-                                                    showSideDrawer = true
-                                                }
-                                                .padding(vertical = 4.dp)
-                                        ) {
-                                            Icon(Icons.Outlined.Speed, contentDescription = "Speed", tint = Color.White, modifier = Modifier.size(18.dp))
-                                            Text(text = "${currentSpeed}x", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .clickable {
-                                                    sideDrawerType = "quality"
-                                                    showSideDrawer = true
-                                                }
-                                                .padding(horizontal = 4.dp, vertical = 2.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .border(width = 1.2.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
-                                                    .padding(horizontal = 3.dp, vertical = 0.5.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text("HD", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Black, lineHeight = 10.sp)
-                                            }
-                                            Text(text = currentQualityLabel, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        // 🎧 ল্যান্ডস্কেপ মোডে অডিও বাটন
-                                        if (availableAudioTracks.size > 1) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .clickable {
-                                                        sideDrawerType = "audio"
-                                                        showSideDrawer = true
-                                                    }
-                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                                            ) {
-                                                Icon(Icons.Outlined.Audiotrack, contentDescription = "Audio", tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
-                                                Text(text = currentAudioLabel, color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                sideDrawerType = "playlist"
-                                                showSideDrawer = !showSideDrawer
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Layers,
-                                                contentDescription = "Episodes Playlist",
-                                                tint = if (showSideDrawer && sideDrawerType == "playlist") Color(0xFF00E5FF) else Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                sideDrawerType = "download"
-                                                showSideDrawer = !showSideDrawer
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.FileDownload,
-                                                contentDescription = "Download Episodes",
-                                                tint = if (showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                                onToggleFullscreen()
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(imageVector = Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(20.dp))
-                                        }
+                                        Icon(Icons.Outlined.Audiotrack, contentDescription = "Audio Track", tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                                        Text(text = currentAudioLabel, color = Color(0xFF00E5FF), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
-            }
 
-            // ইমোজি প্যানেল
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showEmojiPicker && isDeviceLandscape && !isPiPActive,
-                enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .imePadding()
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .navigationBarsPadding()
-                        .pointerInput(Unit) { detectTapGestures {} },
-                    color = Color(0xFF12151E).copy(alpha = 0.95f)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(36.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Outlined.SentimentSatisfiedAlt, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
-
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(32.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White.copy(alpha = 0.12f))
-                                    .padding(horizontal = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (commentInputText.isEmpty()) {
-                                    Text("Say something", color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
+                                // ⬇ ডাউনলোড
+                                IconButton(
+                                    onClick = { onDownloadClick?.invoke() },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(17.dp))
                                 }
-                                BasicTextField(
-                                    value = commentInputText,
-                                    onValueChange = { if (it.length <= 60) commentInputText = it },
-                                    textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
-                                    cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(text = "${60 - commentInputText.length}", color = Color.White.copy(alpha = 0.35f), fontSize = 9.sp)
-                            }
 
-                            IconButton(
-                                onClick = {
-                                    if (commentInputText.isNotBlank()) {
-                                        val text = commentInputText.trim()
-                                        onSendComment(text)
-                                        if (isValidDanmakuText(text)) {
-                                            danmakuList.add(LiveDanmakuItem(id = System.currentTimeMillis(), text = text, lineIndex = (0..2).random(), startDelayMs = 0L))
-                                        }
-                                        commentInputText = ""
-                                        showEmojiPicker = false
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp))
-                            }
-
-                            IconButton(onClick = { showEmojiPicker = false }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(18.dp))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(15),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(popularEmojis) { emoji ->
+                                // ⤢ ৩ নম্বর ছবির হুবহু ডায়াগনাল ফুলস্ক্রিন আইকন
                                 Box(
                                     modifier = Modifier
-                                        .size(30.dp)
+                                        .size(24.dp)
                                         .clip(CircleShape)
-                                        .clickable {
-                                            if (commentInputText.length < 58) {
-                                                commentInputText += emoji
-                                            }
-                                        },
+                                        .clickable { onToggleFullscreen() },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(text = emoji, fontSize = 18.sp)
+                                    DiagonalFullscreenIcon(color = Color.White)
                                 }
                             }
                         }
@@ -1821,7 +1453,7 @@ fun PlayerVideoBox(
                 )
             }
 
-            // সাইড ড্রয়ার প্যানেল (অডিও ট্র্যাক, কোয়ালিটি, স্পিড, প্লেলিস্ট)
+            // সাইড ড্রয়ার প্যানেল
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
@@ -1906,7 +1538,6 @@ fun PlayerVideoBox(
                             }
                         }
                     } else if (sideDrawerType == "audio") {
-                        // 🎧 অডিও ট্র্যাক সিলেকশন ড্রয়ার
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2174,7 +1805,7 @@ fun PlayerVideoBox(
                         .padding(16.dp)
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.75f))
+                        .background(Color.Black.copy(alpha = 0.7f))
                 ) {
                     Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
                 }
@@ -2275,45 +1906,5 @@ fun PlayerVideoBox(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FloatingDanmakuRow(
-    item: LiveDanmakuItem,
-    screenWidthPx: Float
-) {
-    val offsetX = remember { Animatable(screenWidthPx) }
-
-    LaunchedEffect(item.id) {
-        delay(item.startDelayMs)
-        offsetX.animateTo(
-            targetValue = -500f,
-            animationSpec = tween(
-                durationMillis = (7000..9500).random(),
-                easing = LinearEasing
-            )
-        )
-    }
-
-    Box(
-        modifier = Modifier
-            .offset(y = (item.lineIndex * 34).dp)
-            .graphicsLayer { translationX = offsetX.value }
-            .padding(horizontal = 8.dp)
-    ) {
-        Text(
-            text = item.text,
-            color = Color.White.copy(alpha = 0.90f),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            style = TextStyle(
-                shadow = androidx.compose.ui.graphics.Shadow(
-                    color = Color.Black,
-                    offset = Offset(1.5f, 1.5f),
-                    blurRadius = 3f
-                )
-            )
-        )
     }
 }
