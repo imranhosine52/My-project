@@ -63,10 +63,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -861,7 +863,6 @@ fun PlayerVideoBox(
                                     }
                                     change.consume()
                                 } else if (isHorizontalDragging) {
-                                    // ১ পিক্সেল ড্র্যাগে আনুমানিক ১০০ মিলিসেকেন্ড পরিবর্তন
                                     val deltaSec = (totalDragX / 5.5f).toInt()
                                     scrubDeltaSeconds = deltaSec
                                     val targetPos = (startScrubPos + (deltaSec * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
@@ -875,11 +876,10 @@ fun PlayerVideoBox(
                             }
                         } while (event.changes.any { it.pressed })
 
-                        // ড্র্যাগ শেষ হলে সিক্ত অ্যাকশন সম্পূর্ণ করা
+                        // ড্র্যাগ শেষ হলে এক্সিকিউট করা
                         if (isHorizontalDragging) {
                             onSeekFinished(scrubTargetPositionMs)
                             exoPlayer.seekTo(scrubTargetPositionMs)
-                            currentPositionMs = scrubTargetPositionMs
                         }
 
                         showBrightnessOverlay = false
@@ -888,7 +888,7 @@ fun PlayerVideoBox(
                     }
                 }
                 // =============================================================
-                // 🎯 ডাবল-ট্যাপ স্কিপ ও সিঙ্গেল-ট্যাপ হ্যান্ডলার (ছবি ৩)
+                // 🎯 ডাবল-ট্যাপ স্কিপ ও সিঙ্গেল-ট্যাপ হ্যান্ডলার
                 // =============================================================
                 .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, showEmojiPicker, isUserSeeking) {
                     if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
@@ -1032,7 +1032,7 @@ fun PlayerVideoBox(
             // =============================================================
             // 🎯 ডাবল-ট্যাপ অ্যানিমেশন ওভারলে (ছবি ৩ এর মতো +10 ▶ / ◀ -10)
             // =============================================================
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = showLeftDoubleTapAnim,
                 enter = fadeIn(tween(120)) + scaleIn(initialScale = 0.8f),
                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.8f),
@@ -1043,7 +1043,7 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = false, skipSeconds = 10)
             }
 
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = showRightDoubleTapAnim,
                 enter = fadeIn(tween(120)) + scaleIn(initialScale = 0.8f),
                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.8f),
