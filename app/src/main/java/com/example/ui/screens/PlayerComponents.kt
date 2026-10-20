@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/PlayerComponents.kt ---
+
 @file:OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
@@ -131,7 +133,7 @@ fun SleekSkipIconOnline(
 }
 
 // -------------------------------------------------------------
-// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার
+// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার (৮ মিনিট পর পর ডট/মার্কার সহ)
 // -------------------------------------------------------------
 @Composable
 fun SleekOnlineTimeline(
@@ -142,7 +144,9 @@ fun SleekOnlineTimeline(
     onSeekFinished: (Long) -> Unit,
     modifier: Modifier = Modifier,
     activeColor: Color = Color(0xFF00E5FF),
-    inactiveColor: Color = Color.White.copy(alpha = 0.28f)
+    inactiveColor: Color = Color.White.copy(alpha = 0.28f),
+    adCueFractions: List<Float> = emptyList(), // 👈 ৮ মিনিট পর পর কিউ-পয়েন্ট ফ্র্যাকশনস (০.০ থেকে ১.০)
+    adDotColor: Color = Color(0xFFFFCC00)       // 👈 স্পনসর মার্কার কালার (গোল্ডেন/ইয়েলো)
 ) {
     val progress = if (totalDurationMs > 0) {
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -183,8 +187,10 @@ fun SleekOnlineTimeline(
             val centerY = size.height / 2f
             val trackHeight = 2.8.dp.toPx()
             val thumbRadius = 5.2.dp.toPx()
+            val adDotRadius = 2.4.dp.toPx()
             val trackWidth = size.width
 
+            // ১. ব্যাকগ্রাউন্ড ট্র্যাক
             drawLine(
                 color = inactiveColor,
                 start = Offset(0f, centerY),
@@ -193,6 +199,7 @@ fun SleekOnlineTimeline(
                 cap = StrokeCap.Round
             )
 
+            // ২. প্লেড অংশ (সায়ান লাইন)
             val activeEnd = trackWidth * progress
             if (activeEnd > 0) {
                 drawLine(
@@ -204,6 +211,25 @@ fun SleekOnlineTimeline(
                 )
             }
 
+            // 🎯 ৩. ৮ মিনিট পর পর স্পনসর অ্যাড কিউ ডট/মার্কার (স্ক্রিনশটের মতো ডট আঁকা)
+            for (fraction in adCueFractions) {
+                if (fraction in 0.01f..0.99f) {
+                    val dotCenterX = trackWidth * fraction
+                    // ডটের বর্ডার ও সেন্ট্রাল ডট
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.5f),
+                        radius = adDotRadius + 1.2.dp.toPx(),
+                        center = Offset(dotCenterX, centerY)
+                    )
+                    drawCircle(
+                        color = adDotColor,
+                        radius = adDotRadius,
+                        center = Offset(dotCenterX, centerY)
+                    )
+                }
+            }
+
+            // ৪. বর্তমান পজিশনের থাম্ব (Seek Thumb)
             drawCircle(
                 color = activeColor,
                 radius = thumbRadius,
@@ -256,8 +282,8 @@ fun EqualizerBarsIcon(
 @Composable
 fun CompactUnlockEpisodeDialog(
     episodeNumber: Int,
-    completedSteps: Int = 0, // 👈 শুরুতে ০ থাকবে, ১ম অ্যাড দেখে আসলে ১ হবে
-    totalSteps: Int = 2,     // 👈 মোট প্রয়োজনীয় অ্যাড সংখ্যা
+    completedSteps: Int = 0,
+    totalSteps: Int = 2,
     onDismiss: () -> Unit,
     onWatchAd: () -> Unit,
     onUpgradeVip: () -> Unit
@@ -265,7 +291,6 @@ fun CompactUnlockEpisodeDialog(
     val safeTotalSteps = totalSteps.coerceAtLeast(1)
     val currentStepNumber = (completedSteps + 1).coerceAtMost(safeTotalSteps)
 
-    // 🎯 মসৃণ প্রগ্রেস বার অ্যানিমেশন (০% থেকে অর্ধেক এবং শেষে ১০০%)
     val animatedProgress by animateFloatAsState(
         targetValue = (completedSteps.toFloat() / safeTotalSteps.toFloat()).coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
@@ -296,7 +321,6 @@ fun CompactUnlockEpisodeDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // ১. টপ ব্যাজ ও ক্লোজ বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -321,7 +345,6 @@ fun CompactUnlockEpisodeDialog(
                             )
                         }
 
-                        // স্টেপ কাউন্টার ব্যাজ (১ম বার Step 1 of 2, ব্যাক করলে Step 2 of 2)
                         if (safeTotalSteps > 1) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
@@ -350,7 +373,6 @@ fun CompactUnlockEpisodeDialog(
                     )
                 }
 
-                // ২. সেন্ট্রাল লক আইকন ও টাইটেল
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -394,28 +416,24 @@ fun CompactUnlockEpisodeDialog(
                     }
                 }
 
-                // =============================================================
-                // 🎯 ৩. লাইভ স্টেপ প্রগ্রেস লাইন (শুরুতে ০% ➔ ১ম ক্লিকে ৫০% ➔ ২য় ক্লিকে ১০০%)
-                // =============================================================
                 if (safeTotalSteps > 1) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(4.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Color(0xFF232B3D)) // নিষ্ক্রিয় ধূসর ব্যাকগ্রাউন্ড
+                            .background(Color(0xFF232B3D))
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(fraction = animatedProgress)
                                 .fillMaxHeight()
                                 .clip(RoundedCornerShape(2.dp))
-                                .background(BlueGreenGradientBrush) // নীল-সবুজ অ্যানিমেটেড লাইন
+                                .background(BlueGreenGradientBrush)
                         )
                     }
                 }
 
-                // ৪. ডেসক্রিপশন
                 val descriptionText = if (safeTotalSteps > 1) {
                     "Complete all $safeTotalSteps sponsor visits to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
                 } else {
@@ -433,9 +451,6 @@ fun CompactUnlockEpisodeDialog(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                // =============================================================
-                // 🌟 ৫. নীল ও সবুজ গ্রেডিয়েন্টের আনলক বাটন
-                // =============================================================
                 val buttonLabel = when {
                     safeTotalSteps > 1 && completedSteps == 0 -> "Visit Sponsor Ad (1/$safeTotalSteps)"
                     safeTotalSteps > 1 && currentStepNumber < safeTotalSteps -> "Visit Next Sponsor ($currentStepNumber/$safeTotalSteps)"
@@ -471,7 +486,6 @@ fun CompactUnlockEpisodeDialog(
                     }
                 }
 
-                // ৬. VIP আপগ্রেড বাটন
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -501,7 +515,7 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // =============================================================================
-// 🎆 ৫. আতশবাজি / বাজি বিস্ফোরণ অ্যানিমেশন (Celebration Fireworks Overlay)
+// 🎆 ৫. আতশবাজি সেলিব্রেশন অ্যানিমেশন
 // =============================================================================
 private data class FireworkParticle(
     val x: Float,
@@ -519,12 +533,12 @@ fun CelebrationFireworksOverlay(
 ) {
     val particles = remember {
         val colors = listOf(
-            Color(0xFFFFD700), // Gold
-            Color(0xFF00E5FF), // Cyan
-            Color(0xFF00E676), // Green
-            Color(0xFFFF2A55), // Red / Pink
-            Color(0xFFA855F7), // Purple
-            Color(0xFFFF9100)  // Orange
+            Color(0xFFFFD700),
+            Color(0xFF00E5FF),
+            Color(0xFF00E676),
+            Color(0xFFFF2A55),
+            Color(0xFFA855F7),
+            Color(0xFFFF9100)
         )
         List(75) {
             val angle = Random.nextDouble(0.0, Math.PI * 2)
@@ -563,7 +577,7 @@ fun CelebrationFireworksOverlay(
 
         for (p in particles) {
             val currentX = centerX + p.vx * currentFraction
-            val currentY = centerY + p.vy * currentFraction + (350f * currentFraction * currentFraction) // গ্র্যাভিটি ইফেক্ট
+            val currentY = centerY + p.vy * currentFraction + (350f * currentFraction * currentFraction)
 
             drawCircle(
                 color = p.color.copy(alpha = alpha),
