@@ -1,3 +1,5 @@
+--- START OF FILE data/repository/ContentRepository.kt ---
+
 package com.example.data.repository
 
 import android.content.Context
@@ -10,9 +12,15 @@ import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 class ContentRepository(
     private val context: Context,
@@ -25,9 +33,9 @@ class ContentRepository(
 
     companion object {
         private const val TAG = "ContentRepository"
-        // ⏱️ ক্যাশ মেয়াদ ৩ মিনিট
+        // ⏱️ হোম ফিড ক্যাশ মেয়াদ ৩ মিনিট
         private const val FEED_CACHE_TTL_MS = 3 * 60 * 1000L
-        // ⏱️ ওয়াচ ক্যাশ ২০ মিনিট
+        // ⏱️ ওয়াচ ডিটেইলস ক্যাশ মেয়াদ ২০ মিনিট
         private const val WATCH_CACHE_TTL_MS = 20 * 60 * 1000L
     }
 
@@ -97,13 +105,16 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // 🎬 ১. হোম ফিড কনটেন্ট
+    // 🎬 ১. হোম ফিড কনটেন্ট (রিফ্রেশে ক্যাশ ক্লিয়ার সহ)
     // =========================================================================
 
     suspend fun getContents(forceRefresh: Boolean = false): Result<List<ContentItemDto>> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        if (!forceRefresh) {
+        if (forceRefresh) {
+            contentCacheDao.clearCachedHomeFeed("primary_home_feed")
+            Log.d(TAG, "✓ Home feed cache cleared due to forceRefresh.")
+        } else {
             val localFeed = contentCacheDao.getCachedHomeFeed("primary_home_feed")
             if (localFeed != null) {
                 val isFresh = (now - localFeed.cachedTimestamp) < FEED_CACHE_TTL_MS
@@ -120,7 +131,7 @@ class ContentRepository(
             val response = apiService.getContents()
             if (response.isSuccessful && response.body()?.data?.isNotEmpty() == true) {
                 val serverItems = response.body()!!.data
-                
+
                 val jsonStr = contentListAdapter.toJson(serverItems)
                 contentCacheDao.saveCachedHomeFeed(
                     CachedFeedEntity(
@@ -147,7 +158,7 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // ⚡ ২. ওয়াচ ডিটেইলস ও পর্বের লিঙ্ক (নিখুঁত 404 হ্যান্ডলিং)
+    // ⚡ ২. ওয়াচ ডিটেইলস (পোস্ট ক্যাশ ও ৩টি পর্বের ৩ সেকেন্ড প্রি-ডাউনলোড)
     // =========================================================================
 
     suspend fun getWatchDetails(
@@ -157,8 +168,14 @@ class ContentRepository(
     ): Result<WatchDetailResponse> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        // ক) ক্যাশ চেক (যদি ইতিপূর্বে লোড করা থাকে এবং অফলাইন থাকে)
-        if (!forceRefresh) {
+        // 🎯 ইউজার পেজ রিফ্রেশ করলে আগের ক্যাশ মুছে নতুন করে সার্ভার থেকে আনা
+        if (forceRefresh) {
+            contentCacheDao.deleteCachedWatchDetail(slug)
+            try {
+                File(context.cacheDir, "precache_streams/$slug").deleteRecursively()
+            } catch (_: Exception) {}
+            Log.d(TAG, "✓ Cache & precache cleared for '$slug' due to forceRefresh.")
+        } else {
             val localCached = contentCacheDao.getCachedWatchDetail(slug)
             if (localCached != null) {
                 val isFresh = (now - localCached.cachedTimestamp) < WATCH_CACHE_TTL_MS
@@ -166,12 +183,18 @@ class ContentRepository(
 
                 if (cachedDetail?.content != null && cachedDetail.episodes.isNotEmpty() && isFresh) {
                     Log.d(TAG, "✓ Watch details for '$slug' loaded from Room DB.")
+
+                    // ব্যাকগ্রাউন্ডে প্রথম ৩টি পর্বের ৩ সেকেন্ড প্রি-ক্যাশ সক্রিয় রাখা
+                    CoroutineScope(Dispatchers.IO).launch {
+                        precacheFirst3SecondsOfEpisodes(slug, cachedDetail.episodes.take(3))
+                    }
+
                     return@withContext Result.success(cachedDetail)
                 }
             }
         }
 
-        // খ) সার্ভার থেকে ডাটা লোড
+        // সার্ভার থেকে সম্পূর্ণ পোস্ট ও পর্বের লিঙ্ক ফেচ করা
         try {
             val response = apiService.getWatchDetails(slug)
             if (response.isSuccessful && response.body()?.content != null) {
@@ -197,10 +220,17 @@ class ContentRepository(
                         cachedTimestamp = now
                     )
                 )
-                Log.d(TAG, "✓ Fresh watch details for '$slug' fetched and saved.")
+                Log.d(TAG, "✓ Fresh watch details for '$slug' fetched and saved in Room DB.")
+
+                // ⚡ প্রথম ৩টি পর্বের প্রথম ৩ সেকেন্ড স্বয়ংক্রিয়ভাবে প্রি-ক্যাশ করা
+                if (finalBody.episodes.isNotEmpty()) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        precacheFirst3SecondsOfEpisodes(slug, finalBody.episodes.take(3))
+                    }
+                }
+
                 Result.success(finalBody)
             } else {
-                // 🛑 সার্ভারে পোস্ট না থাকলে চেক করা
                 val fallbackCached = runCatching {
                     contentCacheDao.getCachedWatchDetail(slug)?.let { watchDetailAdapter.fromJson(it.jsonPayload) }
                 }.getOrNull()
@@ -210,7 +240,6 @@ class ContentRepository(
                 } else if (fallbackContent != null) {
                     Result.success(getFallbackWatchDetails(slug, fallbackContent))
                 } else {
-                    // কোনো অস্তিত্ব নেই -> সরাসরি ফেইলিউর রিটার্ন যাতে 404 স্ক্রিন আসে
                     Result.failure(Exception("Content not found on server: $slug"))
                 }
             }
@@ -231,7 +260,131 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // 🔔 ৩. রিয়েল-টাইম পুশ সিঙ্ক মেথড
+    // ⚡ ৩. প্রথম ৩টি পর্বের ৩ সেকেন্ড প্রি-ডাউনলোড ইঞ্জিন (০-সেকেন্ড বাফারিং)
+    // =========================================================================
+
+    private suspend fun precacheFirst3SecondsOfEpisodes(
+        slug: String,
+        targetEpisodes: List<EpisodeDto>
+    ) = withContext(Dispatchers.IO) {
+        val precacheDir = File(context.cacheDir, "precache_streams/$slug").apply {
+            if (!exists()) mkdirs()
+        }
+
+        targetEpisodes.forEach { ep ->
+            try {
+                val rawStreamUrl = ep.resolveR2StreamUrl(slug).trim()
+                if (rawStreamUrl.isBlank() || (!rawStreamUrl.startsWith("http://") && !rawStreamUrl.startsWith("https://"))) {
+                    return@forEach
+                }
+
+                val isHls = rawStreamUrl.contains(".m3u8", ignoreCase = true)
+
+                if (isHls) {
+                    precacheHlsFirstSegment(rawStreamUrl, precacheDir, ep.episodeNumber)
+                } else {
+                    precacheMp4FirstChunk(rawStreamUrl, precacheDir, ep.episodeNumber)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pre-cache notice for ep ${ep.episodeNumber}: ${e.message}")
+            }
+        }
+    }
+
+    private fun precacheMp4FirstChunk(urlStr: String, precacheDir: File, epNum: Int) {
+        var conn: HttpURLConnection? = null
+        try {
+            val targetFile = File(precacheDir, "ep_${epNum}_initial.part")
+            if (targetFile.exists() && targetFile.length() >= 256 * 1024L) {
+                return
+            }
+
+            val url = URL(urlStr)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 6000
+                readTimeout = 8000
+                instanceFollowRedirects = true
+                // প্রথম 512 KB (৩-৪ সেকেন্ডের ভিডিও ও হেডার ডাটা) রেঞ্জ রিকোয়েস্ট
+                setRequestProperty("Range", "bytes=0-524287")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Precache")
+                connect()
+            }
+
+            if (conn.responseCode in 200..299 || conn.responseCode == 206) {
+                val input = conn.inputStream
+                val output = FileOutputStream(targetFile)
+                input.use { inStream ->
+                    output.use { outStream ->
+                        inStream.copyTo(outStream)
+                    }
+                }
+                Log.d(TAG, "✓ Pre-cached 3s chunk for Ep $epNum of MP4.")
+            }
+        } catch (_: Exception) {
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun precacheHlsFirstSegment(m3u8UrlStr: String, precacheDir: File, epNum: Int) {
+        var conn: HttpURLConnection? = null
+        try {
+            val url = URL(m3u8UrlStr)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 5000
+                readTimeout = 6000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Precache")
+                connect()
+            }
+
+            if (conn.responseCode in 200..299) {
+                val playlistContent = conn.inputStream.bufferedReader().use { it.readText() }
+                val baseUrl = m3u8UrlStr.substringBeforeLast("/")
+
+                val lines = playlistContent.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val firstSegmentLine = lines.firstOrNull {
+                    !it.startsWith("#") && (it.endsWith(".ts") || it.endsWith(".m4s") || it.contains(".ts?") || it.contains(".m4s?"))
+                }
+
+                if (firstSegmentLine != null) {
+                    val segmentUrl = if (firstSegmentLine.startsWith("http://") || firstSegmentLine.startsWith("https://")) {
+                        firstSegmentLine
+                    } else {
+                        "$baseUrl/$firstSegmentLine"
+                    }
+
+                    val segmentFile = File(precacheDir, "ep_${epNum}_seg0.ts")
+                    if (!segmentFile.exists() || segmentFile.length() < 1000L) {
+                        val segConn = (URL(segmentUrl).openConnection() as HttpURLConnection).apply {
+                            requestMethod = "GET"
+                            connectTimeout = 5000
+                            readTimeout = 6000
+                            instanceFollowRedirects = true
+                            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Precache")
+                        }
+                        if (segConn.responseCode in 200..299) {
+                            segConn.inputStream.use { input ->
+                                FileOutputStream(segmentFile).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            Log.d(TAG, "✓ Pre-cached 1st HLS segment (3s) for Ep $epNum.")
+                        }
+                        segConn.disconnect()
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    // =========================================================================
+    // 🔔 ৪. রিয়েল-টাইম পুশ সিঙ্ক মেথড
     // =========================================================================
 
     suspend fun syncSpecificDramaCache(slug: String): Boolean = withContext(Dispatchers.IO) {
@@ -304,9 +457,6 @@ class ContentRepository(
         )
     }
 
-    /**
-     * 🎯 যদি ড্রামাটি পূর্বে পরিচিত না থাকে তবে কোনো ভুয়া অবজেক্ট তৈরি করবে না।
-     */
     fun getFallbackWatchDetails(slug: String, fallbackContent: ContentItemDto? = null): WatchDetailResponse {
         return WatchDetailResponse(
             success = fallbackContent != null,
