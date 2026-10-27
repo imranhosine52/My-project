@@ -22,6 +22,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -111,20 +113,18 @@ class MainActivity : ComponentActivity() {
         UnifiedAdManager.init(this)
         handleIncomingIntents(intent)
 
+        // 🚀 স্প্ল্যাশ ভিডিও চলার সাথে সাথেই ব্যাকগ্রাউন্ডে হোম ফিড ও ক্যাশ ডেটা প্রস্তুত করা
+        viewModel.loadHomeContent(forceRefresh = false)
+        viewModel.refreshVipStatusAndProfile()
+
         setContent {
-            // 🎯 স্প্ল্যাশ স্ক্রিন শো/হাইড কন্ট্রোল স্টেট
             var showSplash by remember { mutableStateOf(true) }
 
             DramaFlixTheme {
-                if (showSplash) {
-                    // অ্যাপ ওপেন হলে প্রথমে ভিডিও স্প্ল্যাশ স্ক্রিন দেখাবে
-                    VideoSplashScreen(
-                        onVideoFinished = { showSplash = false }
-                    )
-                } else {
-                    // ভিডিও শেষ হলে মূল অ্যাপ চালু হবে
+                Box(modifier = Modifier.fillMaxSize().background(BackgroundDark)) {
+                    // ১. মূল অ্যাপ ব্যাকগ্রাউন্ডে সম্পূর্ণরূপে মাউন্ট ও প্রস্তুত থাকবে
                     MainAppContent(
-                        activity = this,
+                        activity = this@MainActivity,
                         viewModel = viewModel,
                         pendingNotificationSlug = pendingNotificationSlug.value,
                         pendingNotificationIsShorts = pendingNotificationIsShorts.value,
@@ -133,6 +133,26 @@ class MainActivity : ComponentActivity() {
                         pendingOpenVipScreen = pendingOpenVipScreen.value,
                         onFinish = { finish() }
                     )
+
+                    // ২. স্প্ল্যাশ ভিডিও ফ্লোটিং লেয়ার (ভিডিও শেষ হলে স্মুথলি ফেড-আউট হবে)
+                    AnimatedVisibility(
+                        visible = showSplash,
+                        enter = fadeIn(tween(100)),
+                        exit = fadeOut(tween(durationMillis = 350, easing = FastOutSlowInEasing))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {} // স্প্ল্যাশ চলাকালীন নিচের ভিউতে টাচ ব্লক রাখা
+                        ) {
+                            VideoSplashScreen(
+                                onVideoFinished = { showSplash = false }
+                            )
+                        }
+                    }
                 }
             }
         }
