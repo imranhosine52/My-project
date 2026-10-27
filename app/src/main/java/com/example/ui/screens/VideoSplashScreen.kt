@@ -4,12 +4,19 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.net.Uri
+import android.view.TextureView
+import android.view.ViewGroup
+import androidx.annotation.OptIn
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -20,10 +27,11 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 @Composable
 fun VideoSplashScreen(
@@ -32,32 +40,48 @@ fun VideoSplashScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
+    var isFadingOut by remember { mutableStateOf(false) }
     var hasFinished by remember { mutableStateOf(false) }
 
-    val safeFinish = remember(onVideoFinished) {
-        {
-            if (!hasFinished) {
-                hasFinished = true
-                onVideoFinished()
+    // 🌟 মাখনের মতো মিলিয়ে যাওয়ার জন্য আলফা অ্যানিমেশন
+    val splashAlpha = remember { Animatable(1f) }
+
+    // 🎯 ভিডিও শেষ হওয়ার আগেই মসৃণভাবে মিলিয়ে যাওয়ার ফাংশন
+    fun triggerSmoothFinish() {
+        if (!isFadingOut) {
+            isFadingOut = true
+            coroutineScope.launch {
+                // ভিডিও চলা অবস্থাতেই ২৫০-৩০০ms এর মধ্যে মিলিয়ে যাবে (কোনো ফ্রেম ড্রপ ছাড়া)
+                splashAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(
+                        durationMillis = 380,
+                        easing = LinearOutSlowInEasing
+                    )
+                )
+                if (!hasFinished) {
+                    hasFinished = true
+                    onVideoFinished()
+                }
             }
         }
     }
 
-    // 🎯 ডায়নামিক রিসোর্স চেকার (ভিডিও ফাইল পাওয়া না গেলে সাথে সাথে হোম স্ক্রিনে চলে যাবে)
     val rawResId = remember(context) {
         context.resources.getIdentifier("splash_video", "raw", context.packageName)
     }
 
     if (rawResId == 0) {
         LaunchedEffect(Unit) {
-            safeFinish()
+            onVideoFinished()
         }
         Box(modifier = Modifier.fillMaxSize().background(Color.Black))
         return
     }
 
-    // 🚀 এক্সোপ্লেয়ার ইনস্ট্যান্স তৈরি (জিরো ল্যাগ ও স্মুথ অডিও সিঙ্ক সহ)
+    // 🚀 এক্সোপ্লেয়ার
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             val uri = Uri.parse("android.resource://${context.packageName}/$rawResId")
@@ -75,13 +99,12 @@ fun VideoSplashScreen(
         }
     }
 
-    // লাইফসাইকেল হ্যান্ডলার (অ্যাপ মিনিমাইজ হলে পজ ও ব্যাক করলে প্লে)
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
                 Lifecycle.Event.ON_RESUME -> {
-                    if (!hasFinished) exoPlayer.play()
+                    if (!hasFinished && !isFadingOut) exoPlayer.play()
                 }
                 else -> {}
             }
@@ -92,18 +115,30 @@ fun VideoSplashScreen(
         }
     }
 
-    // প্লেব্যাক লিসেনার (ভিডিও শেষ হওয়ার সাথে সাথে স্মুথ ট্রানজিশন ট্রিগার)
+    // ⏱️ ভিডিও শেষ হওয়ার ২৫০ মিলি-সেকেন্ড আগেই ফেড-আউট শুরু করার ট্র্যাকার
+    LaunchedEffect(exoPlayer) {
+        while (isActive && !isFadingOut) {
+            val duration = exoPlayer.duration
+            val position = exoPlayer.currentPosition
+            // ভিডিও শেষ ফ্রেম স্পর্শ করার আগেই মিলিয়ে যাওয়া শুরু হবে, তাই স্ক্রিন কখনো আটকে থাকবে না
+            if (duration > 1000L && position >= (duration - 280L)) {
+                triggerSmoothFinish()
+                break
+            }
+            delay(40L)
+        }
+    }
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
-                    exoPlayer.pause()
-                    safeFinish()
+                    triggerSmoothFinish()
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                safeFinish()
+                triggerSmoothFinish()
             }
         }
         exoPlayer.addListener(listener)
@@ -116,26 +151,30 @@ fun VideoSplashScreen(
         }
     }
 
-    // সর্বোচ্চ সময়সীমা নিরাপত্তা ওয়াচডগ (যাতে কোনো ডিভাইসে ভিডিও আটকে না থাকে)
+    // ব্যাকআপ ওয়াচডগ টাইমার (সর্বোচ্চ ৫.৫ সেকেন্ড)
     LaunchedEffect(Unit) {
-        delay(6000L)
-        safeFinish()
+        delay(5500L)
+        triggerSmoothFinish()
     }
 
-    // 🎯 পিওর ব্ল্যাক ব্যাকগ্রাউন্ড (ভিডিও শুরুর আগে কোনো আইকন ফ্লিকার করবে না)
+    // 🎯 TextureView ব্যবহার করে হার্ডওয়্যার-অ্যাক্সিলারেটেড আলফা ব্লেন্ডিং
     Box(
         modifier = modifier
             .fillMaxSize()
+            .graphicsLayer {
+                alpha = splashAlpha.value
+            }
             .background(Color.Black)
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    keepScreenOn = true
+                TextureView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    isOpaque = false // ট্রানজিশনের সময় স্বচ্ছতা নিশ্চিত করতে
+                    exoPlayer.setVideoTextureView(this)
                 }
             },
             modifier = Modifier.fillMaxSize()
