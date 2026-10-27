@@ -173,7 +173,7 @@ fun PlayerScreen(
             (authState.userProfile?.plan?.lowercase() == "vip") ||
             (authState.userProfile?.plan?.lowercase() == "premium")
 
-    // 🎯 কমেন্ট ভিউ ফুলস্ক্রিন স্টেট (ভিডিওর নিচে সম্পূর্ণ কভার হয়ে যাবে)
+    // 🎯 কমেন্ট ভিউ ফুলস্ক্রিন স্টেট
     var isDedicatedCommentsOpen by rememberSaveable { mutableStateOf(false) }
 
     fun handleBackNavigation() {
@@ -396,28 +396,35 @@ fun PlayerScreen(
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     // =========================================================================
-    // 🚀 ExoPlayer-এর ৩-মিনিটের হাই-স্পিড মেমোরি বাফার ইঞ্জিন (২ মিনিট সামনে, ১ মিনিট পেছনে)
+    // 🚀 ExoPlayer-এর ৩-মিনিটের আল্ট্রা-ফাস্ট লোড ও ০.৫ সেকেন্ডে ইনস্ট্যান্ট স্টার্ট ইঞ্জিন
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(20000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android) PlayDramaFlix Native Player")
+            .setConnectTimeoutMs(8000)
+            .setReadTimeoutMs(15000)
+            // ⚡ HTTP Keep-Alive ও কানেকশন পুলিং
+            .setDefaultRequestProperties(
+                mapOf(
+                    "Connection" to "keep-alive",
+                    "Keep-Alive" to "timeout=60"
+                )
+            )
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix Native Player")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // 🎯 ২ মিনিট (১২০,০০০ মি.সে.) সিডিএন প্রি-ডাউনলোড ও ১ মিনিট (৬০,০০০ মি.সে.) ব্যাক-বাফার
+        // 🎯 ০.৫ সেকেন্ডে (৫০০ মি.সে.) প্রথম ফ্রেম প্লেব্যাক + ২ মিনিট সামনে বাফার + ১ মিনিট পেছনে ব্যাক-বাফার
         val highSpeedLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 120_000,
                 /* maxBufferMs = */ 180_000,
-                /* bufferForPlaybackMs = */ 1500,
-                /* bufferForPlaybackAfterRebufferMs = */ 2500
+                /* bufferForPlaybackMs = */ 500, // 👈 ০.৫ সেকেন্ডে অবিলম্বে ভিডিও চালু হবে
+                /* bufferForPlaybackAfterRebufferMs = */ 1000
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ 60_000,
+                /* backBufferDurationMs = */ 60_000, // 👈 ১ মিনিট ব্যাক-বাফার মেমোরিতে সংরক্ষিত
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -599,7 +606,9 @@ fun PlayerScreen(
         }
     }
 
-    // স্ট্রিম রেজলভার
+    // =========================================================================
+    // ⚡ পর্ব পরিবর্তন ও আল্ট্রা-ফাস্ট স্ট্রিমিং লোডার (Instant Source Swap)
+    // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -658,16 +667,19 @@ fun PlayerScreen(
                 useWebPlayerFallback = false
                 persistentWebView.loadUrl("about:blank")
                 try {
-                    exoPlayer.stop()
-                    exoPlayer.clearMediaItems()
+                    val isHls = resolvedUrl.contains(".m3u8", ignoreCase = true)
                     val mediaItem = MediaItem.Builder()
                         .setUri(Uri.parse(resolvedUrl))
-                        .setMimeType(if (resolvedUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                        .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                         .build()
-                    exoPlayer.setMediaItem(mediaItem)
+
+                    // ⚡ থামানো ও কোডেক রি-ইনিশিয়ালাইজ করার বিলম্ব বন্ধ করে সরাসরি সোর্স সোয়াপ
+                    exoPlayer.setMediaItem(mediaItem, /* startPositionMs = */ 0L)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
-                    if (activeCustomVideoAd == null) exoPlayer.play()
+                    if (activeCustomVideoAd == null) {
+                        exoPlayer.play()
+                    }
                 } catch (_: Exception) {
                     if (embedCandidate.isNotBlank()) {
                         useWebPlayerFallback = true
