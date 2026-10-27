@@ -139,6 +139,13 @@ data class RealSubtitleTrack(
     val isSelected: Boolean = false
 )
 
+data class LiveDanmakuItem(
+    val id: Long,
+    val text: String,
+    val lineIndex: Int,
+    val startDelayMs: Long
+)
+
 @Composable
 private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0xFFF6D38B)) {
     Canvas(modifier = modifier.size(11.dp)) {
@@ -158,7 +165,7 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// 🎯 ডাবিং অডিও মিউজিক নোট আইকন (Image 1)
+// 🎯 ডাবিং অডিও মিউজিক নোট আইকন
 @Composable
 fun MusicNoteDubbingIcon(
     modifier: Modifier = Modifier,
@@ -374,7 +381,7 @@ fun PlayerVideoBox(
     comments: List<Any> = emptyList(),
     recommendations: List<ContentItemDto> = emptyList(),
     onRelatedDramaClick: (String) -> Unit = {},
-    posterUrl: String? = null, // 👈 ভিডিও প্লেয়ারে লোডিংয়ের সময় দেখানোর জন্য পোস্টার
+    posterUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -410,18 +417,14 @@ fun PlayerVideoBox(
     // 🎯 সিডিএন বাফার প্রগ্রেস
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
 
-    // =========================================================================
-    // 🖼️ ভিডিও লোডিং থাম্বনেইল ট্র্যাকার (ভিডিও লোড হওয়ার সময় থাম্বনেইল দেখাবে)
-    // =========================================================================
+    // 🖼️ ভিডিও লোডিং থাম্বনেইল ট্র্যাকার
     var isFirstFrameRendered by rememberSaveable(episodeNumber, slug) { mutableStateOf(false) }
     val activeVideoThumbnail = remember(episodeNumber, episodes, posterUrl) {
         episodes.find { it.episodeNumber == episodeNumber }?.thumbnail?.takeIf { it.isNotBlank() }
             ?: posterUrl
     }
 
-    // =========================================================================
-    // 🏷️ Last Seen 00:00 Jump Play ব্যানার স্টেট
-    // =========================================================================
+    // 🏷️ Last Seen ব্যানার স্টেট
     val watchPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_seen_prefs", Context.MODE_PRIVATE)
     }
@@ -445,9 +448,7 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
     // 🔄 শেষ দেখা এপিসোড অটো-প্লে মেমোরি
-    // =========================================================================
     val lastWatchedEpPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
     }
@@ -472,9 +473,7 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // 🎯 ১০০% সার্ভার নিয়ন্ত্রিত ডায়নামিক কিউমুলেটিভ ক্লিক-বেইট অ্যাড
-    // =========================================================================
+    // ১০০% সার্ভার নিয়ন্ত্রিত ডায়নামিক কিউমুলেটিভ ক্লিক-বেইট অ্যাড
     val eightMinutesMs = 8 * 60 * 1000L
     var pendingAdClicks by rememberSaveable(slug) { mutableIntStateOf(0) }
     val triggeredAdMarks = rememberSaveable(slug) { mutableSetOf<Int>() }
@@ -677,7 +676,7 @@ fun PlayerVideoBox(
                     }
                 }
             } else if (group.type == C.TRACK_TYPE_TEXT) {
-                // 📝 সাবটাইটেল ট্র্যাক এক্সট্র্যাকশন
+                // সাবটাইটেল ট্র্যাক এক্সট্র্যাকশন
                 for (i in 0 until group.length) {
                     if (group.isTrackSupported(i)) {
                         val format = group.getTrackFormat(i)
@@ -825,7 +824,6 @@ fun PlayerVideoBox(
             }
 
             override fun onRenderedFirstFrame() {
-                // ⚡ প্রথম ফ্রেম রেন্ডার হওয়ার সাথে সাথে পোস্টার সরিয়ে ভিডিও লাইভ হবে
                 isFirstFrameRendered = true
                 isBuffering = false
             }
@@ -860,7 +858,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🚫 বিজ্ঞাপন থাকা অবস্থায় ১০ সেকেন্ড স্কিপ ব্লক
     fun triggerSkipWithFeedback(seconds: Int) {
         if (seconds > 0 && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
             pendingAdClicks--
@@ -1018,7 +1015,6 @@ fun PlayerVideoBox(
                             }
                         } while (event.changes.any { it.pressed })
 
-                        // 🚫 বিজ্ঞাপন পেন্ডিং থাকলে সামনে টেনে নেওয়া ব্লক
                         if (isHorizontalDragging) {
                             if (scrubTargetPositionMs > startScrubPos && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                                 pendingAdClicks--
@@ -1125,9 +1121,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // =============================================================
-            // 🖼️ ভিডিও লোড/বাফারিং হওয়ার সময় আসল পোস্টার থাম্বনেইল
-            // =============================================================
+            // 🖼️ ভিডিও লোড বা বাফারিং হওয়ার সময় পোস্টার থাম্বনেইল ডিসপ্লে
             if ((!isFirstFrameRendered || isBuffering) && !activeVideoThumbnail.isNullOrBlank()) {
                 Box(
                     modifier = Modifier
@@ -1753,7 +1747,7 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 📝 সাবটাইটেল (CC) বাটন — শুধুমাত্র সাবটাইটেল ট্র্যাক থাকলে প্রদর্শিত হবে
+                                // 📝 সাবটাইটেল (CC) বাটন — কেবল সাবটাইটেল থাকলে প্রদর্শিত হবে
                                 if (availableSubtitleTracks.isNotEmpty()) {
                                     Box(
                                         modifier = Modifier
@@ -2032,9 +2026,7 @@ fun PlayerVideoBox(
                             }
                         }
                     } else {
-                        // =============================================================
-                        // 🎬 এপিসোড ড্রয়ার (আগের মতো পরিষ্কার সংখ্যা ও ব্যাজ সহ)
-                        // =============================================================
+                        // এপিসোড ড্রয়ার (আগের মতো পরিষ্কার সংখ্যা ও ব্যাজ সহ)
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2102,7 +2094,6 @@ fun PlayerVideoBox(
                                 (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
                             }
 
-                            // 🎯 আগের মতো পরিচ্ছন্ন স্কয়ার বক্স
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(4),
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -2315,39 +2306,40 @@ fun PlayerVideoBox(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(6.dp))
-                                    .clickable {
-                                        onRelatedDramaClick(rec.slug)
-                                        showSideDrawer = false
-                                    }
-                                    .padding(vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(105.dp)
-                                        .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(5.dp))
-                                        .background(Color(0xFF1A1F2C))
+                                        .clickable {
+                                            onRelatedDramaClick(rec.slug)
+                                            showSideDrawer = false
+                                        }
+                                        .padding(vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    val bannerImg = rec.bannerUrl?.takeIf { it.isNotBlank() } ?: rec.posterUrl
-                                    AsyncImage(
-                                        model = bannerImg,
-                                        contentDescription = rec.title,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
+                                    Box(
+                                        modifier = Modifier
+                                            .width(105.dp)
+                                            .aspectRatio(16f / 9f)
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(Color(0xFF1A1F2C))
+                                    ) {
+                                        val bannerImg = rec.bannerUrl?.takeIf { it.isNotBlank() } ?: rec.posterUrl
+                                        AsyncImage(
+                                            model = bannerImg,
+                                            contentDescription = rec.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+
+                                    Text(
+                                        text = rec.title,
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
-
-                                Text(
-                                    text = rec.title,
-                                    color = Color.White,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
                             }
                         }
                     }
@@ -2355,4 +2347,44 @@ fun PlayerVideoBox(
             }
         }
     }
-    },
+}
+
+@Composable
+private fun FloatingDanmakuRow(
+    item: LiveDanmakuItem,
+    screenWidthPx: Float
+) {
+    val offsetX = remember { Animatable(screenWidthPx) }
+
+    LaunchedEffect(item.id) {
+        delay(item.startDelayMs)
+        offsetX.animateTo(
+            targetValue = -500f,
+            animationSpec = tween(
+                durationMillis = (7000..9500).random(),
+                easing = LinearEasing
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .offset(y = (item.lineIndex * 34).dp)
+            .graphicsLayer { translationX = offsetX.value }
+            .padding(horizontal = 8.dp)
+    ) {
+        Text(
+            text = item.text,
+            color = Color.White.copy(alpha = 0.90f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            style = TextStyle(
+                shadow = androidx.compose.ui.graphics.Shadow(
+                    color = Color.Black,
+                    offset = Offset(1.5f, 1.5f),
+                    blurRadius = 3f
+                )
+            )
+        )
+    }
+}
