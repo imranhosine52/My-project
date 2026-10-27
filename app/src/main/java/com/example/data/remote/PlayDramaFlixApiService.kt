@@ -58,20 +58,20 @@ interface PlayDramaFlixApiService {
         @Header("Authorization") authHeader: String? = null
     ): Response<SubscriptionSubmitResponse>
 
-    @POST("https://playdramaflix.com/api/v1/subscription/submit")
+    @POST("https://www.playdramaflix.com/api/v1/subscription/submit")
     suspend fun submitSubscriptionV1Direct(
         @Body request: SubscriptionSubmitRequest,
         @Header("Authorization") authHeader: String? = null
     ): Response<SubscriptionSubmitResponse>
 
-    @POST("https://playdramaflix.com/api/subscription/submit")
+    @POST("https://www.playdramaflix.com/api/subscription/submit")
     suspend fun submitSubscriptionRootDirect(
         @Body request: SubscriptionSubmitRequest,
         @Header("Authorization") authHeader: String? = null
     ): Response<SubscriptionSubmitResponse>
 
     @FormUrlEncoded
-    @POST("https://playdramaflix.com/api/v1/subscription/submit")
+    @POST("https://www.playdramaflix.com/api/v1/subscription/submit")
     suspend fun submitSubscriptionForm(
         @Field("user_id") userId: String,
         @Field("user_name") userName: String? = null,
@@ -96,7 +96,7 @@ interface PlayDramaFlixApiService {
     ): Response<SubscriptionSubmitResponse>
 
     @FormUrlEncoded
-    @POST("https://playdramaflix.com/ajax/subscription.php")
+    @POST("https://www.playdramaflix.com/ajax/subscription.php")
     suspend fun submitSubscriptionAjax(
         @Field("action") action: String = "submit_payment",
         @Field("user_id") userId: String,
@@ -150,7 +150,7 @@ interface PlayDramaFlixApiService {
     suspend fun getInteractionStatus(
         @Query("content_id") contentId: Any,
         @Query("episode_id") episodeId: Any? = null,
-        @Query("user_id") userId: Any? = null // 👈 ইউজারের নিজের রিঅ্যাক্ট পাওয়ার জন্য
+        @Query("user_id") userId: Any? = null
     ): Response<InteractionStatusResponse>
 
     // 5. Fetch Comments List (GET /api/v1/comments)
@@ -161,7 +161,7 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: Any? = null
     ): Response<CommentsListResponse>
 
-    @GET("https://playdramaflix.com/ajax/like_comment.php")
+    @GET("https://www.playdramaflix.com/ajax/like_comment.php")
     suspend fun getCommentsAjax(
         @Query("action") action: String = "get_comments",
         @Query("content_id") contentId: Any,
@@ -175,7 +175,7 @@ interface PlayDramaFlixApiService {
     ): Response<AddCommentResponse>
 
     @FormUrlEncoded
-    @POST("https://playdramaflix.com/ajax/like_comment.php")
+    @POST("https://www.playdramaflix.com/ajax/like_comment.php")
     suspend fun postCommentAjax(
         @Field("action") action: String = "add_comment",
         @Field("content_id") contentId: Any,
@@ -210,7 +210,7 @@ interface PlayDramaFlixApiService {
         @Body request: GoogleAuthRequest
     ): Response<GoogleAuthResponse>
 
-    @POST("https://playdramaflix.com/api/v1/auth/google")
+    @POST("https://www.playdramaflix.com/api/v1/auth/google")
     suspend fun authenticateGoogleDirect(
         @Body request: GoogleAuthRequest
     ): Response<GoogleAuthResponse>
@@ -234,7 +234,7 @@ interface PlayDramaFlixApiService {
     @GET("ads-config")
     suspend fun getAdsConfig(): Response<AdsConfigResponse>
 
-    @GET("https://playdramaflix.com/api/v1/ads-config")
+    @GET("https://www.playdramaflix.com/api/v1/ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 
     // 12. User Activity (Likes & Comments)
@@ -244,7 +244,7 @@ interface PlayDramaFlixApiService {
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
-    @GET("https://playdramaflix.com/api/v1/activity")
+    @GET("https://www.playdramaflix.com/api/v1/activity")
     suspend fun getUserActivityDirect(
         @Query("user_id") userId: Any,
         @Query("type") type: String = "all"
