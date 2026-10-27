@@ -161,9 +161,6 @@ fun PlayerScreen(
     val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isAnyFullscreen = isDeviceLandscape
 
-    var currentActiveSlug by remember(slug) { mutableStateOf(slug) }
-    val dramaHistoryStack = remember { mutableStateListOf<String>() }
-
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
@@ -178,15 +175,19 @@ fun PlayerScreen(
 
     var isDedicatedCommentsOpen by rememberSaveable { mutableStateOf(false) }
 
+    // =========================================================================
+    // 🔙 পারফেক্ট ব্যাক বাটন হ্যান্ডলার:
+    // ১. ফুলস্ক্রিনে থাকলে আগে পোর্ট্রেট মোডে আসবে (পোস্ট কাটবে না)
+    // ২. কমেন্ট ফুলস্ক্রিন থাকলে বন্ধ হবে
+    // ৩. পোর্ট্রেটে থাকলে পূর্ববর্তী পোস্টে বা পূর্ববর্তী পেজে ব্যাক করবে
+    // =========================================================================
     fun handleBackNavigation() {
         when {
+            isAnyFullscreen || isDeviceLandscape -> {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
             isDedicatedCommentsOpen -> {
                 isDedicatedCommentsOpen = false
-            }
-            dramaHistoryStack.isNotEmpty() -> {
-                val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
-                currentActiveSlug = prevSlug
-                viewModel.loadDramaDetails(prevSlug, context)
             }
             else -> {
                 onBackClick()
@@ -198,10 +199,7 @@ fun PlayerScreen(
 
     if (playerState.isNotFound) {
         NotFoundScreen(
-            onNavigateHome = {
-                dramaHistoryStack.clear()
-                onBackClick()
-            },
+            onNavigateHome = { onBackClick() },
             onNavigateSearch = { onBackClick() },
             onBackClick = { handleBackNavigation() },
             customMessage = "আপনি যে ড্রামা বা ভিডিওটি দেখতে চেয়েছেন তা সার্ভারে পাওয়া যায়নি অথবা মুছে ফেলা হয়েছে।"
@@ -210,15 +208,15 @@ fun PlayerScreen(
     }
 
     val content = playerState.content
-        ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
-        ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
+        ?: homeState.popularDramas.find { it.slug == slug }
+        ?: ContentItemDto(title = "Loading...", slug = slug)
 
     val cleanShortTitle = remember(content) {
         content.displayName
     }
 
-    val currentContentId = remember(content.id, currentActiveSlug) {
-        content.id.ifBlank { currentActiveSlug }
+    val currentContentId = remember(content.id, slug) {
+        content.id.ifBlank { slug }
     }
 
     var isRefreshing by remember { mutableStateOf(false) }
@@ -232,7 +230,7 @@ fun PlayerScreen(
         }
     }
 
-    val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
+    val persistentDramaComments = remember(slug) { mutableStateListOf<DramaApiComment>() }
     val mainScrollListState = rememberLazyListState()
 
     var isMediaSendingLock by remember { mutableStateOf(false) }
@@ -263,7 +261,7 @@ fun PlayerScreen(
         adConfig.rules?.timerSeconds?.let { (it / 5).coerceIn(1, 3) } ?: 2
     }
 
-    var completedAdClicks by remember(currentActiveSlug, playerState.lockedEpisodeTarget?.episodeNumber) {
+    var completedAdClicks by remember(slug, playerState.lockedEpisodeTarget?.episodeNumber) {
         mutableIntStateOf(0)
     }
 
@@ -272,7 +270,7 @@ fun PlayerScreen(
     fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
         val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L)
-        val storageKey = "unlock_expiry_${currentActiveSlug}_ep${ep.episodeNumber}"
+        val storageKey = "unlock_expiry_${slug}_ep${ep.episodeNumber}"
 
         prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
         viewModel.selectEpisode(ep.copy(isLocked = false))
@@ -304,15 +302,15 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(currentActiveSlug) {
+    LaunchedEffect(slug) {
         persistentDramaComments.clear()
         completedAdClicks = 0
         isDedicatedCommentsOpen = false
 
-        val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.displayName
-            ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.displayName
-            ?: homeState.shortsContent.find { it.slug == currentActiveSlug }?.displayName
-            ?: currentActiveSlug.replace("-", " ").replaceFirstChar { it.uppercase() }
+        val initialTitle = homeState.popularDramas.find { it.slug == slug }?.displayName
+            ?: homeState.recentlyAdded.find { it.slug == slug }?.displayName
+            ?: homeState.shortsContent.find { it.slug == slug }?.displayName
+            ?: slug.replace("-", " ").replaceFirstChar { it.uppercase() }
 
         val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
         AppAnalyticsTracker.trackScreen(
@@ -321,10 +319,10 @@ fun PlayerScreen(
             numericUid
         )
 
-        viewModel.loadDramaDetails(currentActiveSlug, context)
+        viewModel.loadDramaDetails(slug, context)
     }
 
-    LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
+    LaunchedEffect(playerState.comments, slug, currentContentId) {
         val serverComments = playerState.comments.filter { comment ->
             if (comment.id in deletedCommentIds) {
                 false
@@ -332,7 +330,7 @@ fun PlayerScreen(
                 val commentContentId = comment.rawContentId?.toString()?.trim()
                 commentContentId.isNullOrBlank() ||
                         commentContentId == currentContentId ||
-                        commentContentId == currentActiveSlug ||
+                        commentContentId == slug ||
                         commentContentId == content.id
             }
         }
@@ -394,6 +392,38 @@ fun PlayerScreen(
 
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+
+    // =========================================================================
+    // 💾 শেষ দেখা এপিসোড মেমোরি (যেমন: ১০ নম্বর এপিসোডে ছেড়ে গেলে পরবর্তীতে ১০ নম্বর পিন থাকবে)
+    // =========================================================================
+    val lastWatchedEpPrefs = remember {
+        context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
+    }
+
+    val savedEpisodeNumber = remember(slug) {
+        lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
+    }
+
+    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
+        if (playerState.episodes.isNotEmpty()) playerState.episodes else {
+            (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
+                EpisodeDto(episodeNumber = num, isLocked = num > 1)
+            }
+        }
+    }
+
+    // 🎯 ১০ নম্বর বা শেষ দেখা এপিসোড অটো-সিলেক্ট ও পিন লজিক
+    val currentEp = playerState.currentEpisode?.takeIf { it.episodeNumber > 0 }
+        ?: effectiveEpisodes.find { it.episodeNumber == savedEpisodeNumber }
+        ?: effectiveEpisodes.firstOrNull()
+
+    // যখনই ইউজার কোনো এপিসোড দেখে, সাথে সাথে তা মেমোরিতে সেভ হবে
+    LaunchedEffect(slug, currentEp?.episodeNumber) {
+        val epNum = currentEp?.episodeNumber ?: 1
+        if (slug.isNotBlank() && epNum > 0) {
+            lastWatchedEpPrefs.edit().putInt("last_ep_$slug", epNum).apply()
+        }
+    }
 
     // =========================================================================
     // 🚀 ExoPlayer ইঞ্জিন
@@ -558,16 +588,6 @@ fun PlayerScreen(
         }
     }
 
-    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
-        if (playerState.episodes.isNotEmpty()) playerState.episodes else {
-            (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
-                EpisodeDto(episodeNumber = num, isLocked = num > 1)
-            }
-        }
-    }
-
-    val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
-
     DisposableEffect(exoPlayer, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -616,7 +636,7 @@ fun PlayerScreen(
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
-        currentActiveSlug
+        slug
     ) {
         if (currentEp != null) {
             if (shouldLockEpisodes && currentEp.isLocked) {
@@ -649,7 +669,7 @@ fun PlayerScreen(
                 directCandidate.isNotBlank() -> Pair(directCandidate, false)
                 embedCandidate.isNotBlank() -> Pair(embedCandidate, true)
                 else -> {
-                    val fallback = currentEp.resolveR2StreamUrl(currentActiveSlug)
+                    val fallback = currentEp.resolveR2StreamUrl(slug)
                     Pair(fallback, !isDirectStreamableUrl(fallback))
                 }
             }
@@ -701,7 +721,7 @@ fun PlayerScreen(
         homeState.trendingDramas,
         homeState.banglaDubbed,
         homeState.hindiDubbed,
-        currentActiveSlug
+        slug
     ) {
         val currentCategories = content.categories.map { it.lowercase() }
         val currentDub = content.dubBadge.lowercase()
@@ -716,7 +736,7 @@ fun PlayerScreen(
             homeState.hindiDubbed
         ).distinctBy { it.slug }
             .filter { drama ->
-                drama.slug != currentActiveSlug &&
+                drama.slug != slug &&
                 !drama.isShorts &&
                 !drama.slug.contains("shorts", ignoreCase = true)
             }
@@ -754,10 +774,10 @@ fun PlayerScreen(
         end = Offset(shineOffset + 180f, shineOffset + 180f)
     )
 
-    val rawDownloadCandidate = remember(currentEp, currentActiveSlug, activeStreamUrl) {
+    val rawDownloadCandidate = remember(currentEp, slug, activeStreamUrl) {
         currentEp?.downloadUrl?.takeIf { it.isNotBlank() }
             ?: currentEp?.appStreamUrl?.takeIf { it.isNotBlank() }
-            ?: currentEp?.resolveDownloadUrl(currentActiveSlug)
+            ?: currentEp?.resolveDownloadUrl(slug)
             ?: activeStreamUrl
     }
     val downloadUrl = remember(rawDownloadCandidate) {
@@ -766,7 +786,7 @@ fun PlayerScreen(
 
     fun shareCurrentDrama() {
         try {
-            val shareUrl = "https://playdramaflix.com/watch/$currentActiveSlug"
+            val shareUrl = "https://playdramaflix.com/watch/$slug"
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, "Watch $cleanShortTitle on PlayDramaFlix: $shareUrl")
@@ -833,7 +853,7 @@ fun PlayerScreen(
                         PlayerVideoBox(
                             exoPlayer = exoPlayer,
                             title = cleanShortTitle,
-                            slug = currentActiveSlug,
+                            slug = slug,
                             episodeNumber = currentEp?.episodeNumber ?: 1,
                             downloadUrl = downloadUrl,
                             isDeviceLandscape = isDeviceLandscape,
@@ -841,6 +861,7 @@ fun PlayerScreen(
                             totalDurationMs = totalDurationMs,
                             isPlaying = isPlaying,
                             isVip = isUserVip,
+                            // 👈 প্লেয়ারের টপ অ্যারো ব্যাক বাটন চাপলেও ফুলস্ক্রিন থেকে আগে পোর্ট্রেটে ফিরবে
                             onBackClick = { handleBackNavigation() },
                             onPlayPauseClick = {
                                 if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -896,13 +917,8 @@ fun PlayerScreen(
                             onNavigateToVip = onNavigateToVip,
                             comments = persistentDramaComments,
                             recommendations = shuffledRecommendations,
+                            // 👈 রিকমেন্ডেশনের ড্রামায় ক্লিক করলে MainActivity-এর স্ট্যাক অনুযায়ী নেভিগেট হবে
                             onRelatedDramaClick = { newSlug ->
-                                dramaHistoryStack.add(currentActiveSlug)
-                                currentActiveSlug = newSlug
-                                persistentDramaComments.clear()
-                                selectedThreadParentComment = null
-                                inlineCommentText = ""
-                                viewModel.loadDramaDetails(newSlug, context)
                                 onRelatedDramaClick(newSlug)
                             },
                             posterUrl = content.posterUrl ?: content.bannerUrl,
@@ -1061,7 +1077,10 @@ fun PlayerScreen(
                                                         }
                                                         viewModel.toggleCommentLike(comment.id)
                                                     },
-                                                    onOpenReplies = { selectedThreadParentComment = comment },
+                                                    onOpenReplies = {
+                                                        selectedThreadParentComment = comment
+                                                        isDedicatedCommentsOpen = true
+                                                    },
                                                     onShare = {
                                                         try {
                                                             val sendIntent = Intent(Intent.ACTION_SEND).apply {
@@ -1121,7 +1140,7 @@ fun PlayerScreen(
                                 onRefresh = {
                                     coroutineScope.launch {
                                         isRefreshing = true
-                                        viewModel.loadDramaDetails(currentActiveSlug, context, forceRefresh = true)
+                                        viewModel.loadDramaDetails(slug, context, forceRefresh = true)
                                         viewModel.refreshComments()
                                         delay(600)
                                         isRefreshing = false
@@ -1136,20 +1155,14 @@ fun PlayerScreen(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .background(Color(0xFF0C0F15))
-                                        // =========================================================================
-                                        // 👈👉 পেজের মাঝখানে ডানে-বামে স্মুথ সোয়াইপ নেভিগেশন
-                                        // =========================================================================
                                         .pointerInput(selectedTabIndex) {
                                             var totalDragX = 0f
                                             detectHorizontalDragGestures(
                                                 onDragStart = { totalDragX = 0f },
                                                 onDragEnd = {
-                                                    // বামে টানলে (Drag Left) -> Comments ট্যাবে স্মুথ সুইচ
                                                     if (totalDragX < -45f && selectedTabIndex == 0) {
                                                         selectedTabIndex = 1
-                                                    }
-                                                    // ডানে টানলে (Drag Right) -> For You ট্যাবে স্মুথ সুইচ
-                                                    else if (totalDragX > 45f && selectedTabIndex == 1) {
+                                                    } else if (totalDragX > 45f && selectedTabIndex == 1) {
                                                         selectedTabIndex = 0
                                                     }
                                                 },
@@ -1163,9 +1176,7 @@ fun PlayerScreen(
                                         },
                                     contentPadding = PaddingValues(bottom = 80.dp)
                                 ) {
-                                    // =========================================================================
-                                    // ⬇️ ১ নম্বর ছবি: টাইটেলের এখানে ধরে নিচে টানলে প্লেয়ার ফুলস্ক্রিন হওয়া
-                                    // =========================================================================
+                                    // ⬇️ টাইটেল ধরে নিচে টানলে প্লেয়ার ফুলস্ক্রিন হওয়া
                                     item {
                                         Box(
                                             modifier = Modifier
@@ -1175,7 +1186,6 @@ fun PlayerScreen(
                                                     detectVerticalDragGestures(
                                                         onDragStart = { totalDragY = 0f },
                                                         onDragEnd = {
-                                                            // নিচে টানলে (Swipe Down) -> ফুলস্ক্রিন ল্যান্ডস্কেপ
                                                             if (totalDragY > 40f) {
                                                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                                             }
@@ -1225,6 +1235,7 @@ fun PlayerScreen(
                                         }
                                     }
 
+                                    // এপিসোড রো (যেখানে শেষ দেখা ১০ নম্বর এপিসোড স্বয়ংক্রিয়ভাবে একটিভ বা পিন হয়ে থাকবে)
                                     item {
                                         PlayerEpisodesRow(
                                             episodes = effectiveEpisodes,
@@ -1245,9 +1256,7 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // =========================================================================
-                                    // 📌 ২ নম্বর ছবি: স্ক্রল ডাউন করলেও দুটি ট্যাব উপরে পিন (Sticky Header) হয়ে থাকবে
-                                    // =========================================================================
+                                    // 📌 স্ক্রল করলেও দুটি ট্যাব উপরে পিন (Sticky Header) হয়ে থাকবে
                                     stickyHeader {
                                         PlayerTabsHeader(
                                             selectedTabIndex = selectedTabIndex,
@@ -1262,11 +1271,8 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // =========================================================================
-                                    // 🔄 দুটি ট্যাবের স্মুথ কনটেন্ট ট্রানজিশন
-                                    // =========================================================================
                                     if (selectedTabIndex == 0) {
-                                        // 🎬 ট্যাব ১: For you (ড্রামা কার্ড গ্রিড)
+                                        // 🎬 ট্যাব ১: For you
                                         val dramaRows = shuffledRecommendations.chunked(4)
                                         items(dramaRows.size) { rowIndex ->
                                             val rowDramas = dramaRows[rowIndex]
@@ -1282,12 +1288,7 @@ fun PlayerScreen(
                                                         cardTitle = drama.displayName,
                                                         shiningBorderBrush = shiningBorderBrush,
                                                         onClick = {
-                                                            dramaHistoryStack.add(currentActiveSlug)
-                                                            currentActiveSlug = drama.slug
-                                                            persistentDramaComments.clear()
-                                                            selectedThreadParentComment = null
-                                                            inlineCommentText = ""
-                                                            viewModel.loadDramaDetails(drama.slug, context)
+                                                            // 👈 ক্লিক করলে MainActivity-এর স্ট্যাক অনুযায়ী নেভিগেট হবে
                                                             onRelatedDramaClick(drama.slug)
                                                         },
                                                         modifier = Modifier.weight(1f)
@@ -1411,7 +1412,7 @@ fun PlayerScreen(
                         if (showBatchDownloadDialog) {
                             PlayerBatchDownloadSheet(
                                 title = cleanShortTitle,
-                                slug = currentActiveSlug,
+                                slug = slug,
                                 episodes = effectiveEpisodes,
                                 isVip = isUserVip,
                                 onClose = { showBatchDownloadDialog = false },
@@ -1421,7 +1422,7 @@ fun PlayerScreen(
                                     selectedList.forEach { ep ->
                                         R2DownloadManager.startDownload(
                                             context = context,
-                                            downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
+                                            downloadUrl = ep.resolveDownloadUrl(slug),
                                             title = cleanShortTitle,
                                             episodeNumber = ep.episodeNumber,
                                             isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
