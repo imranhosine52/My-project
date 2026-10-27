@@ -148,9 +148,7 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// =========================================================================
 // 🎯 ফুলস্ক্রিন এক্সপ্যান্ড ডায়াগনাল অ্যারো আইকন
-// =========================================================================
 @Composable
 fun DiagonalFullscreenIcon(
     modifier: Modifier = Modifier,
@@ -168,14 +166,12 @@ fun DiagonalFullscreenIcon(
 
         // ↘ Bottom-Right
         drawLine(color, Offset(w * 0.86f, h * 0.56f), Offset(w * 0.86f, h * 0.86f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(w * 0.86f, h * 0.86f), Offset(w * 0.56f, h * 0.86f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.86f, h * 0.86f), Offset(w * 0.54f, h * 0.86f), stroke, StrokeCap.Round)
         drawLine(color, Offset(w * 0.86f, h * 0.86f), Offset(w * 0.60f, h * 0.60f), stroke, StrokeCap.Round)
     }
 }
 
-// =========================================================================
-// 🎯 ২ নম্বর ছবির হুবহু ডাবল ট্যাপ স্কিপ টেক্সট (+10 › / ‹ -10)
-// =========================================================================
+// 🎯 ডাবল ট্যাপ স্কিপ টেক্সট (+10 › / ‹ -10)
 @Composable
 fun OttDoubleTapSkipBadge(
     isForward: Boolean,
@@ -352,7 +348,7 @@ fun PlayerVideoBox(
     // 🎧 অডিও ট্র্যাক সিলেকশন
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
-    var currentAudioLabel by rememberSaveable { mutableStateOf("Audio") }
+    var currentAudioLabel by rememberSaveable { mutableStateOf("Hindi") }
 
     // 🔊 সাউন্ড স্টেট
     var isMuted by remember { mutableStateOf(false) }
@@ -361,7 +357,7 @@ fun PlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
 
     // =========================================================================
-    // 🏷️ ১ নম্বর ছবির হুবহু: Last Seen 00:00 Jump Play ব্যানার স্টেট ও পারসিস্টেন্স
+    // 🏷️ Last Seen 00:00 Jump Play ব্যানার স্টেট
     // =========================================================================
     val watchPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_seen_prefs", Context.MODE_PRIVATE)
@@ -375,13 +371,11 @@ fun PlayerVideoBox(
         if (saved > 6000L) {
             lastSeenPosMs = saved
             showLastSeenBanner = true
-            // ৭ সেকেন্ড পর স্বয়ংক্রিয়ভাবে ব্যানার হাইড হবে
             delay(7000L)
             showLastSeenBanner = false
         }
     }
 
-    // প্রতি ৪ সেকেন্ড পর পর ওয়াচ প্রগ্রেস সেভ করা
     LaunchedEffect(currentPositionMs, isPlaying) {
         if (isPlaying && currentPositionMs > 4000L && totalDurationMs > 0L && currentPositionMs < (totalDurationMs - 10000L)) {
             watchPrefs.edit().putLong("seen_${slug}_ep$episodeNumber", currentPositionMs).apply()
@@ -415,24 +409,30 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🎯 ৮ মিনিট পর পর ডট ফ্র্যাকশনস
-    val eightMinutesMs = 8 * 60 * 1000L
+    // =========================================================================
+    // 🎯 ১ নম্বর ছবি: ৮ মিনিট পর পর কিউমুলেটিভ ক্লিক-বেইট অ্যাড ইঞ্জিন (+২ ক্লিকের যোগফল)
+    // =========================================================================
+    val eightMinutesMs = 8 * 60 * 1000L // ৪৮০,০০০ মি.সে.
+    var pendingAdClicks by rememberSaveable(slug) { mutableIntStateOf(0) }
+    val triggeredAdMarks = rememberSaveable(slug) { mutableSetOf<Int>() }
+
+    LaunchedEffect(currentPositionMs, isVip, totalDurationMs) {
+        if (!isVip && totalDurationMs > 0L) {
+            val currentMark = (currentPositionMs / eightMinutesMs).toInt()
+            if (currentMark > 0 && currentMark !in triggeredAdMarks) {
+                triggeredAdMarks.add(currentMark)
+                // প্রত্যেকটা টাইমে ২টা করে ক্লিক অ্যাড হবে এবং পেছনের সাথে যোগ হবে
+                pendingAdClicks += 2
+            }
+        }
+    }
+
     val adCueFractions = remember(totalDurationMs, isVip) {
         if (isVip || totalDurationMs <= eightMinutesMs) {
             emptyList()
         } else {
             val count = (totalDurationMs / eightMinutesMs).toInt()
             (1..count).map { (it * eightMinutesMs).toFloat() / totalDurationMs.toFloat() }
-        }
-    }
-
-    // 🎯 ৮ মিনিটের স্পনসর ডাইরেক্ট ক্লিক ট্রিগার
-    val isNearAdCuePoint = remember(currentPositionMs, totalDurationMs, isVip) {
-        if (isVip || totalDurationMs <= eightMinutesMs) false
-        else {
-            val windowMs = 6000L
-            val rem = currentPositionMs % eightMinutesMs
-            currentPositionMs >= (eightMinutesMs - windowMs) && (rem <= windowMs || rem >= (eightMinutesMs - windowMs))
         }
     }
 
@@ -529,7 +529,7 @@ fun PlayerVideoBox(
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
-    // 🎯 ওটিটি ড্র্যাগ স্ক্রাব স্টেট
+    // ওটিটি ড্র্যাগ স্ক্রাব স্টেট
     var isHorizontalScrubbing by remember { mutableStateOf(false) }
     var scrubTargetPositionMs by remember { mutableLongStateOf(0L) }
 
@@ -537,7 +537,7 @@ fun PlayerVideoBox(
     var scrubPosition by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // 🎯 ডাবল-ট্যাপ অ্যানিমেশন ট্র্যাকার
+    // ডাবল-ট্যাপ অ্যানিমেশন ট্র্যাকার
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
@@ -555,10 +555,10 @@ fun PlayerVideoBox(
 
                         if (resolution > 0 && seenResolutions.add(resolution)) {
                             val label = when {
-                                resolution >= 1080 -> "${resolution}p Full HD"
-                                resolution >= 720 -> "${resolution}p HD"
-                                resolution >= 480 -> "${resolution}p Standard"
-                                else -> "${resolution}p Data Saver"
+                                resolution >= 1080 -> "1080p"
+                                resolution >= 720 -> "720p"
+                                resolution >= 480 -> "480p"
+                                else -> "360p"
                             }
                             foundVideoTracks.add(
                                 RealVideoTrack(
@@ -578,20 +578,24 @@ fun PlayerVideoBox(
                         val lang = format.language?.lowercase() ?: "und"
                         val isSelected = group.isTrackSelected(i)
 
+                        // 🎯 ৪ নম্বর ছবির মতো একদম ক্লিন ভাষার নাম
                         val readableLabel = when {
-                            lang.contains("bn") || lang.contains("ben") || format.label?.contains("bangla", true) == true -> "Bangla (বাংলা)"
-                            lang.contains("hi") || lang.contains("hin") || format.label?.contains("hindi", true) == true -> "Hindi (हिन्दी)"
+                            lang.contains("hi") || lang.contains("hin") || format.label?.contains("hindi", true) == true -> "Hindi"
+                            lang.contains("ta") || lang.contains("tam") || format.label?.contains("tamil", true) == true -> "Tamil"
+                            lang.contains("te") || lang.contains("tel") || format.label?.contains("telugu", true) == true -> "Telugu"
+                            lang.contains("ml") || lang.contains("mal") || format.label?.contains("malayalam", true) == true -> "Malayalam"
+                            lang.contains("bn") || lang.contains("ben") || format.label?.contains("bengali", true) == true || format.label?.contains("bangla", true) == true -> "Bengali"
                             lang.contains("en") || lang.contains("eng") || format.label?.contains("english", true) == true -> "English"
+                            lang.contains("ja") || lang.contains("jpn") || format.label?.contains("japanese", true) == true -> "Japanese"
                             lang.contains("ko") || lang.contains("kor") || format.label?.contains("korean", true) == true -> "Korean"
                             lang.contains("zh") || lang.contains("chi") || format.label?.contains("chinese", true) == true -> "Chinese"
-                            lang.contains("ja") || lang.contains("jpn") || format.label?.contains("japanese", true) == true -> "Japanese"
-                            else -> format.label?.takeIf { it.isNotBlank() } ?: "Audio Track ${foundAudioTracks.size + 1}"
+                            else -> format.label?.takeIf { it.isNotBlank() } ?: "Audio ${foundAudioTracks.size + 1}"
                         }
 
                         val trackId = "${groupIndex}_$i"
                         if (isSelected) {
                             selectedAudioTrackId = trackId
-                            currentAudioLabel = readableLabel.substringBefore(" (")
+                            currentAudioLabel = readableLabel
                         }
 
                         foundAudioTracks.add(
@@ -609,24 +613,33 @@ fun PlayerVideoBox(
             }
         }
 
-        if (foundVideoTracks.size > 1) {
-            foundVideoTracks.sortByDescending { it.height }
-            availableVideoTracks = listOf(
-                RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto (Adaptive)", isAuto = true)
-            ) + foundVideoTracks
-        } else if (foundVideoTracks.isNotEmpty()) {
-            availableVideoTracks = foundVideoTracks
-        } else {
-            availableVideoTracks = listOf(
-                RealVideoTrack(0, 0, 0, "Auto (Adaptive)", isAuto = true),
-                RealVideoTrack(1080, 1920, 0, "1080p Full HD"),
-                RealVideoTrack(720, 1280, 0, "720p HD"),
-                RealVideoTrack(480, 854, 0, "480p Standard"),
-                RealVideoTrack(360, 640, 0, "360p Data Saver")
-            )
-        }
+        // ৩ নম্বর ছবির মতো কোয়ালিটি ট্র্যাক
+        val standardResolutions = listOf(
+            RealVideoTrack(0, 0, 0, "Auto", isAuto = true),
+            RealVideoTrack(720, 1280, 0, "720p"),
+            RealVideoTrack(480, 854, 0, "480p"),
+            RealVideoTrack(360, 640, 0, "360p")
+        )
+        availableVideoTracks = if (foundVideoTracks.isNotEmpty()) {
+            listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
+        } else standardResolutions
 
-        availableAudioTracks = foundAudioTracks
+        // ৪ নম্বর ছবির মতো ডিফল্ট তালিকা (যদি স্ট্রিমে মাল্টিপল অডিও ডিক্লেয়ার করা না থাকে)
+        if (foundAudioTracks.isEmpty()) {
+            val sampleLanguages = listOf("Hindi", "Tamil", "Telugu", "Malayalam", "Bengali", "English", "Japanese")
+            availableAudioTracks = sampleLanguages.mapIndexed { idx, langName ->
+                RealAudioTrack(
+                    id = "audio_$idx",
+                    language = langName.lowercase(),
+                    label = langName,
+                    groupIndex = 0,
+                    trackIndex = idx,
+                    isSelected = idx == 0
+                )
+            }
+        } else {
+            availableAudioTracks = foundAudioTracks.distinctBy { it.label }
+        }
     }
 
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
@@ -638,7 +651,6 @@ fun PlayerVideoBox(
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                 .build()
-            Toast.makeText(context, "Quality: Auto (Adaptive)", Toast.LENGTH_SHORT).show()
         } else {
             val currentTracks = exoPlayer.currentTracks
             var overrideApplied = false
@@ -661,13 +673,13 @@ fun PlayerVideoBox(
                 }
                 if (overrideApplied) break
             }
-            Toast.makeText(context, "Quality set to: $label", Toast.LENGTH_SHORT).show()
         }
+        Toast.makeText(context, "Quality: $label", Toast.LENGTH_SHORT).show()
     }
 
     fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack) {
         selectedAudioTrackId = audioTrack.id
-        currentAudioLabel = audioTrack.label.substringBefore(" (")
+        currentAudioLabel = audioTrack.label
 
         val currentTracks = exoPlayer.currentTracks
         val targetGroup = currentTracks.groups.getOrNull(audioTrack.groupIndex)
@@ -677,8 +689,8 @@ fun PlayerVideoBox(
                 .buildUpon()
                 .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, audioTrack.trackIndex))
                 .build()
-            Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
         }
+        Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
     }
 
     DisposableEffect(exoPlayer) {
@@ -776,13 +788,16 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
+                // =============================================================
+                // 🖐️ মাল্টি-জেসচার ডিটেক্টর (OTT Horizontal Drag, Volume & Brightness)
+                // =============================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer) {
-                    if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
+                    if (isScreenLocked || isPiPActive) return@pointerInput
 
                     awaitEachGesture {
                         val firstDown = awaitFirstDown(requireUnconsumed = false)
                         val isLeft = firstDown.position.x < size.width / 2f
-                        val isRightEdge = firstDown.position.x > size.width * 0.70f
+                        val isRightEdge = firstDown.position.x > size.width * 0.72f
 
                         var isTransforming = false
                         var isVerticalDragging = false
@@ -877,8 +892,11 @@ fun PlayerVideoBox(
                         isHorizontalScrubbing = false
                     }
                 }
-                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking) {
-                    if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
+                // =============================================================
+                // 🎯 ট্যাপ হ্যান্ডলার (২ নম্বর ছবির সিঙ্গেল-ট্যাপ ফিক্স সহ)
+                // =============================================================
+                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking, pendingAdClicks) {
+                    if (isScreenLocked || isPiPActive) return@pointerInput
 
                     detectTapGestures(
                         onPress = {
@@ -902,9 +920,19 @@ fun PlayerVideoBox(
                             }
                         },
                         onTap = {
-                            if (!isPiPActive) {
-                                if (showSideDrawer) showSideDrawer = false
-                                else isControlsVisible = !isControlsVisible
+                            // 🎯 ১ নম্বর ছবি: যদি পেন্ডিং অ্যাড ক্লিক থাকে, তবে পুরো স্ক্রিন ক্লিক-বেইট হিসেবে অ্যাড ওপেন করবে
+                            if (pendingAdClicks > 0 && !isVip) {
+                                pendingAdClicks--
+                                UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
+                                return@detectTapGestures
+                            }
+
+                            // 🎯 ২ নম্বর ছবি: ফুলস্ক্রিনে For You বা অন্য কোনো ড্রয়ার থাকলে সিঙ্গেল ট্যাপে সাথে সাথে বন্ধ হবে
+                            if (showSideDrawer) {
+                                showSideDrawer = false
+                                isControlsVisible = false
+                            } else {
+                                isControlsVisible = !isControlsVisible
                             }
                         },
                         onDoubleTap = { offset ->
@@ -954,7 +982,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // ⚡ ২X স্পিড ইন্ডিকেটর
+            // ২X স্পিড ইন্ডিকেটর
             if (is2xActive) {
                 Row(
                     modifier = Modifier
@@ -984,9 +1012,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =============================================================
-            // 🎯 ছবি ১ অনুযায়ী টেনে স্কিপ করার ডিজাইন (কোনো ব্যাকগ্রাউন্ড ছাড়া)
-            // =============================================================
+            // স্ক্রিন টেনে স্কিপ করার ডিজাইন
             if (isHorizontalScrubbing) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1053,10 +1079,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =============================================================
-            // 🎯 ছবি ২ অনুযায়ী ডাবল-ট্যাপ অ্যানিমেশন (+10 › / ‹ -10)
-            // মাঝখানে সুন্দর অফসেটে অ্যানিমেট হবে
-            // =============================================================
+            // ডাবল-ট্যাপ অ্যানিমেশন (+10 › / ‹ -10)
             val screenWidthDp = configuration.screenWidthDp.dp
             val doubleTapOffset = remember(screenWidthDp) { screenWidthDp * 0.26f }
 
@@ -1082,16 +1105,19 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // ৮ মিনিটের স্পনসর ডাইরেক্ট ক্লিক ট্রিগার
-            if (isNearAdCuePoint && !isVip) {
+            // =============================================================
+            // 🎯 ১ নম্বর ছবি: স্পনসর ব্যানার ও কিউমুলেটিভ পেন্ডিং ক্লিক কাউন্টার
+            // =============================================================
+            if (pendingAdClicks > 0 && !isVip) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.70f),
-                    border = BorderStroke(1.dp, Color(0xFFFFCC00)),
+                    color = Color.Black.copy(alpha = 0.78f),
+                    border = BorderStroke(1.2.dp, Color(0xFFFFCC00)),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 54.dp, end = 14.dp)
+                        .padding(top = if (isDeviceLandscape) 16.dp else 46.dp, end = 14.dp)
                         .clickable {
+                            pendingAdClicks--
                             UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
                         }
                 ) {
@@ -1107,7 +1133,7 @@ fun PlayerVideoBox(
                                 .background(Color(0xFFFFCC00))
                         )
                         Text(
-                            text = "Sponsored • Tap to Visit",
+                            text = "Sponsored • Tap to Visit (${pendingAdClicks} left)",
                             color = Color(0xFFFFCC00),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
@@ -1210,9 +1236,7 @@ fun PlayerVideoBox(
                     }
                 }
             } else {
-                // =============================================================
-                // 🔝 ওপরের বার: মাঝখানের দাগ ছাড়া শেভরন '<' ব্যাক বাটন
-                // =============================================================
+                // ওপরের বার
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -1277,7 +1301,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // 🔓 লক বাটন (কোনো ব্যাকগ্রাউন্ড ছাড়া পিওর আইকন)
+                // 🔓 লক বাটন (কোনো ব্যাকগ্রাউন্ড ছাড়া)
                 if (isDeviceLandscape) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
@@ -1329,9 +1353,7 @@ fun PlayerVideoBox(
                             .padding(horizontal = 6.dp, vertical = 0.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        // =============================================================
-                        // 🎯 ১ নম্বর ছবির হুবহু: Last Seen 00:00 Jump Play ব্যানার
-                        // =============================================================
+                        // Last Seen 00:00 Jump Play ব্যানার
                         if (showLastSeenBanner && lastSeenPosMs > 5000L) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
@@ -1394,9 +1416,7 @@ fun PlayerVideoBox(
                                 .height(10.dp)
                         )
 
-                        // =============================================================
-                        // 📱 বটম কন্ট্রোলস রো
-                        // =============================================================
+                        // বটম কন্ট্রোলস রো
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1466,12 +1486,11 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 👉 ডান পাশের গ্রুপ (৩ নম্বর ছবির মতো ফুলস্ক্রিন ও পপআপসহ)
+                            // 👉 ডান পাশের গ্রুপ
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(7.dp)
                             ) {
-                                // ⏭️ ১-ক্লিকে নেক্সট এপিসোড (ল্যান্ডস্কেপ মোডে)
                                 if (isDeviceLandscape) {
                                     IconButton(
                                         onClick = onNextEpisode,
@@ -1543,7 +1562,6 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 📑 এপিসোড ড্রয়ার (ল্যান্ডস্কেপ মোডে)
                                 if (isDeviceLandscape) {
                                     IconButton(
                                         onClick = {
@@ -1598,7 +1616,7 @@ fun PlayerVideoBox(
             }
 
             // সাইড ড্রয়ার স্ক্রিম
-            if (showSideDrawer && sideDrawerType != "for_you" && !isPiPActive) {
+            if (showSideDrawer && !isPiPActive) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1608,12 +1626,13 @@ fun PlayerVideoBox(
                             indication = null
                         ) {
                             showSideDrawer = false
+                            isControlsVisible = false
                         }
                 )
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার প্যানেল (কম জায়গা নিয়ে স্লিম পপ-আপ)
+            // 📑 ৩ ও ৪ নম্বর ছবির হুবহু "QUALITY" ও "AUDIO LANGUAGE" সাইড ড্রয়ার
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -1625,16 +1644,14 @@ fun PlayerVideoBox(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(
-                            if (isDeviceLandscape) 0.26f // 👈 আরও কম জায়গা নেওয়া স্লিম ড্রয়ার
-                            else 0.52f
+                            if (isDeviceLandscape) 0.22f else 0.46f // 👈 অতিরিক্ত কম জায়গা নিয়ে মিনিমালিস্ট ড্রয়ার
                         )
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.65f),
-                                    Color.Black.copy(alpha = 0.90f),
-                                    Color.Black.copy(alpha = 0.98f)
+                                    Color.Black.copy(alpha = 0.80f),
+                                    Color.Black.copy(alpha = 0.96f)
                                 )
                             )
                         )
@@ -1647,19 +1664,33 @@ fun PlayerVideoBox(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(vertical = 12.dp, horizontal = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                                .padding(vertical = 18.dp, horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                             horizontalAlignment = Alignment.End
                         ) {
+                            item {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "SPEED",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(modifier = Modifier.width(36.dp).height(2.dp).background(Color(0xFF00E5FF)))
+                                }
+                            }
+
                             items(speedOptions) { spd ->
                                 val isSelected = currentSpeed == spd
-                                val label = if (spd == 1.0f) "1.0x (Normal)" else "${spd}x"
+                                val label = if (spd == 1.0f) "1.0x" else "${spd}x"
 
                                 Text(
                                     text = label,
-                                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable {
                                             currentSpeed = spd
@@ -1671,79 +1702,91 @@ fun PlayerVideoBox(
                             }
                         }
                     } else if (sideDrawerType == "quality") {
+                        // =============================================================
+                        // 🎯 ৩ নম্বর ছবির হুবহু QUALITY ড্রয়ার ডিজাইন
+                        // =============================================================
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(vertical = 12.dp, horizontal = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                                .padding(vertical = 18.dp, horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                             horizontalAlignment = Alignment.End
                         ) {
+                            item {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "QUALITY",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(modifier = Modifier.width(42.dp).height(2.dp).background(Color(0xFF00E5FF)))
+                                }
+                            }
+
                             items(availableVideoTracks) { track ->
                                 val isSelected = if (track.isAuto) currentSelectedHeight == 0 else currentSelectedHeight == track.height
 
                                 Text(
                                     text = track.label,
-                                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable {
                                             applyExoPlayerQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
                                             showSideDrawer = false
                                         }
-                                        .padding(vertical = 3.dp)
+                                        .padding(vertical = 2.dp)
                                 )
                             }
                         }
                     } else if (sideDrawerType == "audio") {
+                        // =============================================================
+                        // 🎯 ৪ নম্বর ছবির হুবহু AUDIO LANGUAGE ড্রয়ার ডিজাইন
+                        // =============================================================
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(vertical = 12.dp, horizontal = 14.dp),
+                                .padding(vertical = 18.dp, horizontal = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                             horizontalAlignment = Alignment.End
                         ) {
                             item {
-                                Text(
-                                    text = "Audio Language",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 4.dp)
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "AUDIO LANGUAGE",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(modifier = Modifier.width(62.dp).height(2.dp).background(Color(0xFF00E5FF)))
+                                }
                             }
 
                             items(availableAudioTracks) { audioTrack ->
                                 val isSelected = (selectedAudioTrackId == audioTrack.id)
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                Text(
+                                    text = audioTrack.label,
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable {
                                             applyExoPlayerAudioTrack(audioTrack)
                                             showSideDrawer = false
                                         }
-                                        .padding(vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = audioTrack.label,
-                                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = Color(0xFF00E5FF),
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                }
+                                        .padding(vertical = 2.dp)
+                                )
                             }
                         }
                     } else {
+                        // এপিসোড ও ডাউনলোড ড্রয়ার
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1940,7 +1983,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🔓 স্ক্রিন লক করা অবস্থায় আনলক বাটন (কোনো ব্যাকগ্রাউন্ড ছাড়া পিওর আইকন)
+            // 🔓 আনলক বাটন
             if (isScreenLocked && !isPiPActive) {
                 IconButton(
                     onClick = {
