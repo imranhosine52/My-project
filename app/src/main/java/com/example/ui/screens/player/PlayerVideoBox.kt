@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
@@ -89,6 +90,9 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -136,7 +140,7 @@ data class RealSubtitleTrack(
 )
 
 // -----------------------------------------------------------------------------
-// 🌟 PD Flix প্রিমিয়াম কালার গ্রেডিং ব্র্যান্ড লোগো (হুবহু ১ম ছবির ডিজাইন অনুযায়ী)
+// 🌟 PD Flix প্রিমিয়াম ব্র্যান্ড লোগো (শুধুমাত্র বাঁকা সুইশ লাইন সহ)
 // -----------------------------------------------------------------------------
 @Composable
 fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
@@ -177,7 +181,6 @@ fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
 
             // 'Flix' -> Glossy Ice White with 3 Angled Speed Slash Bars
             Box(contentAlignment = Alignment.TopCenter) {
-                // 'l' ও 'i'-এর মাথার স্পিড বার
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier
@@ -208,7 +211,7 @@ fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
             }
         }
 
-        // ২. নিচের বাঁকানো স্পিড সুইশ (Swoosh Arc Line)
+        // ২. শুধুমাত্র নামের নিচের বাঁকা স্পিড সুইশ (Swoosh Arc Line)
         Canvas(
             modifier = Modifier
                 .width(175.dp)
@@ -306,12 +309,10 @@ fun DiagonalFullscreenIcon(
         val h = size.height
         val stroke = 1.7.dp.toPx()
 
-        // ↖ Top-Left
         drawLine(color, Offset(w * 0.14f, h * 0.44f), Offset(w * 0.14f, h * 0.14f), stroke, StrokeCap.Round)
         drawLine(color, Offset(w * 0.14f, h * 0.14f), Offset(w * 0.44f, h * 0.14f), stroke, StrokeCap.Round)
         drawLine(color, Offset(w * 0.14f, h * 0.14f), Offset(w * 0.40f, h * 0.40f), stroke, StrokeCap.Round)
 
-        // ↘ Bottom-Right
         drawLine(color, Offset(w * 0.86f, h * 0.56f), Offset(w * 0.86f, h * 0.86f), stroke, StrokeCap.Round)
         drawLine(color, Offset(w * 0.86f, h * 0.86f), Offset(w * 0.54f, h * 0.86f), stroke, StrokeCap.Round)
         drawLine(color, Offset(w * 0.86f, h * 0.86f), Offset(w * 0.60f, h * 0.60f), stroke, StrokeCap.Round)
@@ -512,59 +513,79 @@ fun PlayerVideoBox(
     var isFirstFrameRendered by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // ⚡ রিয়েল বাফার ও ১০০% নিখুঁত লোডিং প্রোগ্রেস ইঞ্জিন
+    // ⚡ সার্ভার থেকে ১০০% রিয়েল-টাইম বাইট ডাউনলোড ও স্পিড ট্র্যাকিং
     // =========================================================================
+    val targetStartupBufferBytes = 2 * 1024 * 1024L // 🎯 ঠিক ২ এমবি (2.00 MB)
+    var realDownloadedBytes by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
+    var realBitrateBps by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
+
     val isVideoActuallyPlaying = (isPlaying && currentPositionMs > 300L) || (exoPlayer.isPlaying && currentPositionMs > 100L)
     val isPlaybackReady = exoPlayer.playbackState == Player.STATE_READY
 
-    // নতুন পর্ব বা স্ল্যাগ লোড হলে রিসেট
+    // নতুন পর্বে রিসেট
     LaunchedEffect(episodeNumber, slug) {
+        realDownloadedBytes = 0L
+        realBitrateBps = 0L
         isFirstFrameRendered = false
         isBuffering = true
     }
 
-    // ভিডিও প্রস্তুত হওয়া মাত্র লোডিং স্টেট সমাপ্ত
-    LaunchedEffect(isVideoActuallyPlaying, isPlaybackReady) {
-        if (isVideoActuallyPlaying || isPlaybackReady) {
+    // 🎯 ২ এমবি ডাউনলোড পূর্ণ হওয়া মাত্র অথবা প্লেয়ার রেডি হওয়া মাত্র ইনস্ট্যান্ট প্লেব্যাক
+    LaunchedEffect(realDownloadedBytes, isPlaybackReady) {
+        if (realDownloadedBytes >= targetStartupBufferBytes || isPlaybackReady) {
+            if (!exoPlayer.isPlaying) {
+                exoPlayer.play()
+            }
             isFirstFrameRendered = true
             isBuffering = false
         }
     }
 
-    // প্রারম্ভিক স্টার্টআপ বাফার লক্ষ্যমাত্রা (১৫০০ms বা ১.৫ সেকেন্ড)
-    val startupBufferTargetMs = 1500f
-    val currentBufferedAheadMs = (bufferedPositionMs - currentPositionMs).coerceAtLeast(0L)
+    // ভিডিও স্ক্রিনে চলা শুরু করলে লোডিং নিশ্চিতভাবে শেষ হবে
+    LaunchedEffect(isVideoActuallyPlaying) {
+        if (isVideoActuallyPlaying) {
+            isFirstFrameRendered = true
+            isBuffering = false
+        }
+    }
 
-    val realLoadingPercentage by remember(currentBufferedAheadMs, isPlaybackReady, isVideoActuallyPlaying, isFirstFrameRendered) {
+    // আসল পার্সেন্টেজ হিসাব (০% থেকে ১০০%)
+    val realLoadingPercentage by remember(realDownloadedBytes, isPlaybackReady, isVideoActuallyPlaying, isFirstFrameRendered) {
         derivedStateOf {
             when {
                 isVideoActuallyPlaying || isFirstFrameRendered || isPlaybackReady -> 100
                 else -> {
-                    val fraction = (currentBufferedAheadMs.toFloat() / startupBufferTargetMs).coerceIn(0f, 1f)
-                    (fraction * 100).toInt().coerceIn(12, 99)
+                    val pct = ((realDownloadedBytes.toFloat() / targetStartupBufferBytes.toFloat()) * 100).toInt()
+                    pct.coerceIn(0, 99)
                 }
             }
         }
     }
 
-    // 🎯 মূল সমাধান: ভিডিও যদি বাস্তবে চলতে থাকে, লোডিং ওভারলে কোনোভাবেই দেখাবে না!
+    // আসল মেগাবাইট ফরম্যাট
+    val downloadedMbText by remember(realDownloadedBytes, isVideoActuallyPlaying, isPlaybackReady) {
+        derivedStateOf {
+            val mb = realDownloadedBytes / (1024f * 1024f)
+            val displayMb = if (isVideoActuallyPlaying || isPlaybackReady) 2.00f else mb.coerceIn(0f, 2.00f)
+            String.format(Locale.US, "%.2fMB / 2.00MB", displayMb)
+        }
+    }
+
+    // আসল ইন্টারনেট ডাউনলোড স্পিড
+    val realSpeedText by remember(realBitrateBps) {
+        derivedStateOf {
+            if (realBitrateBps > 0L) {
+                val speedMBs = (realBitrateBps / 8f) / (1024f * 1024f)
+                String.format(Locale.US, "%.2fMB/s", speedMBs)
+            } else {
+                ""
+            }
+        }
+    }
+
+    // লোডিং স্ক্রিন প্রদর্শনের নিখুঁত শর্ত (ভিডিও প্লে হলে সাথে সাথে ভ্যানিশ হবে)
     val shouldShowLoadingScreen = !isVideoActuallyPlaying && !isFirstFrameRendered &&
             (exoPlayer.playbackState == Player.STATE_BUFFERING || exoPlayer.playbackState == Player.STATE_IDLE)
-
-    var liveSpeedText by remember { mutableStateOf("2.45MB/s") }
-    LaunchedEffect(bufferedPositionMs, shouldShowLoadingScreen) {
-        if (shouldShowLoadingScreen) {
-            val rand = 1.65 + (Math.random() * 1.55)
-            liveSpeedText = String.format(Locale.US, "%.2fMB/s", rand)
-        }
-    }
-
-    // প্লেব্যাক রেডি হওয়া মাত্র স্বয়ংক্রিয়ভাবে প্লে চালানো নিশ্চিত করা
-    LaunchedEffect(isPlaybackReady) {
-        if (isPlaybackReady && !exoPlayer.isPlaying) {
-            exoPlayer.play()
-        }
-    }
 
     // 🏷️ Last Seen ব্যানার স্টেট
     val watchPrefs = remember(slug) {
@@ -967,8 +988,11 @@ fun PlayerVideoBox(
         }
     }
 
+    // =========================================================================
+    // 📡 আসল বাইট ও স্পিড পরিমাপক লিসেনার
+    // =========================================================================
     DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
+        val playerListener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 extractTracks(tracks)
             }
@@ -1007,8 +1031,38 @@ fun PlayerVideoBox(
                 isFirstFrameRendered = true
             }
         }
-        exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
+
+        val analyticsListener = object : AnalyticsListener {
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalDurationMs: Int,
+                totalBytesTransferred: Long,
+                bitrateEstimate: Long
+            ) {
+                if (totalBytesTransferred > realDownloadedBytes) {
+                    realDownloadedBytes = totalBytesTransferred
+                }
+                realBitrateBps = bitrateEstimate
+            }
+
+            override fun onLoadCompleted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData
+            ) {
+                if (loadEventInfo.bytesLoaded > 0L) {
+                    realDownloadedBytes += loadEventInfo.bytesLoaded
+                }
+            }
+        }
+
+        exoPlayer.addListener(playerListener)
+        exoPlayer.addAnalyticsListener(analyticsListener)
+
+        onDispose {
+            exoPlayer.removeListener(playerListener)
+            exoPlayer.removeAnalyticsListener(analyticsListener)
+        }
     }
 
     LaunchedEffect(isPlaying, isUserSeeking) {
@@ -1281,57 +1335,81 @@ fun PlayerVideoBox(
                     )
             )
 
-            // =============================================================
-            // 🌟 ১ম ছবির মতো আসল PD Flix লোডিং স্ক্রিন (স্মুথ ফেড আউট সহ)
-            // =============================================================
+            // =========================================================================
+            // 🌟 আধুনিক অ্যাম্বিয়েন্ট গ্লো ও ১০০% রিয়েল বাফার লোডিং স্ক্রিন
+            // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
                 enter = fadeIn(tween(120)),
-                exit = fadeOut(tween(220)),
+                exit = fadeOut(tween(200)),
                 modifier = Modifier.fillMaxSize()
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF06080E)),
+                        .background(Color(0xFF06080E))
+                        // 🌈 প্রিমিয়াম নিয়ন গ্লো সারফেস (চারদিকের সফট অরা)
+                        .drawBehind {
+                            val centerOffset = Offset(size.width / 2f, size.height / 2f)
+
+                            // সেন্টারের ব্যাকড্রপ গ্লো
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFF00E5FF).copy(alpha = 0.16f),
+                                        Color(0xFFFF007A).copy(alpha = 0.08f),
+                                        Color.Transparent
+                                    ),
+                                    center = centerOffset,
+                                    radius = size.minDimension * 0.72f
+                                ),
+                                radius = size.minDimension * 0.72f,
+                                center = centerOffset
+                            )
+
+                            // চারদিকের সফট ভিগনেট গ্লো
+                            drawRect(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color(0xFF00F0FF).copy(alpha = 0.04f),
+                                        Color(0xFFFF007A).copy(alpha = 0.08f)
+                                    ),
+                                    center = centerOffset,
+                                    radius = size.maxDimension * 0.75f
+                                )
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        // 🎬 আসল PD Flix ব্র্যান্ড লোগো
+                        // 🎬 আসল PD Flix ব্র্যান্ড লোগো (শুধুমাত্র বাঁকা সুইশ লাইন সহ)
                         PdFlixBrandLogo()
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
 
-                        // মাঝে উজ্জ্বল নিয়ন ডিভাইডার লাইন
-                        Box(
-                            modifier = Modifier
-                                .width(180.dp)
-                                .height(2.dp)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            Color(0xFF00E5FF).copy(alpha = 0.8f),
-                                            Color(0xFF00E676),
-                                            Color(0xFF00E5FF).copy(alpha = 0.8f),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                        )
+                        // 🎯 আসল লাইভ প্রোগ্রেস, ডাউনলোড করা আসল এমবি এবং আসল স্পিড
+                        val statsText = if (realSpeedText.isNotBlank()) {
+                            "Starting soon... $realLoadingPercentage%  $downloadedMbText  $realSpeedText"
+                        } else {
+                            "Starting soon... $realLoadingPercentage%  $downloadedMbText"
+                        }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // 🎯 আসল লাইভ প্রোগ্রেস ও লাইভ স্পিড
                         Text(
-                            text = "Starting soon... $realLoadingPercentage%  $liveSpeedText",
+                            text = statsText,
                             color = Color.White.copy(alpha = 0.95f),
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.4.sp
+                            letterSpacing = 0.4.sp,
+                            style = TextStyle(
+                                shadow = androidx.compose.ui.graphics.Shadow(
+                                    color = Color.Black.copy(alpha = 0.85f),
+                                    blurRadius = 6f
+                                )
+                            )
                         )
                     }
                 }
@@ -1751,7 +1829,7 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // ২ নম্বর ছবির মতো ছোট কালো বাবল (বর্ডার ছাড়া)
+                        // ২ নম্বর ছবির মতো ছোট কালো বাবল
                         if (isUserSeeking && totalDurationMs > 0) {
                             Box(
                                 modifier = Modifier
@@ -1805,7 +1883,6 @@ fun PlayerVideoBox(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // 👈 বাঁ পাশের গ্রুপ: [▶ / ⏸] [🔊 / 🔇] 00:07 / 40:13
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1867,7 +1944,6 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 👉 ডান পাশের গ্রুপ
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(7.dp)
