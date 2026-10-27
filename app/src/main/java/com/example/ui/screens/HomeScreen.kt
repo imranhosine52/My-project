@@ -59,8 +59,8 @@ fun HomeScreen(
     var showVersionScannerDialog by remember { mutableStateOf(false) }
     val installedVersion = remember { viewModel.getInstalledAppVersion() }
 
+    // 🎯 ফিক্সড: অন-রিজিউমে ক্যাশ ডিলিট করা বন্ধ করা হয়েছে যাতে কোনো লোডিং না আসে
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        viewModel.loadHomeContent(forceRefresh = true)
         viewModel.refreshVipStatusAndProfile()
     }
 
@@ -165,6 +165,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
+        // যদি মেমোরিতে অলরেডি ডেটা থাকে, তবে কোনো স্পিনার দেখানো হবে না
         if (homeState.isLoading && !isRefreshing && homeState.popularDramas.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -184,6 +185,7 @@ fun HomeScreen(
                 onRefresh = {
                     coroutineScope.launch {
                         isRefreshing = true
+                        // ইউজার নিজে পুল-টু-রিফ্রেশ করলেই কেবল ফ্রেশ ডেটা ফেচ হবে
                         viewModel.loadHomeContent(forceRefresh = true)
                         viewModel.refreshVipStatusAndProfile()
                         delay(500)
@@ -202,7 +204,7 @@ fun HomeScreen(
                     val pageAlpha = lerp(0.55f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
                     val pageScale = lerp(0.96f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
-                    // 🎯 কনটেন্ট মার্জিন একদম উপরে তুলে দেওয়া হয়েছে
+                    // 🎯 কনটেন্ট মার্জিন ব্যালান্স
                     val compactTopMargin = (statusBarTop - 24.dp).coerceAtLeast(0.dp)
 
                     Box(
