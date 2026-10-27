@@ -54,8 +54,16 @@ import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
 
-object ShortTvNavHelper {
+// 🎯 গ্লোবাল ন্যাভিগেশন ও ক্যাটেগরি মেমোরি হেল্পার
+object HomeNavHelper {
+    var activeCategory: String = "Home"
     var activeSubTab: String? = null
+}
+
+object ShortTvNavHelper {
+    var activeSubTab: String?
+        get() = HomeNavHelper.activeSubTab
+        set(value) { HomeNavHelper.activeSubTab = value }
 }
 
 sealed class Screen {
@@ -392,15 +400,19 @@ private fun MainAppContent(
                 } else {
                     Screen.Player(pendingNotificationSlug)
                 }
-            } else Screen.Home()
+            } else Screen.Home(category = HomeNavHelper.activeCategory)
         )
     }
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
+    // 🎯 সঠিক বটম ট্যাব ম্যাপিং (শর্ট টিভি বা ক্যাটেগরি ঠিকমতো ধরে রাখা)
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
-            is Screen.Home -> BottomNavTab.HOME
+            is Screen.Home -> {
+                if (screen.category.equals("Short TV", ignoreCase = true)) BottomNavTab.SHORT_TV
+                else BottomNavTab.HOME
+            }
             is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
             is Screen.Vip -> BottomNavTab.VIP
             is Screen.Downloads -> BottomNavTab.DOWNLOADS
@@ -418,15 +430,22 @@ private fun MainAppContent(
         )
     }
 
+    // =========================================================================
+    // 🔙 পারফেক্ট ব্যাক নেভিগেশন (পূর্বের ক্যাটেগরি পেজ ১০০% সংরক্ষণ)
+    // =========================================================================
     val handleBackNavigation: () -> Unit = {
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (navigationBackStack.isNotEmpty()) {
             val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
             currentScreen = previousScreen
             selectedTab = resolveTabForScreen(previousScreen)
+            if (previousScreen is Screen.Home) {
+                HomeNavHelper.activeCategory = previousScreen.category
+            }
         } else if (currentScreen !is Screen.Home) {
-            currentScreen = Screen.Home()
-            selectedTab = BottomNavTab.HOME
+            // যদি সরাসরি প্লেয়ার বা অন্য স্ক্রিন থেকে ব্যাক করে, তাহলে শেষ দেখা ক্যাটেগরিতে যাবে
+            currentScreen = Screen.Home(category = HomeNavHelper.activeCategory)
+            selectedTab = resolveTabForScreen(currentScreen)
         } else {
             onFinish()
         }
@@ -460,23 +479,63 @@ private fun MainAppContent(
         }
     }
 
+    // =========================================================================
+    // 🎯 ড্রামা ওপেন ও ক্যাটেগরি ট্র্যাক লজিক
+    // =========================================================================
     val openDramaDirect: (String, Boolean) -> Unit = { rawSlug, forceShorts ->
-        val slug = rawSlug.substringBefore("###subTab=").trim()
-        val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=") else null
-        ShortTvNavHelper.activeSubTab = sourceSubTab
+        val cleanSlug = rawSlug
+            .substringBefore("###subTab=")
+            .substringBefore("###category=")
+            .trim()
+        val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=").substringBefore("###category=") else null
+        val sourceCategory = if (rawSlug.contains("###category=")) rawSlug.substringAfter("###category=").substringBefore("###subTab=") else null
 
-        if (slug.isBlank() || slug.equals("404", ignoreCase = true) || slug.equals("not-found", ignoreCase = true)) {
+        HomeNavHelper.activeSubTab = sourceSubTab
+
+        if (cleanSlug.isBlank() || cleanSlug.equals("404", ignoreCase = true) || cleanSlug.equals("not-found", ignoreCase = true)) {
             navigateTo(Screen.NotFound("ড্রামা বা কনটেন্টটি খুঁজে পাওয়া যায়নি!"), BottomNavTab.HOME)
         } else {
             val home = viewModel.homeUiState.value
-            val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
-            val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
+            val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent +
+                    home.trendingDramas + home.banglaDubbed + home.hindiDubbed + home.dramaSeriesContent
+            val targetDrama = allDramas.find { it.slug == cleanSlug || it.id == cleanSlug }
 
-            val isShorts = forceShorts || targetDrama?.isShorts == true || slug.contains("shorts", ignoreCase = true)
+            // 🎯 ইউজার কোন ক্যাটেগরি পেজে ছিল তা স্বয়ংক্রিয়ভাবে শনাক্ত ও সেভ করা
+            val detectedCategory = when {
+                !sourceCategory.isNullOrBlank() -> sourceCategory
+                sourceSubTab != null -> "Short TV"
+                home.banglaDubbed.any { it.slug == cleanSlug } -> "Bangla Dubbed"
+                home.hindiDubbed.any { it.slug == cleanSlug } -> "Hindi Dubbed"
+                home.shortsContent.any { it.slug == cleanSlug } -> "Short TV"
+                home.trendingDramas.any { it.slug == cleanSlug } -> "Trending"
+                home.recentlyAdded.any { it.slug == cleanSlug } -> "Recently Added"
+                home.dramaSeriesContent.any { it.slug == cleanSlug } -> "Drama Series"
+                targetDrama?.dubBadge?.contains("Bangla", ignoreCase = true) == true -> "Bangla Dubbed"
+                targetDrama?.dubBadge?.contains("Hindi", ignoreCase = true) == true -> "Hindi Dubbed"
+                targetDrama?.categories?.isNotEmpty() == true -> {
+                    val currentCat = (currentScreen as? Screen.Home)?.category
+                    if (currentCat != null && currentCat != "Home" && targetDrama.categories.any { it.equals(currentCat, ignoreCase = true) }) {
+                        currentCat
+                    } else {
+                        targetDrama.categories.first()
+                    }
+                }
+                currentScreen is Screen.Home && (currentScreen as Screen.Home).category != "Home" -> (currentScreen as Screen.Home).category
+                else -> HomeNavHelper.activeCategory
+            }
+
+            HomeNavHelper.activeCategory = detectedCategory
+
+            // 🛡️ প্লেয়ারে যাওয়ার আগে ব্যাকস্ট্যাকে সেই নির্দিষ্ট ক্যাটেগরি পেজটি রেকর্ড রাখা
+            if (currentScreen is Screen.Home) {
+                currentScreen = Screen.Home(category = detectedCategory)
+            }
+
+            val isShorts = forceShorts || targetDrama?.isShorts == true || cleanSlug.contains("shorts", ignoreCase = true)
             if (isShorts) {
-                navigateTo(Screen.ShortsPlayer(slug, sourceSubTab), BottomNavTab.SHORT_TV)
+                navigateTo(Screen.ShortsPlayer(cleanSlug, sourceSubTab), BottomNavTab.SHORT_TV)
             } else {
-                navigateTo(Screen.Player(slug), null)
+                navigateTo(Screen.Player(cleanSlug), null)
             }
         }
     }
@@ -506,7 +565,7 @@ private fun MainAppContent(
 
     LaunchedEffect(currentScreen) {
         val screenLabel = when (val screen = currentScreen) {
-            is Screen.Home -> null
+            is Screen.Home -> "Home: ${screen.category}"
             is Screen.Player -> null
             is Screen.ShortsPlayer -> null
             is Screen.Vip -> "VIP Pricing Screen"
@@ -550,9 +609,13 @@ private fun MainAppContent(
                         onTabSelected = { tab ->
                             if (selectedTab != tab) {
                                 when (tab) {
-                                    BottomNavTab.HOME -> navigateTo(Screen.Home(category = "Home"), tab)
+                                    BottomNavTab.HOME -> {
+                                        HomeNavHelper.activeCategory = "Home"
+                                        navigateTo(Screen.Home(category = "Home"), tab)
+                                    }
                                     BottomNavTab.SHORT_TV -> {
-                                        ShortTvNavHelper.activeSubTab = null
+                                        HomeNavHelper.activeSubTab = null
+                                        HomeNavHelper.activeCategory = "Short TV"
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
                                     BottomNavTab.VIP -> navigateTo(Screen.Vip, tab)
@@ -675,9 +738,6 @@ private fun MainAppContent(
             }
         }
 
-        // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট (🎯 নো এক্সট্রা বটম প্যাডিং - উইজেট নিজে প্যাডিং কন্ট্রোল করবে)
-        // =========================================================================
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
@@ -691,7 +751,7 @@ private fun MainAppContent(
                 currentUserAvatar = authState.userProfile?.avatar,
                 isVip = isVip,
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
-                modifier = Modifier.align(Alignment.BottomEnd) // 👈 .padding(bottom = 50.dp) বাদ দেওয়া হয়েছে
+                modifier = Modifier.align(Alignment.BottomEnd)
             )
         }
 
