@@ -22,6 +22,8 @@ import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -396,7 +398,7 @@ fun PlayerScreen(
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     // =========================================================================
-    // 🚀 ExoPlayer-এর আল্ট্রা-ফাস্ট ০.৩ সেকেন্ডে প্লেব্যাক ও মেমোরি বাফার ইঞ্জিন
+    // 🚀 ExoPlayer ইঞ্জিন
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -414,16 +416,15 @@ fun PlayerScreen(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // 🎯 ০.৩ সেকেন্ডে (৩০০ মি.সে.) প্রথম ফ্রেম প্লেব্যাক + ১ মিনিট ব্যাক-বাফার মেমোরিতে ধরে রাখা
         val highSpeedLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 60_000,
                 /* maxBufferMs = */ 180_000,
-                /* bufferForPlaybackMs = */ 300, // 👈 ০.৩ সেকেন্ডে সাথে সাথে প্লেব্যাক শুরু
+                /* bufferForPlaybackMs = */ 300,
                 /* bufferForPlaybackAfterRebufferMs = */ 800
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ 60_000, // 👈 ১ মিনিট ব্যাক-বাফার
+                /* backBufferDurationMs = */ 60_000,
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -474,6 +475,15 @@ fun PlayerScreen(
                 }
                 override fun onPageFinished(view: WebView?, url: String?) {
                     isWebLoading = false
+                }
+                // 🛡️ ব্রাউজারের কোনো কুৎসিত এরর পেজ বা গোপন লিংক যাতে ডিসপ্লে না হয়
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
+                ) {
+                    isWebLoading = false
+                    view?.loadDataWithBaseURL(null, "<html><body style='background:#000;'></body></html>", "text/html", "UTF-8", null)
                 }
                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                     view?.destroy()
@@ -582,9 +592,9 @@ fun PlayerScreen(
                 isPlaying = playing
             }
 
+            // 🛡️ ডিরেক্ট স্ট্রিমে এরর হলে সোর্স লিংক WebView-তে পাঠিয়ে ফাঁস করা বন্ধ
             override fun onPlayerError(error: PlaybackException) {
-                if (activeStreamUrl.isNotBlank() && !useWebPlayerFallback) {
-                    useWebPlayerFallback = true
+                if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                     persistentWebView.loadUrl(activeStreamUrl)
                 }
             }
@@ -606,7 +616,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // ⚡ পর্ব পরিবর্তন ও আল্ট্রা-ফাস্ট স্ট্রিমিং লোডার (Instant Media Swap)
+    // ⚡ পর্ব পরিবর্তন ও মিডিয়া লোডার
     // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
@@ -672,7 +682,6 @@ fun PlayerScreen(
                         .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                         .build()
 
-                    // সরাসরি মিডিয়া আইটেম সেট করে ০ সেকেন্ডে স্টার্ট
                     exoPlayer.setMediaItem(mediaItem, /* startPositionMs = */ 0L)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
@@ -902,7 +911,22 @@ fun PlayerScreen(
                                 viewModel.loadDramaDetails(newSlug, context)
                                 onRelatedDramaClick(newSlug)
                             },
-                            posterUrl = content.posterUrl ?: content.bannerUrl, // 👈 ভিডিও লোডিংয়ের সময় থাম্বনেইল ডিসপ্লে
+                            posterUrl = content.posterUrl ?: content.bannerUrl,
+                            onRetryPlayback = {
+                                if (activeStreamUrl.isNotBlank()) {
+                                    try {
+                                        val isHls = activeStreamUrl.contains(".m3u8", ignoreCase = true)
+                                        val mediaItem = MediaItem.Builder()
+                                            .setUri(Uri.parse(activeStreamUrl))
+                                            .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                                            .build()
+                                        exoPlayer.setMediaItem(mediaItem, 0L)
+                                        exoPlayer.prepare()
+                                        exoPlayer.playWhenReady = true
+                                        exoPlayer.play()
+                                    } catch (_: Exception) {}
+                                }
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
