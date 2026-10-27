@@ -182,19 +182,15 @@ fun PlayerScreen(
     // =========================================================================
     fun handleBackNavigation() {
         when {
-            // ১. ফুলস্ক্রিনে থাকলে আগে পোর্ট্রেটে ফিরবে
             isAnyFullscreen || isDeviceLandscape -> {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
-            // ২. কমেন্ট রিপ্লাই থ্রেড ওপেন থাকলে তা বন্ধ হবে
             selectedThreadParentComment != null -> {
                 selectedThreadParentComment = null
             }
-            // ৩. কমেন্ট ট্যাবে থাকলে ব্যাক চাপলে আগে "For you" (এপিসোড সহ) ট্যাবে আসবে
             selectedTabIndex == 1 -> {
                 selectedTabIndex = 0
             }
-            // ৪. পোর্ট্রেটে থাকলে পূর্ববর্তী পেজে চলে যাবে
             else -> {
                 onBackClick()
             }
@@ -327,22 +323,17 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
+    // =========================================================================
+    // 🎯 ফিক্সড: কমেন্টের আইডি ও ড্রামা স্লাগ মিসম্যাচে কমেন্ট হাইড হওয়া বন্ধ করা হলো
+    // =========================================================================
     LaunchedEffect(playerState.comments, slug, currentContentId) {
         val serverComments = playerState.comments.filter { comment ->
-            if (comment.id in deletedCommentIds) {
-                false
-            } else {
-                val commentContentId = comment.rawContentId?.toString()?.trim()
-                commentContentId.isNullOrBlank() ||
-                        commentContentId == currentContentId ||
-                        commentContentId == slug ||
-                        commentContentId == content.id
-            }
+            comment.id !in deletedCommentIds // শুধুমাত্র ডিলিট হওয়া কমেন্টগুলো বাদ যাবে
         }
 
         val serverTexts = serverComments.map { it.commentText.trim() }.toSet()
         val uniquePendingOptimistic = persistentDramaComments.filter {
-            (it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
+            (it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_") || it.id.startsWith("temp_text_")) &&
             it.id !in deletedCommentIds &&
             it.commentText.trim() !in serverTexts
         }
@@ -396,7 +387,7 @@ fun PlayerScreen(
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     // =========================================================================
-    // 💾 শেষ দেখা এপিসোড মেমোরি
+    // 💾 শেষ দেখা ১০ নম্বর এপিসোড মেমোরি
     // =========================================================================
     val lastWatchedEpPrefs = remember {
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
@@ -622,9 +613,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // ⚡ পর্ব পরিবর্তন ও মিডিয়া লোডার
-    // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -942,9 +930,6 @@ fun PlayerScreen(
                             .fillMaxWidth()
                             .background(Color(0xFF0C0F15))
                     ) {
-                        // =========================================================================
-                        // 💬 রিপ্লাই থ্রেড স্ক্রিন
-                        // =========================================================================
                         if (selectedThreadParentComment != null) {
                             CommentRepliesThreadView(
                                 parentComment = selectedThreadParentComment!!,
@@ -980,7 +965,7 @@ fun PlayerScreen(
                             )
                         }
                         // =========================================================================
-                        // 💬 ১. কমেন্ট বক্স মোড (প্লেয়ারের নিচ থেকে ফুলস্ক্রিন, এপিসোড লুকানো থাকবে)
+                        // 💬 ১. কমেন্ট বক্স মোড (প্লেয়ারের নিচ থেকে ফুলস্ক্রিন, টাইপিং বক্স নিচে পিন)
                         // =========================================================================
                         else if (selectedTabIndex == 1) {
                             Column(
@@ -992,7 +977,6 @@ fun PlayerScreen(
                                         detectHorizontalDragGestures(
                                             onDragStart = { totalDragX = 0f },
                                             onDragEnd = {
-                                                // ডানে সোয়াইপ করলে পুনরায় "For you" (এপিসোড সহ) মোডে ফিরে আসবে
                                                 if (totalDragX > 45f) {
                                                     selectedTabIndex = 0
                                                 }
@@ -1006,7 +990,6 @@ fun PlayerScreen(
                                         )
                                     }
                             ) {
-                                // প্লেয়ারের ঠিক নিচে পিনড ট্যাব বার
                                 PlayerTabsHeader(
                                     selectedTabIndex = selectedTabIndex,
                                     commentsCount = persistentDramaComments.size,
@@ -1019,7 +1002,6 @@ fun PlayerScreen(
 
                                 HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
 
-                                // কমেন্ট স্ক্রলেবল লিস্ট (বাকি পুরো স্ক্রিন জুড়ে থাকবে)
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -1088,10 +1070,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // =============================================================
-                                // 🎯 টাইপিং বক্স: ডিফল্টভাবে একদম নিচে পিন থাকবে
-                                // এবং কিবোর্ড ওপেন করলে কিবোর্ডের মাথায় উপরে উঠবে
-                                // =============================================================
+                                // 🎯 টাইপিং বক্স: একদম নিচে পিন এবং কিবোর্ডের সাথে উপরে উঠবে
                                 PlayerInlineCommentInput(
                                     userInitials = userInitials,
                                     currentUserAvatar = currentUserAvatar,
@@ -1109,8 +1088,20 @@ fun PlayerScreen(
                                             showAuthSheet = true
                                             return@PlayerInlineCommentInput
                                         }
-                                        if (inlineCommentText.isNotBlank()) {
-                                            viewModel.postComment(inlineCommentText.trim())
+                                        val textToSend = inlineCommentText.trim()
+                                        if (textToSend.isNotBlank()) {
+                                            // 🎯 অপটিমিস্টিক আপডেট: সেন্ড বাটনে চাপামাত্রই সাথে সাথে যেন কমেন্ট লিস্টে শো করে
+                                            val tempCommentId = "temp_text_${System.currentTimeMillis()}"
+                                            val optimisticComment = DramaApiComment(
+                                                rawId = tempCommentId,
+                                                rawContentId = content.id,
+                                                userName = currentUserName,
+                                                userAvatar = currentUserAvatar,
+                                                commentText = textToSend,
+                                                dateDisplay = "Just now"
+                                            )
+                                            persistentDramaComments.add(0, optimisticComment)
+                                            viewModel.postComment(textToSend)
                                             inlineCommentText = ""
                                             keyboardController?.hide()
                                         }
@@ -1152,7 +1143,6 @@ fun PlayerScreen(
                                             detectHorizontalDragGestures(
                                                 onDragStart = { totalDragX = 0f },
                                                 onDragEnd = {
-                                                    // বামে সোয়াইপ করলে কমেন্ট মোডে চলে যাবে
                                                     if (totalDragX < -45f) {
                                                         selectedTabIndex = 1
                                                     }
@@ -1225,7 +1215,6 @@ fun PlayerScreen(
                                         }
                                     }
 
-                                    // এপিসোড রো
                                     item {
                                         PlayerEpisodesRow(
                                             episodes = effectiveEpisodes,
@@ -1246,7 +1235,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // স্টিকি ট্যাব বার
                                     stickyHeader {
                                         PlayerTabsHeader(
                                             selectedTabIndex = selectedTabIndex,
@@ -1261,7 +1249,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // রিকমেন্ডেশন গ্রিড
                                     val dramaRows = shuffledRecommendations.chunked(4)
                                     items(dramaRows.size) { rowIndex ->
                                         val rowDramas = dramaRows[rowIndex]
