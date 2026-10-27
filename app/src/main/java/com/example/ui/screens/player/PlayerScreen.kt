@@ -396,14 +396,13 @@ fun PlayerScreen(
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     // =========================================================================
-    // 🚀 ExoPlayer-এর ৩-মিনিটের আল্ট্রা-ফাস্ট লোড ও ০.৫ সেকেন্ডে ইনস্ট্যান্ট স্টার্ট ইঞ্জিন
+    // 🚀 ExoPlayer-এর আল্ট্রা-ফাস্ট ০.৩ সেকেন্ডে প্লেব্যাক ও মেমোরি বাফার ইঞ্জিন
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(8000)
-            .setReadTimeoutMs(15000)
-            // ⚡ HTTP Keep-Alive ও কানেকশন পুলিং
+            .setConnectTimeoutMs(6000)
+            .setReadTimeoutMs(10000)
             .setDefaultRequestProperties(
                 mapOf(
                     "Connection" to "keep-alive",
@@ -415,16 +414,16 @@ fun PlayerScreen(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // 🎯 ০.৫ সেকেন্ডে (৫০০ মি.সে.) প্রথম ফ্রেম প্লেব্যাক + ২ মিনিট সামনে বাফার + ১ মিনিট পেছনে ব্যাক-বাফার
+        // 🎯 ০.৩ সেকেন্ডে (৩০০ মি.সে.) প্রথম ফ্রেম প্লেব্যাক + ১ মিনিট ব্যাক-বাফার মেমোরিতে ধরে রাখা
         val highSpeedLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 120_000,
+                /* minBufferMs = */ 60_000,
                 /* maxBufferMs = */ 180_000,
-                /* bufferForPlaybackMs = */ 500, // 👈 ০.৫ সেকেন্ডে অবিলম্বে ভিডিও চালু হবে
-                /* bufferForPlaybackAfterRebufferMs = */ 1000
+                /* bufferForPlaybackMs = */ 300, // 👈 ০.৩ সেকেন্ডে সাথে সাথে প্লেব্যাক শুরু
+                /* bufferForPlaybackAfterRebufferMs = */ 800
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ 60_000, // 👈 ১ মিনিট ব্যাক-বাফার মেমোরিতে সংরক্ষিত
+                /* backBufferDurationMs = */ 60_000, // 👈 ১ মিনিট ব্যাক-বাফার
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -607,7 +606,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // ⚡ পর্ব পরিবর্তন ও আল্ট্রা-ফাস্ট স্ট্রিমিং লোডার (Instant Source Swap)
+    // ⚡ পর্ব পরিবর্তন ও আল্ট্রা-ফাস্ট স্ট্রিমিং লোডার (Instant Media Swap)
     // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
@@ -673,7 +672,7 @@ fun PlayerScreen(
                         .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                         .build()
 
-                    // ⚡ থামানো ও কোডেক রি-ইনিশিয়ালাইজ করার বিলম্ব বন্ধ করে সরাসরি সোর্স সোয়াপ
+                    // সরাসরি মিডিয়া আইটেম সেট করে ০ সেকেন্ডে স্টার্ট
                     exoPlayer.setMediaItem(mediaItem, /* startPositionMs = */ 0L)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
@@ -903,6 +902,7 @@ fun PlayerScreen(
                                 viewModel.loadDramaDetails(newSlug, context)
                                 onRelatedDramaClick(newSlug)
                             },
+                            posterUrl = content.posterUrl ?: content.bannerUrl, // 👈 ভিডিও লোডিংয়ের সময় থাম্বনেইল ডিসপ্লে
                             modifier = Modifier.fillMaxSize()
                         )
                     }
