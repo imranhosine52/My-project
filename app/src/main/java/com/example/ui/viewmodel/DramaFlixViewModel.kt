@@ -750,7 +750,7 @@ class DramaFlixViewModel(
                 val initialEp = eps.firstOrNull()
                 val initialSrv = srvs.firstOrNull()
 
-                val stats = repository.getOrCreateDramaStats(contentItem.slug, 120, 1500)
+                val stats = repository.getOrCreateDramaStats(contentItem.slug, 0, 0)
 
                 _playerUiState.update {
                     it.copy(
