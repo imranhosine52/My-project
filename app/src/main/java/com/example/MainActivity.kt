@@ -22,13 +22,12 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -102,6 +101,16 @@ class MainActivity : ComponentActivity() {
     private val pendingOpenVipScreen = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 🎯 ১. অ্যান্ড্রয়েড সিস্টেম উইন্ডোর ব্যাকগ্রাউন্ড সাথে সাথে পিওর ব্ল্যাক করা
+        window.setBackgroundDrawableResource(android.R.color.black)
+
+        // 🎯 ২. Android 12+ সিস্টেম স্প্ল্যাশ আইকন শুরুতেই জোরপূর্বক সরিয়ে দেওয়া
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { splashScreenView ->
+                splashScreenView.remove()
+            }
+        }
+
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -113,7 +122,7 @@ class MainActivity : ComponentActivity() {
         UnifiedAdManager.init(this)
         handleIncomingIntents(intent)
 
-        // 🚀 স্প্ল্যাশ ভিডিও চলার সাথে সাথেই ব্যাকগ্রাউন্ডে হোম ফিড ও ক্যাশ ডেটা প্রস্তুত করা
+        // 🚀 স্প্ল্যাশ চলাকালীনই ব্যাকগ্রাউন্ডে ডেটা প্রিলোড হবে যাতে ট্রানজিশনে কোনো ল্যাগ না হয়
         viewModel.loadHomeContent(forceRefresh = false)
         viewModel.refreshVipStatusAndProfile()
 
@@ -121,35 +130,34 @@ class MainActivity : ComponentActivity() {
             var showSplash by remember { mutableStateOf(true) }
 
             DramaFlixTheme {
-                Box(modifier = Modifier.fillMaxSize().background(BackgroundDark)) {
-                    // ১. মূল অ্যাপ ব্যাকগ্রাউন্ডে সম্পূর্ণরূপে মাউন্ট ও প্রস্তুত থাকবে
-                    MainAppContent(
-                        activity = this@MainActivity,
-                        viewModel = viewModel,
-                        pendingNotificationSlug = pendingNotificationSlug.value,
-                        pendingNotificationIsShorts = pendingNotificationIsShorts.value,
-                        pendingExternalMediaItem = pendingExternalMediaItem.value,
-                        pendingOpenCommunityChat = pendingOpenCommunityChat.value,
-                        pendingOpenVipScreen = pendingOpenVipScreen.value,
-                        onFinish = { finish() }
-                    )
-
-                    // ২. স্প্ল্যাশ ভিডিও ফ্লোটিং লেয়ার (ভিডিও শেষ হলে স্মুথলি ফেড-আউট হবে)
-                    AnimatedVisibility(
-                        visible = showSplash,
-                        enter = fadeIn(tween(100)),
-                        exit = fadeOut(tween(durationMillis = 350, easing = FastOutSlowInEasing))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {} // স্প্ল্যাশ চলাকালীন নিচের ভিউতে টাচ ব্লক রাখা
-                        ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    // 🌟 ৩. মাখনের মতো মসৃণ Crossfade ট্রানজিশন (কোনো ফ্রেম ড্রপ ছাড়া)
+                    Crossfade(
+                        targetState = showSplash,
+                        animationSpec = tween(
+                            durationMillis = 450,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "SplashToHomeCrossfade"
+                    ) { isSplashVisible ->
+                        if (isSplashVisible) {
                             VideoSplashScreen(
                                 onVideoFinished = { showSplash = false }
+                            )
+                        } else {
+                            MainAppContent(
+                                activity = this@MainActivity,
+                                viewModel = viewModel,
+                                pendingNotificationSlug = pendingNotificationSlug.value,
+                                pendingNotificationIsShorts = pendingNotificationIsShorts.value,
+                                pendingExternalMediaItem = pendingExternalMediaItem.value,
+                                pendingOpenCommunityChat = pendingOpenCommunityChat.value,
+                                pendingOpenVipScreen = pendingOpenVipScreen.value,
+                                onFinish = { finish() }
                             )
                         }
                     }
@@ -437,7 +445,6 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
-    // 🎯 সঠিক বটম ট্যাব ম্যাপিং
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> {
@@ -461,9 +468,6 @@ private fun MainAppContent(
         )
     }
 
-    // =========================================================================
-    // 🔙 ব্যাক নেভিগেশন (ক্যাটেগরি মেমোরি সহ)
-    // =========================================================================
     val handleBackNavigation: () -> Unit = {
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (navigationBackStack.isNotEmpty()) {
@@ -509,9 +513,6 @@ private fun MainAppContent(
         }
     }
 
-    // =========================================================================
-    // 🎯 ড্রামা ওপেন ও ক্যাটেগরি ট্র্যাক লজিক
-    // =========================================================================
     val openDramaDirect: (String, Boolean) -> Unit = { rawSlug, forceShorts ->
         val cleanSlug = rawSlug
             .substringBefore("###subTab=")
