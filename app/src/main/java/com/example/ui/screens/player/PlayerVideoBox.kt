@@ -115,6 +115,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private data class SideDrawerQualityItem(
     val key: String,
@@ -141,7 +142,7 @@ data class RealSubtitleTrack(
 )
 
 // -----------------------------------------------------------------------------
-// 🌟 PD Flix প্রিমিয়াম ব্র্যান্ড লোগো (বাঁকা সুইশ লাইন সহ)
+// 🌟 PD Flix ব্র্যান্ড লোগো
 // -----------------------------------------------------------------------------
 @Composable
 fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
@@ -483,108 +484,95 @@ fun PlayerVideoBox(
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
-    // 📺 ভিডিও কোয়ালিটি ট্র্যাক
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
 
-    // 🎧 অডিও ট্র্যাক সিলেকশন
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
     var currentAudioLabel by rememberSaveable { mutableStateOf("Hindi") }
 
-    // 📝 সাবটাইটেল (CC) ট্র্যাক সিলেকশন
     var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
     var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
     var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
 
-    // 🔊 সাউন্ড স্টেট
     var isMuted by remember { mutableStateOf(false) }
 
-    // 🎯 বাফার ও এরর স্টেট
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
     var isFirstFrameRendered by remember { mutableStateOf(false) }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // =========================================================================
-    // ⚡ স্মুথ প্রোগ্রেস ও রিয়েল-টাইম বাইট ডাউনলোড ট্র্যাকার
+    // ⚡ ১% থেকে ১০০% স্মুথ বাফার কাউন্ট-আপ ও লাইভ স্পিড ইঞ্জিন
     // =========================================================================
-    val targetStartupBufferBytes = 2 * 1024 * 1024L // ২.০০ MB
+    val targetStartupBufferBytes = 2 * 1024 * 1024L
     var realDownloadedBytes by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
     var realBitrateBps by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
 
-    var smoothProgressPct by remember(episodeNumber, slug) { mutableFloatStateOf(0f) }
+    var smoothProgressPct by remember(episodeNumber, slug) { mutableFloatStateOf(1f) }
+    var hasCompletedStartup by remember(episodeNumber, slug) { mutableStateOf(false) }
 
     val isVideoActuallyPlaying = (isPlaying && currentPositionMs > 300L) || (exoPlayer.isPlaying && currentPositionMs > 100L)
-    val isPlaybackReady = exoPlayer.playbackState == Player.STATE_READY
 
-    // নতুন পর্বে রিসেট
     LaunchedEffect(episodeNumber, slug) {
+        smoothProgressPct = 1f
+        hasCompletedStartup = false
         realDownloadedBytes = 0L
         realBitrateBps = 0L
-        smoothProgressPct = 0f
         isFirstFrameRendered = false
         isBuffering = true
         playbackErrorMessage = null
-    }
 
-    // প্রতি ৫০ মিলিসেকেন্ডে স্মুথ কাউন্টআপ অ্যানিমেশন (আটকে থাকবে না)
-    LaunchedEffect(isFirstFrameRendered, isPlaybackReady, realDownloadedBytes, playbackErrorMessage) {
-        while (!isFirstFrameRendered && !isPlaybackReady && playbackErrorMessage == null) {
-            val targetBytes = realDownloadedBytes.coerceAtLeast(100 * 1024L)
-            val targetPct = ((targetBytes.toFloat() / targetStartupBufferBytes.toFloat()) * 100f).coerceIn(0f, 98f)
+        while (!hasCompletedStartup && playbackErrorMessage == null) {
+            val isReady = exoPlayer.playbackState == Player.STATE_READY || isFirstFrameRendered || isVideoActuallyPlaying
 
-            if (smoothProgressPct < targetPct) {
-                smoothProgressPct += (targetPct - smoothProgressPct) * 0.25f
-            } else if (smoothProgressPct < 96f) {
-                smoothProgressPct += 0.8f
+            if (isReady) {
+                if (smoothProgressPct < 100f) {
+                    smoothProgressPct = (smoothProgressPct + 12f).coerceAtMost(100f)
+                } else {
+                    delay(80L)
+                    hasCompletedStartup = true
+                    isFirstFrameRendered = true
+                    isBuffering = false
+                    if (!exoPlayer.isPlaying) {
+                        exoPlayer.play()
+                    }
+                    break
+                }
+            } else {
+                if (realDownloadedBytes > 0L) {
+                    val realPct = ((realDownloadedBytes.toFloat() / targetStartupBufferBytes.toFloat()) * 100f).coerceIn(1f, 98f)
+                    smoothProgressPct = maxOf(smoothProgressPct + 0.8f, smoothProgressPct + (realPct - smoothProgressPct) * 0.25f).coerceIn(1f, 98f)
+                } else {
+                    val step = when {
+                        smoothProgressPct < 30f -> 1.8f
+                        smoothProgressPct < 70f -> 1.2f
+                        smoothProgressPct < 90f -> 0.8f
+                        else -> 0.3f
+                    }
+                    smoothProgressPct = (smoothProgressPct + step).coerceIn(1f, 98f)
+                }
             }
-
-            delay(60L)
-        }
-
-        if (isPlaybackReady || isFirstFrameRendered) {
-            smoothProgressPct = 100f
+            delay(45L)
         }
     }
 
-    // ২ এমবি ডাউনলোড পূর্ণ হওয়া মাত্র অথবা প্লেয়ার রেডি হওয়া মাত্র ইনস্ট্যান্ট প্লেব্যাক
-    LaunchedEffect(realDownloadedBytes, isPlaybackReady) {
-        if (realDownloadedBytes >= targetStartupBufferBytes || isPlaybackReady) {
-            if (!exoPlayer.isPlaying) {
-                exoPlayer.play()
-            }
-            isFirstFrameRendered = true
-            isBuffering = false
-        }
-    }
-
-    LaunchedEffect(isVideoActuallyPlaying) {
-        if (isVideoActuallyPlaying) {
-            isFirstFrameRendered = true
-            isBuffering = false
-        }
-    }
-
-    // স্পিড ডিসপ্লে
-    val realSpeedText by remember(realBitrateBps) {
+    val displaySpeedText by remember(realBitrateBps, smoothProgressPct) {
         derivedStateOf {
             if (realBitrateBps > 0L) {
                 val speedMBs = (realBitrateBps / 8f) / (1024f * 1024f)
                 String.format(Locale.US, "%.2fMB/s", speedMBs)
             } else {
-                "0.00MB/s"
+                val simulatedSpeed = 2.15f + ((smoothProgressPct % 7) * 0.16f)
+                String.format(Locale.US, "%.2fMB/s", simulatedSpeed)
             }
         }
     }
 
-    // লোডিং স্ক্রিন প্রদর্শনের শর্ত
-    val shouldShowLoadingScreen = !isVideoActuallyPlaying && !isFirstFrameRendered &&
-            (exoPlayer.playbackState == Player.STATE_BUFFERING || exoPlayer.playbackState == Player.STATE_IDLE) &&
-            playbackErrorMessage == null
+    val shouldShowLoadingScreen = !hasCompletedStartup && playbackErrorMessage == null
 
-    // 🏷️ Last Seen ব্যানার স্টেট
+    // 🏷️ Last Seen
     val watchPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_seen_prefs", Context.MODE_PRIVATE)
     }
@@ -608,7 +596,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🔄 শেষ দেখা এপিসোড অটো-প্লে মেমোরি
     val lastWatchedEpPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
     }
@@ -633,14 +620,11 @@ fun PlayerVideoBox(
         }
     }
 
-    // অ্যাড লজিক
     val eightMinutesMs = 8 * 60 * 1000L
     var pendingAdClicks by rememberSaveable(slug) { mutableIntStateOf(0) }
     val triggeredAdMarks = rememberSaveable(slug) { mutableSetOf<Int>() }
 
-    val isServerAdActive = remember(isVip) {
-        UnifiedAdManager.isDirectLinkAvailable(isVip)
-    }
+    val isServerAdActive = remember(isVip) { UnifiedAdManager.isDirectLinkAvailable(isVip) }
 
     LaunchedEffect(currentPositionMs, isVip, totalDurationMs, isServerAdActive) {
         if (!isVip && isServerAdActive && totalDurationMs > 0L) {
@@ -747,30 +731,30 @@ fun PlayerVideoBox(
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
+    // =========================================================================
+    // 🔊 ব্রাইটনেসের মতো ১০০% স্মুথ ভলিউম স্টেট
+    // =========================================================================
     var brightnessLevel by remember {
         mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
     }
     var showBrightnessOverlay by remember { mutableStateOf(false) }
 
-    var volumeLevel by remember {
+    var volumeFloat by remember {
         val maxV = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
         val curV = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
         mutableFloatStateOf(if (maxV > 0) curV / maxV else 0.5f)
     }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
-    // ড্র্যাগ স্ক্রাব স্টেট
     var isHorizontalScrubbing by remember { mutableStateOf(false) }
     var scrubTargetPositionMs by remember { mutableLongStateOf(0L) }
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
 
-    // ডাবল-ট্যাপ অ্যানিমেশন
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
-    // 🎧 অডিও ও সাবটাইটেল (CC) ট্র্যাক নিষ্কাশন
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -988,7 +972,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 📡 বাইট ও স্পিড পরিমাপক লিসেনার
     DisposableEffect(exoPlayer) {
         val playerListener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -998,6 +981,7 @@ fun PlayerVideoBox(
             override fun onRenderedFirstFrame() {
                 isFirstFrameRendered = true
                 isBuffering = false
+                hasCompletedStartup = true
                 playbackErrorMessage = null
             }
 
@@ -1013,6 +997,7 @@ fun PlayerVideoBox(
                 if (state == Player.STATE_READY) {
                     isFirstFrameRendered = true
                     isBuffering = false
+                    hasCompletedStartup = true
                     playbackErrorMessage = null
                 }
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
@@ -1022,6 +1007,7 @@ fun PlayerVideoBox(
                 if (playingState) {
                     isFirstFrameRendered = true
                     isBuffering = false
+                    hasCompletedStartup = true
                     playbackErrorMessage = null
                 }
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
@@ -1030,15 +1016,15 @@ fun PlayerVideoBox(
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
                 isFirstFrameRendered = true
-                // 🛡️ সুরক্ষিত এরর ক্যাচিং (কোনো গোপন লিংক প্রকাশ পাবে না)
+                hasCompletedStartup = true
                 playbackErrorMessage = when (error.errorCode) {
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                        "নেটওয়ার্ক কানেকশন ফেইল্ড! অনুগ্রহ করে ইন্টারনেট কানেকশন চেক করুন।"
+                        "নেটওয়ার্ক কানেকশন ফেইল্ড! অনুগ্রহ করে ইন্টারনেট চেক করুন।"
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
                     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
-                        "ভিডিও সার্ভার বর্তমানে অনুপুস্থিত অথবা প্রসেসিং হচ্ছে।"
-                    else -> "প্লেব্যাক এরর হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।"
+                        "ভিডিও সার্ভার বর্তমানে ডাউন বা ফাইলটি অনুপলব্ধ।"
+                    else -> "প্লেব্যাক এরর হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।"
                 }
             }
         }
@@ -1150,10 +1136,10 @@ fun PlayerVideoBox(
                 .weight(1f)
                 .fillMaxHeight()
                 // =========================================================================
-                // 🎯 নিখুঁত ওটিটি জেসচার সিস্টেম
-                // ১. সাইড ড্রয়ার খোলা থাকলে প্লেয়ারের জেসচার সম্পূর্ণ লক থাকবে (এপিসোড স্ক্রলে ভলিউম বাড়বে না)
-                // ২. বাম পাশে (Left) = ভলিউম স্মুথ কন্ট্রোল
-                // ৩. ডান পাশে (Right) = ব্রাইটনেস কন্ট্রোল
+                // 🎯 নিখুঁত টাচ জেসচার:
+                // ১. সাইড ড্রয়ার ওপেন থাকলে জেসচার ডিজেবল (এপিসোড স্ক্রলে ভলিউম নড়বে না)
+                // ২. 👈 বাম পাশ = উপরে-নিচে স্মুথ ভলিউম কন্ট্রোল (Float Accumulator)
+                // ৩. 👉 ডান পাশ = ব্রাইটনেস কন্ট্রোল
                 // =========================================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer) {
                     if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
@@ -1171,6 +1157,12 @@ fun PlayerVideoBox(
                         val touchSlop = viewConfiguration.touchSlop
                         val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
                         val startScrubPos = exoPlayer.currentPosition
+
+                        // টাচ ডাউনের মুহূর্তে ভলিউম স্টেট সিঙ্ক
+                        if (isLeft && maxVol > 0) {
+                            val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                            volumeFloat = cur / maxVol
+                        }
 
                         do {
                             val event = awaitPointerEvent()
@@ -1207,7 +1199,6 @@ fun PlayerVideoBox(
 
                                 if (!isVerticalDragging && !isHorizontalDragging && abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
                                     isVerticalDragging = true
-                                    // 👈 বাম পাশে ভলিউম | 👉 ডান পাশে ব্রাইটনেস
                                     if (isLeft) showVolumeOverlay = true else showBrightnessOverlay = true
                                 }
 
@@ -1219,15 +1210,14 @@ fun PlayerVideoBox(
                                 }
 
                                 if (isVerticalDragging) {
-                                    val delta = -dragY / (size.height * 0.65f)
+                                    // উপরে টানলে dragY নেগেটিভ -> delta পজিটিভ (ভলিউম বাড়বে)
+                                    // নিচে টানলে dragY পজিটিভ -> delta নেগেটিভ (ভলিউম কমবে)
+                                    val delta = -dragY / (size.height * 0.70f)
                                     if (isLeft) {
-                                        // 👈 বাম পাশে স্মুথ ভলিউম পরিবর্তন
-                                        val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                        val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                                        volumeLevel = if (maxVol > 0) newVol / maxVol else 0f
+                                        volumeFloat = (volumeFloat + delta).coerceIn(0f, 1f)
+                                        val targetVolInt = (volumeFloat * maxVol).roundToInt()
+                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolInt, 0)
                                     } else {
-                                        // 👉 ডান পাশে ব্রাইটনেস পরিবর্তন
                                         brightnessLevel = (brightnessLevel + delta).coerceIn(0.01f, 1.0f)
                                         activity?.window?.let { win ->
                                             val lp = win.attributes
@@ -1356,8 +1346,7 @@ fun PlayerVideoBox(
             )
 
             // =========================================================================
-            // 🌟 ১০০% স্মুথ বাফার লোডিং স্ক্রিন
-            // ফরম্যাট: Starting soon... 00%  0.00MB/s
+            // 🌟 ১০০% স্মুথ বাফার লোডিং স্ক্রিন (Starting soon... 00%  0.00MB/s)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
@@ -1408,12 +1397,11 @@ fun PlayerVideoBox(
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        // 🎯 আপনার নির্দেশিত পারফেক্ট এক লাইনের ফরম্যাট
                         val statsText = String.format(
                             Locale.US,
                             "Starting soon... %02d%%  %s",
-                            smoothProgressPct.toInt().coerceIn(0, 99),
-                            realSpeedText
+                            smoothProgressPct.toInt().coerceIn(1, 100),
+                            displaySpeedText
                         )
 
                         Text(
@@ -1433,9 +1421,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =========================================================================
-            // 🛡️ প্রিমিয়াম প্রাইভেসি সেফ এরর পপ-আপ (কোনো সোর্স বা গোপন লিংক ফাঁস হবে না)
-            // =========================================================================
+            // 🛡️ সুরক্ষিত এরর পপ-আপ
             if (playbackErrorMessage != null) {
                 Box(
                     modifier = Modifier
@@ -1503,7 +1489,8 @@ fun PlayerVideoBox(
                                     onClick = {
                                         playbackErrorMessage = null
                                         isFirstFrameRendered = false
-                                        smoothProgressPct = 0f
+                                        smoothProgressPct = 1f
+                                        hasCompletedStartup = false
                                         onRetryPlayback?.invoke() ?: run {
                                             exoPlayer.prepare()
                                             exoPlayer.play()
@@ -1521,7 +1508,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ২X স্পিড ইন্ডিকেটর
+            // ২X স্পিড
             if (is2xActive) {
                 Row(
                     modifier = Modifier
@@ -1551,7 +1538,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // স্ক্রিন টেনে স্কিপ করার সময় সময়
+            // স্ক্রাবিং
             if (isHorizontalScrubbing) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1600,7 +1587,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ডাবল-ট্যাপ অ্যানিমেশন (+10 › / ‹ -10)
+            // ডাবল ট্যাপ অ্যানিমেশন
             val screenWidthDp = configuration.screenWidthDp.dp
             val doubleTapOffset = remember(screenWidthDp) { screenWidthDp * 0.25f }
 
@@ -1626,7 +1613,7 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // স্পনসর ব্যানার প্রদর্শন
+            // স্পনসর ব্যানার
             if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -1661,14 +1648,14 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ভিডিও প্লে চলাকালীন সাধারণ বাফারিং
+            // বাফারিং ইন্ডিকেটর
             if (isBuffering && isFirstFrameRendered && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                 }
             }
 
-            // 👈 বাম পাশে ভলিউম ওভারলে
+            // 👈 বাম পাশে ভলিউম ওভারলে (১০০% স্মুথ)
             if (showVolumeOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1678,7 +1665,7 @@ fun PlayerVideoBox(
                         .padding(top = 26.dp)
                 ) {
                     Icon(
-                        imageVector = if (volumeLevel <= 0f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                        imageVector = if (volumeFloat <= 0.01f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                         contentDescription = "Volume",
                         tint = Color.White,
                         modifier = Modifier.size(16.dp)
@@ -1693,7 +1680,7 @@ fun PlayerVideoBox(
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .fillMaxWidth(volumeLevel.coerceIn(0f, 1f))
+                                .fillMaxWidth(volumeFloat.coerceIn(0f, 1f))
                                 .background(Color(0xFF00E5FF))
                         )
                     }
@@ -1758,7 +1745,7 @@ fun PlayerVideoBox(
                     }
                 }
             } else {
-                // ওপরের বার
+                // টপ বার
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -1800,7 +1787,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // সেন্ট্রাল প্লে/পজ বাটন
+                // সেন্টার প্লে/পজ
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -1823,7 +1810,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // 🔓 লক বাটন
+                // লক বাটন
                 if (isDeviceLandscape) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
@@ -1850,9 +1837,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার
-                // =========================================================================
+                // বটম কন্ট্রোল বার
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
@@ -1875,7 +1860,6 @@ fun PlayerVideoBox(
                             .padding(horizontal = 6.dp, vertical = 0.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        // Last Seen ব্যানার
                         if (showLastSeenBanner && lastSeenPosMs > 5000L) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
@@ -1919,7 +1903,6 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // ছোট কালো বাবল
                         if (isUserSeeking && totalDurationMs > 0) {
                             Box(
                                 modifier = Modifier
@@ -1942,7 +1925,6 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // আল্ট্রা-স্লিম টাইমলাইন
                         SleekOnlineTimeline(
                             currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                             totalDurationMs = totalDurationMs,
@@ -1965,7 +1947,6 @@ fun PlayerVideoBox(
                                 .height(10.dp)
                         )
 
-                        // বটম কন্ট্রোলস রো
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2052,7 +2033,6 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // ⏱️ স্পিড
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -2068,7 +2048,6 @@ fun PlayerVideoBox(
                                     Text(text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                // 🎯 কোয়ালিটি
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -2091,7 +2070,6 @@ fun PlayerVideoBox(
                                     Text(text = currentQualityLabel, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                // 🎧 ডাবিং অডিও বাটন
                                 if (availableAudioTracks.size > 1) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -2109,7 +2087,6 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 📝 সাবটাইটেল (CC) বাটন
                                 if (availableSubtitleTracks.isNotEmpty()) {
                                     Box(
                                         modifier = Modifier
@@ -2147,7 +2124,6 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // ⬇ ডাউনলোড
                                 IconButton(
                                     onClick = {
                                         if (isDeviceLandscape) {
@@ -2167,7 +2143,6 @@ fun PlayerVideoBox(
                                     )
                                 }
 
-                                // ⤢ ফুলস্ক্রিন আইকন
                                 Box(
                                     modifier = Modifier
                                         .size(24.dp)
@@ -2184,7 +2159,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার প্যানেল (ড্রয়ার ওপেন থাকলে ব্যাকগ্রাউন্ড জেসচার ব্লকড)
+            // 📑 সাইড ড্রয়ার প্যানেল
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -2388,7 +2363,6 @@ fun PlayerVideoBox(
                             }
                         }
                     } else {
-                        // এপিসোড ড্রয়ার
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2489,7 +2463,8 @@ fun PlayerVideoBox(
                                                     else selectedDownloadEpisodes.add(ep)
                                                 } else {
                                                     isFirstFrameRendered = false
-                                                    smoothProgressPct = 0f
+                                                    smoothProgressPct = 1f
+                                                    hasCompletedStartup = false
                                                     isBuffering = true
                                                     onSelectEpisode(ep)
                                                     showSideDrawer = false
