@@ -148,6 +148,46 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
+// =========================================================================
+// 🎯 ১ নম্বর ছবির হুবহু ডাবিং অডিও মিউজিক নোট আইকন (Music Note Icon)
+// =========================================================================
+@Composable
+fun MusicNoteDubbingIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFF00E5FF)
+) {
+    Canvas(modifier = modifier.size(13.dp)) {
+        val w = size.width
+        val h = size.height
+
+        val headRadius = w * 0.22f
+        val headCenter = Offset(w * 0.30f, h * 0.72f)
+        drawCircle(color = tint, radius = headRadius, center = headCenter)
+
+        val stemStroke = 1.6.dp.toPx()
+        val stemX = headCenter.x + headRadius * 0.75f
+        drawLine(
+            color = tint,
+            start = Offset(stemX, headCenter.y),
+            end = Offset(stemX, h * 0.16f),
+            strokeWidth = stemStroke,
+            cap = StrokeCap.Round
+        )
+
+        val flagPath = Path().apply {
+            moveTo(stemX, h * 0.16f)
+            cubicTo(
+                w * 0.72f, h * 0.16f,
+                w * 0.82f, h * 0.30f,
+                w * 0.72f, h * 0.46f
+            )
+            lineTo(stemX, h * 0.38f)
+            close()
+        }
+        drawPath(flagPath, color = tint)
+    }
+}
+
 // 🎯 ফুলস্ক্রিন এক্সপ্যান্ড ডায়াগনাল অ্যারো আইকন
 @Composable
 fun DiagonalFullscreenIcon(
@@ -236,8 +276,8 @@ private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatche
         val target = if (url.contains(".m3u8")) url.substringBeforeLast("/") + "/download_720p.mp4" else url
         val connection = (URL(target).openConnection() as? HttpURLConnection)?.apply {
             requestMethod = "HEAD"
-            connectTimeout = 4000
-            readTimeout = 4000
+            connectTimeout = 3000
+            readTimeout = 3000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
             setRequestProperty("Accept-Encoding", "identity")
@@ -249,8 +289,8 @@ private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatche
             val fallback = url.substringBeforeLast("/") + "/download.mp4"
             val conn2 = (URL(fallback).openConnection() as? HttpURLConnection)?.apply {
                 requestMethod = "HEAD"
-                connectTimeout = 3000
-                readTimeout = 3000
+                connectTimeout = 2500
+                readTimeout = 2500
                 instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "PlayDramaFlix")
             }
@@ -410,24 +450,22 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // 🎯 ১ নম্বর ছবি: ১০০% সার্ভার নিয়ন্ত্রিত ডায়নামিক কিউমুলেটিভ ক্লিক-বেইট অ্যাড
+    // 🎯 ১০০% সার্ভার নিয়ন্ত্রিত ডায়নামিক কিউমুলেটিভ ক্লিক-বেইট অ্যাড
     // =========================================================================
-    val eightMinutesMs = 8 * 60 * 1000L // ৪৮০,০০০ মি.সে.
+    val eightMinutesMs = 8 * 60 * 1000L
     var pendingAdClicks by rememberSaveable(slug) { mutableIntStateOf(0) }
     val triggeredAdMarks = rememberSaveable(slug) { mutableSetOf<Int>() }
 
-    // সার্ভারে ডাইরেক্ট লিংক কনফিগারেশন ভ্যালিডেশন
     val isServerAdActive = remember(isVip) {
         UnifiedAdManager.isDirectLinkAvailable(isVip)
     }
 
     LaunchedEffect(currentPositionMs, isVip, totalDurationMs, isServerAdActive) {
-        // শুধুমাত্র সার্ভার থেকে ডাইরেক্ট লিংক সক্রিয় থাকলে ক্লিক যোগ হবে
         if (!isVip && isServerAdActive && totalDurationMs > 0L) {
             val currentMark = (currentPositionMs / eightMinutesMs).toInt()
             if (currentMark > 0 && currentMark !in triggeredAdMarks) {
                 triggeredAdMarks.add(currentMark)
-                pendingAdClicks += 2 // ২টা করে ক্লিক জমা হবে এবং পেছনের সাথে যোগ হবে
+                pendingAdClicks += 2
             }
         }
     }
@@ -895,7 +933,7 @@ fun PlayerVideoBox(
                     }
                 }
                 // =============================================================
-                // 🎯 ট্যাপ হ্যান্ডলার (২ নম্বর ছবির বাম সাইডে টাচ করলে ফর ইউ মিনিমাইজ ফিক্স)
+                // 🎯 ট্যাপ হ্যান্ডলার (৩ নম্বর ছবি: বাম সাইডে টাচ করলে ফর ইউ মিনিমাইজ ফিক্স)
                 // =============================================================
                 .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking, pendingAdClicks, sideDrawerType) {
                     if (isScreenLocked || isPiPActive) return@pointerInput
@@ -922,20 +960,20 @@ fun PlayerVideoBox(
                             }
                         },
                         onTap = {
-                            // 🎯 ২ নম্বর ছবি: For You ড্রয়ার খোলা থাকলে বামপাশে (ভিডিও এলাকায়) টাচ করলে স্মুথ মিনিমাইজ হবে
+                            // 🎯 ৩ নম্বর ছবি: For You ড্রয়ার খোলা থাকলে বামপাশে (ভিডিও এলাকায়) টাচ করলে স্মুথ মিনিমাইজ হবে
                             if (showSideDrawer && sideDrawerType == "for_you") {
                                 showSideDrawer = false
                                 return@detectTapGestures
                             }
 
-                            // 🎯 সার্ভার নিয়ন্ত্রিত ডায়নামিক ক্লিক-বেইট (সার্ভারে লিংক থাকলে ওপেন করবে)
+                            // 🎯 সার্ভার নিয়ন্ত্রিত ডায়নামিক ক্লিক-বেইট
                             if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                                 pendingAdClicks--
                                 UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
                                 return@detectTapGestures
                             }
 
-                            // অন্য ড্রয়ার খোলা থাকলে ড্রয়ার বন্ধ ও কন্ট্রোলার টগল
+                            // অন্য ড্রয়ার খোলা থাকলে বামপাশে টাচে ড্রয়ার বন্ধ ও কন্ট্রোলার টগল
                             if (showSideDrawer) {
                                 showSideDrawer = false
                                 isControlsVisible = false
@@ -1020,7 +1058,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ওটিটি স্ক্রিন টেনে স্কিপ করার সময় সময় ও প্রগ্রেস বার (ছবি ১)
+            // স্ক্রিন টেনে স্কিপ করার সময় সময় ও প্রগ্রেস বার
             if (isHorizontalScrubbing) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1113,7 +1151,7 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // 🎯 সার্ভার লিংক থাকলে এবং পেন্ডিং ক্লিক বাকি থাকলে স্পনসর ব্যানার প্রদর্শন
+            // সার্ভার লিংক থাকলে এবং পেন্ডিং ক্লিক বাকি থাকলে স্পনসর ব্যানার প্রদর্শন
             if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -1172,7 +1210,7 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .width(85.dp)
                             .height(2.5.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                     ) {
                         Box(
@@ -1203,7 +1241,7 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .width(85.dp)
                             .height(2.5.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                     ) {
                         Box(
@@ -1405,7 +1443,10 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 🎯 টাইমলাইন ড্র্যাগ করার সময় ওপরে লাইভ মিনিট/সেকেন্ড দেখার প্রিভিউ ব্যাজ
+                        // =============================================================
+                        // 🎯 ২ নম্বর ছবির হুবহু: টাইমলাইনে টান দিলে ছোট কালো বাবল (বর্ডার ছাড়া)
+                        // এবং হাত সরিয়ে নিলে সাথে সাথে এটি চলে যাবে
+                        // =============================================================
                         if (isUserSeeking && totalDurationMs > 0) {
                             Box(
                                 modifier = Modifier
@@ -1413,17 +1454,16 @@ fun PlayerVideoBox(
                                     .padding(bottom = 2.dp)
                             ) {
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xCC000000),
-                                    border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
-                                    modifier = Modifier.align(Alignment.Center)
+                                    shape = RoundedCornerShape(4.dp), // 👈 ছোট রাউন্ডেড কোনা
+                                    color = Color.Black.copy(alpha = 0.88f), // 👈 কালো ব্যাকগ্রাউন্ড
+                                    modifier = Modifier.align(Alignment.Center) // 👈 সাইডে কোনো বর্ডার লাইন নেই
                                 ) {
                                     Text(
                                         text = "${formatTimeDisplay(scrubPosition)} / ${formatTimeDisplay(totalDurationMs)}",
                                         color = Color.White,
-                                        fontSize = 12.sp,
+                                        fontSize = 10.5.sp, // 👈 অনেক ছোট ফন্ট
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
                                     )
                                 }
                             }
@@ -1439,7 +1479,7 @@ fun PlayerVideoBox(
                             onSeeking = { scrubPosition = it },
                             onSeekFinished = { targetPos ->
                                 onSeekFinished(targetPos)
-                                isUserSeeking = false
+                                isUserSeeking = false // 👈 হাত সরিয়ে নিলে সাথে সাথে চলে যাবে
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1574,11 +1614,11 @@ fun PlayerVideoBox(
                                     Text(text = currentQualityLabel, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                // 🎧 অডিও
+                                // 🎧 ১ নম্বর ছবির হুবহু ডাবিং অডিও বাটন (Music Note Icon)
                                 if (availableAudioTracks.size > 1) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
                                             .clickable {
@@ -1587,7 +1627,7 @@ fun PlayerVideoBox(
                                             }
                                             .padding(horizontal = 3.dp, vertical = 2.dp)
                                     ) {
-                                        Text(text = "♪", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        MusicNoteDubbingIcon(tint = Color(0xFF00E5FF))
                                         Text(text = currentAudioLabel, color = Color(0xFF00E5FF), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -1645,24 +1685,9 @@ fun PlayerVideoBox(
                 }
             }
 
-            // সাইড ড্রয়ার স্ক্রিম
-            if (showSideDrawer && !isPiPActive) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Transparent)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            showSideDrawer = false
-                            isControlsVisible = false
-                        }
-                )
-            }
-
             // =========================================================================
-            // 📑 ১ নম্বর ছবি: সাইড ড্রয়ারের লেখাগুলো একদম ওপরে একসাথে চাপিয়ে রাখা
+            // 📑 ৩ নম্বর ছবি: সাইড ড্রয়ার প্যানেল
+            // (ডানপাশের কন্ট্রোলস সরাসরি কাজ করবে, ড্রয়ার মিনিমাইজ হবে না)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -1673,9 +1698,7 @@ fun PlayerVideoBox(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(
-                            if (isDeviceLandscape) 0.18f else 0.44f // 👈 আরও বেশি সাইডে চাপানো কালো ইফেক্ট
-                        )
+                        .fillMaxWidth(if (isDeviceLandscape) 0.18f else 0.44f)
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
@@ -1695,7 +1718,7 @@ fun PlayerVideoBox(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(top = 16.dp, end = 16.dp, start = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp), // 👈 একসাথে চাপানো
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                             horizontalAlignment = Alignment.End
                         ) {
                             item {
@@ -1733,12 +1756,11 @@ fun PlayerVideoBox(
                             }
                         }
                     } else if (sideDrawerType == "quality") {
-                        // 🎯 ৩ নম্বর ছবির হুবহু QUALITY ড্রয়ার ডিজাইন (একসাথে চাপানো)
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(top = 16.dp, end = 16.dp, start = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp), // 👈 একসাথে চাপানো
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                             horizontalAlignment = Alignment.End
                         ) {
                             item {
@@ -1763,7 +1785,7 @@ fun PlayerVideoBox(
                                     text = track.label,
                                     color = if (isSelected) Color(0xFF00E5FF) else Color.White,
                                     fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable {
                                             applyExoPlayerQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
@@ -1774,12 +1796,11 @@ fun PlayerVideoBox(
                             }
                         }
                     } else if (sideDrawerType == "audio") {
-                        // 🎯 ১ নম্বর ছবি: একদম ওপর থেকে সিরিয়ালভাবে একসাথে চাপানো অডিও লিস্ট
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(top = 16.dp, end = 16.dp, start = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp), // 👈 অতিরিক্ত স্পেস ছাড়া চাপানো
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                             horizontalAlignment = Alignment.End
                         ) {
                             item {
@@ -1804,7 +1825,7 @@ fun PlayerVideoBox(
                                     text = audioTrack.label,
                                     color = if (isSelected) Color(0xFF00E5FF) else Color.White,
                                     fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable {
                                             applyExoPlayerAudioTrack(audioTrack)
@@ -2035,7 +2056,8 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 ২ নম্বর ছবি: For You সাইড প্যানেল (ডান সাইডে টাচে বন্ধ হবে না, শুধু বাম সাইডে টাচে বন্ধ হবে)
+        // 🎯 ৩ নম্বর ছবি: For You সাইড প্যানেল
+        // (ডান সাইডে টাচে বন্ধ হবে না, শুধু বাম সাইডে ভিডিও এলাকায় টাচে বা Close-এ বন্ধ হবে)
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -2049,7 +2071,6 @@ fun PlayerVideoBox(
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
-                                // 🎯 ডানপাশে (For You প্যানেলে) টাচ করলে কন্ট্রোলার টগল হবে, কিন্তু ড্রয়ার মিনিমাইজ হবে না
                                 isControlsVisible = !isControlsVisible
                             }
                         )
