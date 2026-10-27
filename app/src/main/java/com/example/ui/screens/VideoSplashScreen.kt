@@ -27,10 +27,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.example.R
 import kotlinx.coroutines.delay
 
-// 🛡️ নিরাপদ Activity ফাইন্ডার
 private fun findActivity(context: Context): Activity? {
     var current = context
     while (current is ContextWrapper) {
@@ -46,7 +44,6 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val activity = remember(context) { findActivity(context) }
 
-    // 🎯 ডাবল-কল প্রোটেকশন গার্ড
     var hasFinished by remember { mutableStateOf(false) }
 
     val safeFinish = remember(onVideoFinished) {
@@ -58,14 +55,27 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         }
     }
 
-    // 🎯 ফুলস্ক্রিন সিনেমাটিক করার জন্য স্ট্যাটাস বার ও নেভিগেশন বার হাইড করা
+    // 🎯 ডায়নামিক রিসোর্স চেকার (R.raw এরর পুরোপুরি এড়ানোর জন্য)
+    val rawResId = remember(context) {
+        context.resources.getIdentifier("splash_video", "raw", context.packageName)
+    }
+
+    // ফাইল না থাকলে সাথে সাথে মূল অ্যাপে চলে যাবে, কোনো ক্র্যাশ হবে না
+    if (rawResId == 0) {
+        LaunchedEffect(Unit) {
+            safeFinish()
+        }
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        return
+    }
+
+    // ফুলস্ক্রিন ইনসেট
     DisposableEffect(activity) {
         activity?.window?.let { window ->
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             insetsController.hide(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
-            // স্প্ল্যাশ স্ক্রিন পার হলে সিস্টেম বার ফিরিয়ে আনা
             activity?.window?.let { window ->
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
@@ -73,27 +83,23 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         }
     }
 
-    // 🎬 ভিডিও প্লেয়ার সেটআপ
+    // প্লেয়ার
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            val uri = Uri.parse("android.resource://${context.packageName}/${R.raw.splash_video}")
+            val uri = Uri.parse("android.resource://${context.packageName}/$rawResId")
             setMediaItem(MediaItem.fromUri(uri))
-            
-            // সিনেমাটিক অডিও কনফিগ
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .setUsage(C.USAGE_MEDIA)
                     .build(),
-                false // ব্যাকগ্রাউন্ডে অন্যান্য অডিওকে ডিস্টার্ব না করার সুবিধা
+                false
             )
-            
             prepare()
             playWhenReady = true
         }
     }
 
-    // 🛡️ অ্যাপ মিনিমাইজ হলে ভিডিও পজ করার লাইফসাইকেল অবজারভার
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
@@ -108,7 +114,6 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         }
     }
 
-    // 🎧 প্লেব্যাক ফিনিশ ও এরর লিসেনার
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -118,7 +123,6 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // কোনো এরর হলে কালো স্ক্রিনে আটকে না থেকে সাথে সাথে অ্যাপ ওপেন হবে
                 safeFinish()
             }
         }
@@ -130,7 +134,6 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         }
     }
 
-    // ⏳ সেফটি ফলব্যাক টাইমার (ভিডিও অতিরিক্ত বড় হলেও সর্বোচ্চ ৫.৫ সেকেন্ড পর অ্যাপ চালু হবে)
     LaunchedEffect(Unit) {
         delay(5500)
         safeFinish()
@@ -146,7 +149,7 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM // স্ক্রিনের মাপে ফুল ফিট
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
