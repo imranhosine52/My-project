@@ -2,9 +2,7 @@
 
 package com.example.ui.screens
 
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,8 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -29,20 +25,13 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
-private fun findActivity(context: Context): Activity? {
-    var current = context
-    while (current is ContextWrapper) {
-        if (current is Activity) return current
-        current = current.baseContext
-    }
-    return null
-}
-
 @Composable
-fun VideoSplashScreen(onVideoFinished: () -> Unit) {
+fun VideoSplashScreen(
+    onVideoFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val activity = remember(context) { findActivity(context) }
 
     var hasFinished by remember { mutableStateOf(false) }
 
@@ -55,12 +44,11 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         }
     }
 
-    // 🎯 ডায়নামিক রিসোর্স চেকার (R.raw এরর পুরোপুরি এড়ানোর জন্য)
+    // 🎯 ডায়নামিক রিসোর্স চেকার (ভিডিও ফাইল পাওয়া না গেলে সাথে সাথে হোম স্ক্রিনে চলে যাবে)
     val rawResId = remember(context) {
         context.resources.getIdentifier("splash_video", "raw", context.packageName)
     }
 
-    // ফাইল না থাকলে সাথে সাথে মূল অ্যাপে চলে যাবে, কোনো ক্র্যাশ হবে না
     if (rawResId == 0) {
         LaunchedEffect(Unit) {
             safeFinish()
@@ -69,21 +57,7 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         return
     }
 
-    // ফুলস্ক্রিন ইনসেট
-    DisposableEffect(activity) {
-        activity?.window?.let { window ->
-            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-            insetsController.hide(WindowInsetsCompat.Type.systemBars())
-        }
-        onDispose {
-            activity?.window?.let { window ->
-                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
-            }
-        }
-    }
-
-    // প্লেয়ার
+    // 🚀 এক্সোপ্লেয়ার ইনস্ট্যান্স তৈরি (জিরো ল্যাগ ও স্মুথ অডিও সিঙ্ক সহ)
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             val uri = Uri.parse("android.resource://${context.packageName}/$rawResId")
@@ -95,17 +69,21 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
                     .build(),
                 false
             )
+            repeatMode = Player.REPEAT_MODE_OFF
             prepare()
             playWhenReady = true
         }
     }
 
+    // লাইফসাইকেল হ্যান্ডলার (অ্যাপ মিনিমাইজ হলে পজ ও ব্যাক করলে প্লে)
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                exoPlayer.pause()
-            } else if (event == Lifecycle.Event.ON_RESUME) {
-                if (!hasFinished) exoPlayer.play()
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> {
+                    if (!hasFinished) exoPlayer.play()
+                }
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -114,10 +92,12 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
         }
     }
 
+    // প্লেব্যাক লিসেনার (ভিডিও শেষ হওয়ার সাথে সাথে স্মুথ ট্রানজিশন ট্রিগার)
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
+                    exoPlayer.pause()
                     safeFinish()
                 }
             }
@@ -130,17 +110,21 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
 
         onDispose {
             exoPlayer.removeListener(listener)
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             exoPlayer.release()
         }
     }
 
+    // সর্বোচ্চ সময়সীমা নিরাপত্তা ওয়াচডগ (যাতে কোনো ডিভাইসে ভিডিও আটকে না থাকে)
     LaunchedEffect(Unit) {
-        delay(5500)
+        delay(6000L)
         safeFinish()
     }
 
+    // 🎯 পিওর ব্ল্যাক ব্যাকগ্রাউন্ড (ভিডিও শুরুর আগে কোনো আইকন ফ্লিকার করবে না)
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
@@ -151,6 +135,7 @@ fun VideoSplashScreen(onVideoFinished: () -> Unit) {
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    keepScreenOn = true
                 }
             },
             modifier = Modifier.fillMaxSize()
