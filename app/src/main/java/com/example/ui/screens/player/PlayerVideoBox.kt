@@ -44,9 +44,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -129,6 +126,15 @@ data class RealAudioTrack(
     val isSelected: Boolean = false
 )
 
+data class RealSubtitleTrack(
+    val id: String,
+    val language: String,
+    val label: String,
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val isSelected: Boolean = false
+)
+
 @Composable
 private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0xFFF6D38B)) {
     Canvas(modifier = modifier.size(11.dp)) {
@@ -148,9 +154,7 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// =========================================================================
-// 🎯 ১ নম্বর ছবির হুবহু ডাবিং অডিও মিউজিক নোট আইকন (Music Note Icon)
-// =========================================================================
+// 🎯 ডাবিং অডিও মিউজিক নোট আইকন
 @Composable
 fun MusicNoteDubbingIcon(
     modifier: Modifier = Modifier,
@@ -188,7 +192,7 @@ fun MusicNoteDubbingIcon(
     }
 }
 
-// 🎯 ফুলস্ক্রিন এক্সপ্যান্ড ডায়াগনাল অ্যারো আইকন
+// 🎯 ডায়াগনাল ফুলস্ক্রিন এক্সপ্যান্ড অ্যারো আইকন
 @Composable
 fun DiagonalFullscreenIcon(
     modifier: Modifier = Modifier,
@@ -390,6 +394,11 @@ fun PlayerVideoBox(
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
     var currentAudioLabel by rememberSaveable { mutableStateOf("Hindi") }
 
+    // 📝 সাবটাইটেল (CC) ট্র্যাক সিলেকশন
+    var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
+    var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
+    var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
+
     // 🔊 সাউন্ড স্টেট
     var isMuted by remember { mutableStateOf(false) }
 
@@ -587,6 +596,7 @@ fun PlayerVideoBox(
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
+        val foundSubtitleTracks = mutableListOf<RealSubtitleTrack>()
         val seenResolutions = mutableSetOf<Int>()
 
         for ((groupIndex, group) in tracks.groups.withIndex()) {
@@ -652,6 +662,39 @@ fun PlayerVideoBox(
                         )
                     }
                 }
+            } else if (group.type == C.TRACK_TYPE_TEXT) {
+                // 📝 সাবটাইটেল ট্র্যাক এক্সট্র্যাকশন
+                for (i in 0 until group.length) {
+                    if (group.isTrackSupported(i)) {
+                        val format = group.getTrackFormat(i)
+                        val lang = format.language?.lowercase() ?: "und"
+                        val isSelected = group.isTrackSelected(i)
+
+                        val readableLabel = when {
+                            lang.contains("bn") || lang.contains("ben") || format.label?.contains("bangla", true) == true -> "Bangla Subtitle"
+                            lang.contains("en") || lang.contains("eng") || format.label?.contains("english", true) == true -> "English Subtitle"
+                            lang.contains("hi") || lang.contains("hin") || format.label?.contains("hindi", true) == true -> "Hindi Subtitle"
+                            else -> format.label?.takeIf { it.isNotBlank() } ?: "Subtitle ${foundSubtitleTracks.size + 1}"
+                        }
+
+                        val trackId = "sub_${groupIndex}_$i"
+                        if (isSelected) {
+                            selectedSubtitleTrackId = trackId
+                            currentSubtitleLabel = "CC On"
+                        }
+
+                        foundSubtitleTracks.add(
+                            RealSubtitleTrack(
+                                id = trackId,
+                                language = lang,
+                                label = readableLabel,
+                                groupIndex = groupIndex,
+                                trackIndex = i,
+                                isSelected = isSelected
+                            )
+                        )
+                    }
+                }
             }
         }
 
@@ -680,6 +723,8 @@ fun PlayerVideoBox(
         } else {
             availableAudioTracks = foundAudioTracks.distinctBy { it.label }
         }
+
+        availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
     }
 
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
@@ -733,6 +778,32 @@ fun PlayerVideoBox(
         Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
     }
 
+    fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
+        if (subTrack == null) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .build()
+            selectedSubtitleTrackId = "off"
+            currentSubtitleLabel = "CC"
+            Toast.makeText(context, "Subtitles: Off", Toast.LENGTH_SHORT).show()
+        } else {
+            val currentTracks = exoPlayer.currentTracks
+            val targetGroup = currentTracks.groups.getOrNull(subTrack.groupIndex)
+            if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_TEXT) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, subTrack.trackIndex))
+                    .build()
+                selectedSubtitleTrackId = subTrack.id
+                currentSubtitleLabel = "CC"
+                Toast.makeText(context, "Subtitle: ${subTrack.label}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -769,7 +840,17 @@ fun PlayerVideoBox(
         }
     }
 
+    // =========================================================================
+    // 🚫 বিজ্ঞাপন থাকা অবস্থায় ১০ সেকেন্ড স্কিপ ব্লক
+    // =========================================================================
     fun triggerSkipWithFeedback(seconds: Int) {
+        if (seconds > 0 && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
+            pendingAdClicks--
+            UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
+            Toast.makeText(context, "⚠️ Please clear sponsor ad to skip forward!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         onSeek(seconds)
         coroutineScope.launch {
             if (seconds < 0) {
@@ -828,9 +909,6 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                // =============================================================
-                // 🖐️ মাল্টি-জেসচার ডিটেক্টর (Horizontal Drag Scrubbing, Brightness & Volume)
-                // =============================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape) {
                     if (isScreenLocked || isPiPActive) return@pointerInput
 
@@ -922,9 +1000,16 @@ fun PlayerVideoBox(
                             }
                         } while (event.changes.any { it.pressed })
 
+                        // 🚫 বিজ্ঞাপন পেন্ডিং থাকলে সামনে টেনে নেওয়া ব্লক
                         if (isHorizontalDragging) {
-                            onSeekFinished(scrubTargetPositionMs)
-                            exoPlayer.seekTo(scrubTargetPositionMs)
+                            if (scrubTargetPositionMs > startScrubPos && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
+                                pendingAdClicks--
+                                UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
+                                Toast.makeText(context, "⚠️ Please clear sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                onSeekFinished(scrubTargetPositionMs)
+                                exoPlayer.seekTo(scrubTargetPositionMs)
+                            }
                         }
 
                         showBrightnessOverlay = false
@@ -932,9 +1017,6 @@ fun PlayerVideoBox(
                         isHorizontalScrubbing = false
                     }
                 }
-                // =============================================================
-                // 🎯 ট্যাপ হ্যান্ডলার (৩ নম্বর ছবি: বাম সাইডে টাচ করলে ফর ইউ মিনিমাইজ ফিক্স)
-                // =============================================================
                 .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking, pendingAdClicks, sideDrawerType) {
                     if (isScreenLocked || isPiPActive) return@pointerInput
 
@@ -960,20 +1042,17 @@ fun PlayerVideoBox(
                             }
                         },
                         onTap = {
-                            // 🎯 ৩ নম্বর ছবি: For You ড্রয়ার খোলা থাকলে বামপাশে (ভিডিও এলাকায়) টাচ করলে স্মুথ মিনিমাইজ হবে
                             if (showSideDrawer && sideDrawerType == "for_you") {
                                 showSideDrawer = false
                                 return@detectTapGestures
                             }
 
-                            // 🎯 সার্ভার নিয়ন্ত্রিত ডায়নামিক ক্লিক-বেইট
                             if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                                 pendingAdClicks--
                                 UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
                                 return@detectTapGestures
                             }
 
-                            // অন্য ড্রয়ার খোলা থাকলে বামপাশে টাচে ড্রয়ার বন্ধ ও কন্ট্রোলার টগল
                             if (showSideDrawer) {
                                 showSideDrawer = false
                                 isControlsVisible = false
@@ -1151,7 +1230,7 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // সার্ভার লিংক থাকলে এবং পেন্ডিং ক্লিক বাকি থাকলে স্পনসর ব্যানার প্রদর্শন
+            // স্পনসর ব্যানার প্রদর্শন
             if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -1210,7 +1289,7 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .width(85.dp)
                             .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.5.dp))
+                            .clip(RoundedCornerShape(2.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                     ) {
                         Box(
@@ -1241,7 +1320,7 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .width(85.dp)
                             .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.5.dp))
+                            .clip(RoundedCornerShape(2.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                     ) {
                         Box(
@@ -1373,7 +1452,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (টাইমলাইন স্ক্রাব প্রিভিউ টুলটিপ সহ)
+                // 🔝 বটম কন্ট্রোল বার
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
@@ -1397,14 +1476,13 @@ fun PlayerVideoBox(
                             .padding(horizontal = 6.dp, vertical = 0.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        // Last Seen 00:00 Jump Play ব্যানার
+                        // Last Seen ব্যানার
                         if (showLastSeenBanner && lastSeenPosMs > 5000L) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color(0xF0131722),
                                 border = BorderStroke(0.8.dp, Color(0xFF263248)),
-                                modifier = Modifier
-                                    .padding(start = 6.dp, bottom = 4.dp)
+                                modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1432,21 +1510,17 @@ fun PlayerVideoBox(
                                         color = Color(0xFF00E5FF),
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clickable {
-                                                exoPlayer.seekTo(lastSeenPosMs)
-                                                onSeekFinished(lastSeenPosMs)
-                                                showLastSeenBanner = false
-                                            }
+                                        modifier = Modifier.clickable {
+                                            exoPlayer.seekTo(lastSeenPosMs)
+                                            onSeekFinished(lastSeenPosMs)
+                                            showLastSeenBanner = false
+                                        }
                                     )
                                 }
                             }
                         }
 
-                        // =============================================================
-                        // 🎯 ২ নম্বর ছবির হুবহু: টাইমলাইনে টান দিলে ছোট কালো বাবল (বর্ডার ছাড়া)
-                        // এবং হাত সরিয়ে নিলে সাথে সাথে এটি চলে যাবে
-                        // =============================================================
+                        // 🎯 টাইমলাইন ড্র্যাগ করার সময় ছোট কালো বাবল (বর্ডার ছাড়া)
                         if (isUserSeeking && totalDurationMs > 0) {
                             Box(
                                 modifier = Modifier
@@ -1454,14 +1528,14 @@ fun PlayerVideoBox(
                                     .padding(bottom = 2.dp)
                             ) {
                                 Surface(
-                                    shape = RoundedCornerShape(4.dp), // 👈 ছোট রাউন্ডেড কোনা
-                                    color = Color.Black.copy(alpha = 0.88f), // 👈 কালো ব্যাকগ্রাউন্ড
-                                    modifier = Modifier.align(Alignment.Center) // 👈 সাইডে কোনো বর্ডার লাইন নেই
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color.Black.copy(alpha = 0.88f),
+                                    modifier = Modifier.align(Alignment.Center)
                                 ) {
                                     Text(
                                         text = "${formatTimeDisplay(scrubPosition)} / ${formatTimeDisplay(totalDurationMs)}",
                                         color = Color.White,
-                                        fontSize = 10.5.sp, // 👈 অনেক ছোট ফন্ট
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
                                     )
@@ -1469,7 +1543,7 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // আল্ট্রা-স্লিম টাইমলাইন
+                        // আল্ট্রা-স্লিম টাইমলাইন (টেনে ছেড়ে দিলে সঠিক জায়গায় চালু হবে)
                         SleekOnlineTimeline(
                             currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                             totalDurationMs = totalDurationMs,
@@ -1478,8 +1552,15 @@ fun PlayerVideoBox(
                             onSeekStarted = { isUserSeeking = true },
                             onSeeking = { scrubPosition = it },
                             onSeekFinished = { targetPos ->
-                                onSeekFinished(targetPos)
-                                isUserSeeking = false // 👈 হাত সরিয়ে নিলে সাথে সাথে চলে যাবে
+                                // 🚫 বিজ্ঞাপন বাকি থাকলে সামনে টেনে নেওয়া ব্লক
+                                if (targetPos > currentPositionMs && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
+                                    pendingAdClicks--
+                                    UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
+                                    Toast.makeText(context, "⚠️ Please clear sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    onSeekFinished(targetPos)
+                                }
+                                isUserSeeking = false
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1614,7 +1695,7 @@ fun PlayerVideoBox(
                                     Text(text = currentQualityLabel, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                // 🎧 ১ নম্বর ছবির হুবহু ডাবিং অডিও বাটন (Music Note Icon)
+                                // 🎧 ডাবিং অডিও বাটন
                                 if (availableAudioTracks.size > 1) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1629,6 +1710,27 @@ fun PlayerVideoBox(
                                     ) {
                                         MusicNoteDubbingIcon(tint = Color(0xFF00E5FF))
                                         Text(text = currentAudioLabel, color = Color(0xFF00E5FF), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                // 📝 সাবটাইটেল (CC) বাটন
+                                if (availableSubtitleTracks.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .clickable {
+                                                sideDrawerType = "subtitles"
+                                                showSideDrawer = true
+                                            }
+                                            .padding(horizontal = 3.dp, vertical = 2.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = currentSubtitleLabel,
+                                            color = if (selectedSubtitleTrackId != "off") Color(0xFF00E5FF) else Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
 
@@ -1686,8 +1788,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 ৩ নম্বর ছবি: সাইড ড্রয়ার প্যানেল
-            // (ডানপাশের কন্ট্রোলস সরাসরি কাজ করবে, ড্রয়ার মিনিমাইজ হবে না)
+            // 📑 সাইড ড্রয়ার প্যানেল
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -1698,7 +1799,7 @@ fun PlayerVideoBox(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(if (isDeviceLandscape) 0.18f else 0.44f)
+                        .fillMaxWidth(if (isDeviceLandscape) 0.22f else 0.48f)
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
@@ -1835,8 +1936,66 @@ fun PlayerVideoBox(
                                 )
                             }
                         }
+                    } else if (sideDrawerType == "subtitles") {
+                        // 📝 সাবটাইটেল সিলেকশন ড্রয়ার
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = 16.dp, end = 16.dp, start = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            item {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "SUBTITLES",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(modifier = Modifier.width(52.dp).height(2.dp).background(Color(0xFF00E5FF)))
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                            }
+
+                            item {
+                                Text(
+                                    text = "Off",
+                                    color = if (selectedSubtitleTrackId == "off") Color(0xFF00E5FF) else Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (selectedSubtitleTrackId == "off") FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clickable {
+                                            applyExoPlayerSubtitleTrack(null)
+                                            showSideDrawer = false
+                                        }
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+
+                            items(availableSubtitleTracks) { subTrack ->
+                                val isSelected = (selectedSubtitleTrackId == subTrack.id)
+
+                                Text(
+                                    text = subTrack.label,
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clickable {
+                                            applyExoPlayerSubtitleTrack(subTrack)
+                                            showSideDrawer = false
+                                        }
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                        }
                     } else {
-                        // এপিসোড ও ডাউনলোড ড্রয়ার
+                        // =============================================================
+                        // 🎬 এপিসোড ড্রয়ার (প্রতিটি পর্বের থাম্বনেইল ছবি সহ)
+                        // =============================================================
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1905,9 +2064,9 @@ fun PlayerVideoBox(
                             }
 
                             LazyVerticalGrid(
-                                columns = GridCells.Fixed(4),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                columns = GridCells.Fixed(if (isDeviceLandscape) 2 else 3),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 items(displayEps, key = { it.episodeId }) { ep ->
@@ -1915,21 +2074,16 @@ fun PlayerVideoBox(
                                     val isEpLocked = shouldLockEpisodes && ep.isLocked
                                     val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
 
+                                    // 🎯 থাম্বনেইল কার্ড
                                     Box(
                                         modifier = Modifier
-                                            .aspectRatio(1.1f)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(
-                                                if (sideDrawerType == "download") {
-                                                    if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
-                                                } else {
-                                                    if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
-                                                }
-                                            )
+                                            .aspectRatio(1.5f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF1E2433))
                                             .border(
-                                                width = 1.dp,
+                                                width = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) 1.2.dp else 0.dp,
                                                 color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
-                                                shape = RoundedCornerShape(4.dp)
+                                                shape = RoundedCornerShape(6.dp)
                                             )
                                             .clickable {
                                                 if (sideDrawerType == "download") {
@@ -1942,23 +2096,49 @@ fun PlayerVideoBox(
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            if (sideDrawerType == "playlist" && isSelected) {
-                                                EqualizerBarsIcon(modifier = Modifier.size(9.dp, 6.dp), tint = Color(0xFF00E676))
-                                            } else {
-                                                Text(
-                                                    text = ep.episodeNumber.toString(),
-                                                    color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
+                                        // 🖼️ পর্বের থাম্বনেইল
+                                        if (!ep.thumbnail.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = ep.thumbnail,
+                                                contentDescription = "Ep ${ep.episodeNumber}",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+                                        }
 
-                                            if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
-                                                Text(text = "VIP", color = GoldVip, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                            modifier = Modifier
+                                                .align(Alignment.BottomStart)
+                                                .padding(4.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(Color.Black.copy(alpha = 0.65f))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = "EP ${ep.episodeNumber}",
+                                                color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+
+                                            if (sideDrawerType == "playlist" && isSelected) {
+                                                EqualizerBarsIcon(modifier = Modifier.size(8.dp, 6.dp), tint = Color(0xFF00E676))
+                                            }
+                                        }
+
+                                        if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(3.dp)
+                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .background(Color.Black.copy(alpha = 0.65f))
+                                                    .padding(horizontal = 3.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(text = "VIP", color = GoldVip, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -2055,10 +2235,7 @@ fun PlayerVideoBox(
             }
         }
 
-        // =========================================================================
-        // 🎯 ৩ নম্বর ছবি: For You সাইড প্যানেল
-        // (ডান সাইডে টাচে বন্ধ হবে না, শুধু বাম সাইডে ভিডিও এলাকায় টাচে বা Close-এ বন্ধ হবে)
-        // =========================================================================
+        // For You সাইড প্যানেল
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
             enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
