@@ -14,10 +14,13 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +41,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+// 🎨 ভিডিওর সাইড ও কর্নারের সাথে ১০০% মেলানো মিডনাইট অ্যাম্বিয়েন্ট কালার
+private val SplashAmbientDark = Color(0xFF04050A)
+private val SplashVideoEdgeTone = Color(0xFF060712)
+private val SplashCenterGlow = Color(0xFF080A18)
+
 @Composable
 fun VideoSplashScreen(
     onVideoFinished: () -> Unit,
@@ -50,14 +58,12 @@ fun VideoSplashScreen(
     var isFadingOut by remember { mutableStateOf(false) }
     var hasFinished by remember { mutableStateOf(false) }
 
-    // 🌟 মসৃণ ট্রানজিশনের জন্য আলফা অ্যানিমেশন
     val splashAlpha = remember { Animatable(1f) }
 
     fun triggerSmoothFinish() {
         if (!isFadingOut) {
             isFadingOut = true
             coroutineScope.launch {
-                // ভিডিও শেষ হওয়ার ২৫০-৩০০ms আগেই মসৃণ ফেড শুরু হবে
                 splashAlpha.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(
@@ -81,11 +87,11 @@ fun VideoSplashScreen(
         LaunchedEffect(Unit) {
             onVideoFinished()
         }
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        Box(modifier = Modifier.fillMaxSize().background(SplashAmbientDark))
         return
     }
 
-    // 🚀 এক্সোপ্লেয়ার (ল্যাগ-মুক্ত স্মুথ প্লেব্যাকের জন্য প্রস্তুত)
+    // 🚀 ৬০ FPS ল্যাগ-মুক্ত এক্সোপ্লেয়ার
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             val uri = Uri.parse("android.resource://${context.packageName}/$rawResId")
@@ -119,7 +125,7 @@ fun VideoSplashScreen(
         }
     }
 
-    // 🎯 ভিডিও শেষ হওয়ার ঠিক আগে ফেড শুরু করার নিখুঁত চেকার
+    // ভিডিও শেষ হওয়ার ঠিক ২৫০ms আগেই মসৃণ ফেড ট্রিগার
     LaunchedEffect(exoPlayer) {
         while (isActive && !isFadingOut) {
             val duration = exoPlayer.duration
@@ -128,28 +134,41 @@ fun VideoSplashScreen(
                 triggerSmoothFinish()
                 break
             }
-            delay(80L) // অপ্টিমাইজড টাইমার যা CPU-কে ফ্রি রাখে
+            delay(75L)
         }
     }
 
-    // ব্যাকআপ ওয়াচডগ (সর্বোচ্চ ৫.৫ সেকেন্ড)
     LaunchedEffect(Unit) {
         delay(5500L)
         triggerSmoothFinish()
     }
 
+    // =========================================================================
+    // 🌟 ফুল-স্ক্রিন সিমলেস কন্টেইনার
+    // =========================================================================
     Box(
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer {
                 alpha = splashAlpha.value
             }
-            .background(Color.Black),
+            // 🎯 উপরে ও নিচে সলিড কালো না রেখে ভিডিওর সাইডের রঙের সাথে ম্যাচ করা গ্রেডিয়েন্ট
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        SplashAmbientDark,
+                        SplashVideoEdgeTone,
+                        SplashCenterGlow,
+                        SplashVideoEdgeTone,
+                        SplashAmbientDark
+                    )
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
+        // ১. স্বাভাবিক সাইজে থাকা সেন্ট্রাল ভিডিও প্লেয়ার
         AndroidView(
             factory = { ctx ->
-                // 🎯 ১. AspectRatioFrameLayout: ভিডিওর আসল অনুপাত হুবহু বজায় রাখবে (লোগো লম্বা হবে না)
                 val aspectFrame = AspectRatioFrameLayout(ctx).apply {
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     layoutParams = FrameLayout.LayoutParams(
@@ -159,19 +178,17 @@ fun VideoSplashScreen(
                     )
                 }
 
-                // 🎯 ২. TextureView: ৬০ FPS ল্যাগ-মুক্ত ভিডিও রেন্ডারিং
                 val textureView = TextureView(ctx).apply {
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    isOpaque = true // GPU আলফা ওভারহেড বন্ধ করে ল্যাগ দূর করা হয়েছে
+                    isOpaque = true
                 }
 
                 aspectFrame.addView(textureView)
                 exoPlayer.setVideoTextureView(textureView)
 
-                // ভিডিওর সঠিক রেশিও অনুযায়ী ফ্রেম অ্যাডজাস্ট করা
                 exoPlayer.addListener(object : Player.Listener {
                     override fun onVideoSizeChanged(videoSize: VideoSize) {
                         if (videoSize.width > 0 && videoSize.height > 0) {
@@ -193,6 +210,46 @@ fun VideoSplashScreen(
                 aspectFrame
             },
             modifier = Modifier.fillMaxSize()
+        )
+
+        // =====================================================================
+        // 🎯 ২. উপরের সংযোগস্থল মিলিয়ে দেওয়ার সফট ফেদারিং ওভারলে
+        // =====================================================================
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.24f)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            SplashAmbientDark,
+                            SplashVideoEdgeTone.copy(alpha = 0.95f),
+                            SplashVideoEdgeTone.copy(alpha = 0.50f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        // =====================================================================
+        // 🎯 ৩. নিচের সংযোগস্থল মিলিয়ে দেওয়ার সফট ফেদারিং ওভারলে
+        // =====================================================================
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.24f)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            SplashVideoEdgeTone.copy(alpha = 0.50f),
+                            SplashVideoEdgeTone.copy(alpha = 0.95f),
+                            SplashAmbientDark
+                        )
+                    )
+                )
         )
     }
 
