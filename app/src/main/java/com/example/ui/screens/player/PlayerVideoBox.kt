@@ -44,6 +44,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -92,6 +95,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
@@ -154,7 +158,7 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// 🎯 ডাবিং অডিও মিউজিক নোট আইকন
+// 🎯 ডাবিং অডিও মিউজিক নোট আইকন (Image 1)
 @Composable
 fun MusicNoteDubbingIcon(
     modifier: Modifier = Modifier,
@@ -370,6 +374,7 @@ fun PlayerVideoBox(
     comments: List<Any> = emptyList(),
     recommendations: List<ContentItemDto> = emptyList(),
     onRelatedDramaClick: (String) -> Unit = {},
+    posterUrl: String? = null, // 👈 ভিডিও প্লেয়ারে লোডিংয়ের সময় দেখানোর জন্য পোস্টার
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -404,6 +409,15 @@ fun PlayerVideoBox(
 
     // 🎯 সিডিএন বাফার প্রগ্রেস
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
+
+    // =========================================================================
+    // 🖼️ ভিডিও লোডিং থাম্বনেইল ট্র্যাকার (ভিডিও লোড হওয়ার সময় থাম্বনেইল দেখাবে)
+    // =========================================================================
+    var isFirstFrameRendered by rememberSaveable(episodeNumber, slug) { mutableStateOf(false) }
+    val activeVideoThumbnail = remember(episodeNumber, episodes, posterUrl) {
+        episodes.find { it.episodeNumber == episodeNumber }?.thumbnail?.takeIf { it.isNotBlank() }
+            ?: posterUrl
+    }
 
     // =========================================================================
     // 🏷️ Last Seen 00:00 Jump Play ব্যানার স্টেট
@@ -680,7 +694,7 @@ fun PlayerVideoBox(
                         val trackId = "sub_${groupIndex}_$i"
                         if (isSelected) {
                             selectedSubtitleTrackId = trackId
-                            currentSubtitleLabel = "CC On"
+                            currentSubtitleLabel = "CC"
                         }
 
                         foundSubtitleTracks.add(
@@ -810,6 +824,12 @@ fun PlayerVideoBox(
                 extractTracks(tracks)
             }
 
+            override fun onRenderedFirstFrame() {
+                // ⚡ প্রথম ফ্রেম রেন্ডার হওয়ার সাথে সাথে পোস্টার সরিয়ে ভিডিও লাইভ হবে
+                isFirstFrameRendered = true
+                isBuffering = false
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (currentSelectedHeight == 0 && videoSize.height > 0) {
                     val res = minOf(videoSize.width, videoSize.height)
@@ -840,9 +860,7 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
     // 🚫 বিজ্ঞাপন থাকা অবস্থায় ১০ সেকেন্ড স্কিপ ব্লক
-    // =========================================================================
     fun triggerSkipWithFeedback(seconds: Int) {
         if (seconds > 0 && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
             pendingAdClicks--
@@ -1107,6 +1125,29 @@ fun PlayerVideoBox(
                     )
             )
 
+            // =============================================================
+            // 🖼️ ভিডিও লোড/বাফারিং হওয়ার সময় আসল পোস্টার থাম্বনেইল
+            // =============================================================
+            if ((!isFirstFrameRendered || isBuffering) && !activeVideoThumbnail.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(activeVideoThumbnail)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Loading Preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+                }
+            }
+
             // ২X স্পিড ইন্ডিকেটর
             if (is2xActive) {
                 Row(
@@ -1289,7 +1330,7 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .width(85.dp)
                             .height(2.5.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                     ) {
                         Box(
@@ -1320,7 +1361,7 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .width(85.dp)
                             .height(2.5.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                     ) {
                         Box(
@@ -1520,7 +1561,7 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 🎯 টাইমলাইন ড্র্যাগ করার সময় ছোট কালো বাবল (বর্ডার ছাড়া)
+                        // ২ নম্বর ছবির মতো ছোট কালো বাবল (বর্ডার ছাড়া)
                         if (isUserSeeking && totalDurationMs > 0) {
                             Box(
                                 modifier = Modifier
@@ -1543,7 +1584,7 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // আল্ট্রা-স্লিম টাইমলাইন (টেনে ছেড়ে দিলে সঠিক জায়গায় চালু হবে)
+                        // আল্ট্রা-স্লিম টাইমলাইন
                         SleekOnlineTimeline(
                             currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                             totalDurationMs = totalDurationMs,
@@ -1552,7 +1593,6 @@ fun PlayerVideoBox(
                             onSeekStarted = { isUserSeeking = true },
                             onSeeking = { scrubPosition = it },
                             onSeekFinished = { targetPos ->
-                                // 🚫 বিজ্ঞাপন বাকি থাকলে সামনে টেনে নেওয়া ব্লক
                                 if (targetPos > currentPositionMs && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                                     pendingAdClicks--
                                     UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
@@ -1713,7 +1753,7 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 📝 সাবটাইটেল (CC) বাটন
+                                // 📝 সাবটাইটেল (CC) বাটন — শুধুমাত্র সাবটাইটেল ট্র্যাক থাকলে প্রদর্শিত হবে
                                 if (availableSubtitleTracks.isNotEmpty()) {
                                     Box(
                                         modifier = Modifier
@@ -1937,7 +1977,6 @@ fun PlayerVideoBox(
                             }
                         }
                     } else if (sideDrawerType == "subtitles") {
-                        // 📝 সাবটাইটেল সিলেকশন ড্রয়ার
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1994,7 +2033,7 @@ fun PlayerVideoBox(
                         }
                     } else {
                         // =============================================================
-                        // 🎬 এপিসোড ড্রয়ার (প্রতিটি পর্বের থাম্বনেইল ছবি সহ)
+                        // 🎬 এপিসোড ড্রয়ার (আগের মতো পরিষ্কার সংখ্যা ও ব্যাজ সহ)
                         // =============================================================
                         Column(
                             modifier = Modifier
@@ -2063,10 +2102,11 @@ fun PlayerVideoBox(
                                 (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
                             }
 
+                            // 🎯 আগের মতো পরিচ্ছন্ন স্কয়ার বক্স
                             LazyVerticalGrid(
-                                columns = GridCells.Fixed(if (isDeviceLandscape) 2 else 3),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                columns = GridCells.Fixed(4),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 items(displayEps, key = { it.episodeId }) { ep ->
@@ -2074,14 +2114,19 @@ fun PlayerVideoBox(
                                     val isEpLocked = shouldLockEpisodes && ep.isLocked
                                     val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
 
-                                    // 🎯 থাম্বনেইল কার্ড
                                     Box(
                                         modifier = Modifier
-                                            .aspectRatio(1.5f)
+                                            .aspectRatio(1.1f)
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF1E2433))
+                                            .background(
+                                                if (sideDrawerType == "download") {
+                                                    if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
+                                                } else {
+                                                    if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
+                                                }
+                                            )
                                             .border(
-                                                width = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) 1.2.dp else 0.dp,
+                                                width = 1.dp,
                                                 color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
                                                 shape = RoundedCornerShape(6.dp)
                                             )
@@ -2090,54 +2135,31 @@ fun PlayerVideoBox(
                                                     if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
                                                     else selectedDownloadEpisodes.add(ep)
                                                 } else {
+                                                    isFirstFrameRendered = false
+                                                    isBuffering = true
                                                     onSelectEpisode(ep)
                                                     showSideDrawer = false
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        // 🖼️ পর্বের থাম্বনেইল
-                                        if (!ep.thumbnail.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = ep.thumbnail,
-                                                contentDescription = "Ep ${ep.episodeNumber}",
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                            modifier = Modifier
-                                                .align(Alignment.BottomStart)
-                                                .padding(4.dp)
-                                                .clip(RoundedCornerShape(3.dp))
-                                                .background(Color.Black.copy(alpha = 0.65f))
-                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
                                         ) {
                                             Text(
-                                                text = "EP ${ep.episodeNumber}",
+                                                text = ep.episodeNumber.toString(),
                                                 color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                                             )
 
                                             if (sideDrawerType == "playlist" && isSelected) {
-                                                EqualizerBarsIcon(modifier = Modifier.size(8.dp, 6.dp), tint = Color(0xFF00E676))
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                EqualizerBarsIcon(modifier = Modifier.size(9.dp, 6.dp), tint = Color(0xFF00E676))
                                             }
-                                        }
 
-                                        if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(3.dp)
-                                                    .clip(RoundedCornerShape(2.dp))
-                                                    .background(Color.Black.copy(alpha = 0.65f))
-                                                    .padding(horizontal = 3.dp, vertical = 1.dp)
-                                            ) {
+                                            if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
                                                 Text(text = "VIP", color = GoldVip, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
@@ -2293,40 +2315,39 @@ fun PlayerVideoBox(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(6.dp))
-                                        .clickable {
-                                            onRelatedDramaClick(rec.slug)
-                                            showSideDrawer = false
-                                        }
-                                        .padding(vertical = 3.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(105.dp)
-                                            .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(5.dp))
-                                            .background(Color(0xFF1A1F2C))
-                                    ) {
-                                        val bannerImg = rec.bannerUrl?.takeIf { it.isNotBlank() } ?: rec.posterUrl
-                                        AsyncImage(
-                                            model = bannerImg,
-                                            contentDescription = rec.title,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
+                                    .clickable {
+                                        onRelatedDramaClick(rec.slug)
+                                        showSideDrawer = false
                                     }
-
-                                    Text(
-                                        text = rec.title,
-                                        color = Color.White,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
+                                    .padding(vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(105.dp)
+                                        .aspectRatio(16f / 9f)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(Color(0xFF1A1F2C))
+                                ) {
+                                    val bannerImg = rec.bannerUrl?.takeIf { it.isNotBlank() } ?: rec.posterUrl
+                                    AsyncImage(
+                                        model = bannerImg,
+                                        contentDescription = rec.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
                                     )
                                 }
+
+                                Text(
+                                    text = rec.title,
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -2334,4 +2355,4 @@ fun PlayerVideoBox(
             }
         }
     }
-}
+    }
