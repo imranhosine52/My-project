@@ -173,22 +173,28 @@ fun PlayerScreen(
             (authState.userProfile?.plan?.lowercase() == "vip") ||
             (authState.userProfile?.plan?.lowercase() == "premium")
 
-    var isDedicatedCommentsOpen by rememberSaveable { mutableStateOf(false) }
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
+    var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
+    var threadReplyText by remember { mutableStateOf("") }
 
     // =========================================================================
-    // 🔙 পারফেক্ট ব্যাক বাটন হ্যান্ডলার:
-    // ১. ফুলস্ক্রিনে থাকলে আগে পোর্ট্রেট মোডে আসবে (পোস্ট কাটবে না)
-    // ২. কমেন্ট ফুলস্ক্রিন থাকলে বন্ধ হবে
-    // ৩. পোর্ট্রেটে থাকলে পূর্ববর্তী পোস্টে বা পূর্ববর্তী পেজে ব্যাক করবে
+    // 🔙 পারফেক্ট ব্যাক বাটন হ্যান্ডলার
     // =========================================================================
     fun handleBackNavigation() {
         when {
+            // ১. ফুলস্ক্রিনে থাকলে আগে পোর্ট্রেটে ফিরবে
             isAnyFullscreen || isDeviceLandscape -> {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
-            isDedicatedCommentsOpen -> {
-                isDedicatedCommentsOpen = false
+            // ২. কমেন্ট রিপ্লাই থ্রেড ওপেন থাকলে তা বন্ধ হবে
+            selectedThreadParentComment != null -> {
+                selectedThreadParentComment = null
             }
+            // ৩. কমেন্ট ট্যাবে থাকলে ব্যাক চাপলে আগে "For you" (এপিসোড সহ) ট্যাবে আসবে
+            selectedTabIndex == 1 -> {
+                selectedTabIndex = 0
+            }
+            // ৪. পোর্ট্রেটে থাকলে পূর্ববর্তী পেজে চলে যাবে
             else -> {
                 onBackClick()
             }
@@ -305,7 +311,6 @@ fun PlayerScreen(
     LaunchedEffect(slug) {
         persistentDramaComments.clear()
         completedAdClicks = 0
-        isDedicatedCommentsOpen = false
 
         val initialTitle = homeState.popularDramas.find { it.slug == slug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == slug }?.displayName
@@ -360,7 +365,6 @@ fun PlayerScreen(
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showAllEpisodesSheet by remember { mutableStateOf(false) }
 
-    var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
     var showCommentMediaPicker by remember { mutableStateOf(false) }
 
@@ -386,15 +390,13 @@ fun PlayerScreen(
     }
 
     var shuffledRecommendations by remember { mutableStateOf<List<ContentItemDto>>(emptyList()) }
-    var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
-    var threadReplyText by remember { mutableStateOf("") }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
 
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     // =========================================================================
-    // 💾 শেষ দেখা এপিসোড মেমোরি (যেমন: ১০ নম্বর এপিসোডে ছেড়ে গেলে পরবর্তীতে ১০ নম্বর পিন থাকবে)
+    // 💾 শেষ দেখা এপিসোড মেমোরি
     // =========================================================================
     val lastWatchedEpPrefs = remember {
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
@@ -412,12 +414,10 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 ১০ নম্বর বা শেষ দেখা এপিসোড অটো-সিলেক্ট ও পিন লজিক
     val currentEp = playerState.currentEpisode?.takeIf { it.episodeNumber > 0 }
         ?: effectiveEpisodes.find { it.episodeNumber == savedEpisodeNumber }
         ?: effectiveEpisodes.firstOrNull()
 
-    // যখনই ইউজার কোনো এপিসোড দেখে, সাথে সাথে তা মেমোরিতে সেভ হবে
     LaunchedEffect(slug, currentEp?.episodeNumber) {
         val epNum = currentEp?.episodeNumber ?: 1
         if (slug.isNotBlank() && epNum > 0) {
@@ -445,16 +445,8 @@ fun PlayerScreen(
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val highSpeedLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 60_000,
-                /* maxBufferMs = */ 180_000,
-                /* bufferForPlaybackMs = */ 300,
-                /* bufferForPlaybackAfterRebufferMs = */ 800
-            )
-            .setBackBuffer(
-                /* backBufferDurationMs = */ 60_000,
-                /* retainBackBufferFromKeyframe = */ true
-            )
+            .setBufferDurationsMs(60_000, 180_000, 300, 800)
+            .setBackBuffer(60_000, true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -861,7 +853,6 @@ fun PlayerScreen(
                             totalDurationMs = totalDurationMs,
                             isPlaying = isPlaying,
                             isVip = isUserVip,
-                            // 👈 প্লেয়ারের টপ অ্যারো ব্যাক বাটন চাপলেও ফুলস্ক্রিন থেকে আগে পোর্ট্রেটে ফিরবে
                             onBackClick = { handleBackNavigation() },
                             onPlayPauseClick = {
                                 if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -917,7 +908,6 @@ fun PlayerScreen(
                             onNavigateToVip = onNavigateToVip,
                             comments = persistentDramaComments,
                             recommendations = shuffledRecommendations,
-                            // 👈 রিকমেন্ডেশনের ড্রামায় ক্লিক করলে MainActivity-এর স্ট্যাক অনুযায়ী নেভিগেট হবে
                             onRelatedDramaClick = { newSlug ->
                                 onRelatedDramaClick(newSlug)
                             },
@@ -952,97 +942,92 @@ fun PlayerScreen(
                             .fillMaxWidth()
                             .background(Color(0xFF0C0F15))
                     ) {
-                        if (isDedicatedCommentsOpen) {
+                        // =========================================================================
+                        // 💬 রিপ্লাই থ্রেড স্ক্রিন
+                        // =========================================================================
+                        if (selectedThreadParentComment != null) {
+                            CommentRepliesThreadView(
+                                parentComment = selectedThreadParentComment!!,
+                                dramaContent = content,
+                                currentUserAvatar = currentUserAvatar,
+                                userInitials = userInitials,
+                                replyText = threadReplyText,
+                                onReplyTextChange = { threadReplyText = it },
+                                onBackClick = { selectedThreadParentComment = null },
+                                onSendReply = {
+                                    if (!isUserLoggedIn) {
+                                        Toast.makeText(context, "Please log in to reply", Toast.LENGTH_SHORT).show()
+                                        showAuthSheet = true
+                                        return@CommentRepliesThreadView
+                                    }
+                                    val text = threadReplyText.trim()
+                                    if (text.isNotBlank()) {
+                                        viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
+                                        threadReplyText = ""
+                                        keyboardController?.hide()
+                                    }
+                                },
+                                onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
+                                onDeleteComment = { commentId ->
+                                    deletedCommentIds.add(commentId)
+                                    val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                    savedSet.add(commentId)
+                                    deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
+
+                                    persistentDramaComments.removeAll { it.id == commentId }
+                                    Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                        // =========================================================================
+                        // 💬 ১. কমেন্ট বক্স মোড (প্লেয়ারের নিচ থেকে ফুলস্ক্রিন, এপিসোড লুকানো থাকবে)
+                        // =========================================================================
+                        else if (selectedTabIndex == 1) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color(0xFF10141D))
-                            ) {
-                                if (selectedThreadParentComment != null) {
-                                    CommentRepliesThreadView(
-                                        parentComment = selectedThreadParentComment!!,
-                                        dramaContent = content,
-                                        currentUserAvatar = currentUserAvatar,
-                                        userInitials = userInitials,
-                                        replyText = threadReplyText,
-                                        onReplyTextChange = { threadReplyText = it },
-                                        onBackClick = { selectedThreadParentComment = null },
-                                        onSendReply = {
-                                            if (!isUserLoggedIn) {
-                                                Toast.makeText(context, "Please log in to reply", Toast.LENGTH_SHORT).show()
-                                                showAuthSheet = true
-                                                return@CommentRepliesThreadView
+                                    .background(Color(0xFF0C0F15))
+                                    .pointerInput(selectedTabIndex) {
+                                        var totalDragX = 0f
+                                        detectHorizontalDragGestures(
+                                            onDragStart = { totalDragX = 0f },
+                                            onDragEnd = {
+                                                // ডানে সোয়াইপ করলে পুনরায় "For you" (এপিসোড সহ) মোডে ফিরে আসবে
+                                                if (totalDragX > 45f) {
+                                                    selectedTabIndex = 0
+                                                }
+                                            },
+                                            onHorizontalDrag = { change, dragAmount ->
+                                                totalDragX += dragAmount
+                                                if (kotlin.math.abs(totalDragX) > 20f) {
+                                                    change.consume()
+                                                }
                                             }
-                                            val text = threadReplyText.trim()
-                                            if (text.isNotBlank()) {
-                                                viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
-                                                threadReplyText = ""
-                                                keyboardController?.hide()
-                                            }
-                                        },
-                                        onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
-                                        onDeleteComment = { commentId ->
-                                            deletedCommentIds.add(commentId)
-                                            val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-                                            savedSet.add(commentId)
-                                            deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
-
-                                            persistentDramaComments.removeAll { it.id == commentId }
-                                            Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                } else {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            IconButton(
-                                                onClick = { isDedicatedCommentsOpen = false },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                                    contentDescription = "Back",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-
-                                            Text(
-                                                text = "Comments (${persistentDramaComments.size})",
-                                                color = Color.White,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = { isDedicatedCommentsOpen = false },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Close",
-                                                tint = Color(0xFF8E95A5),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
+                                        )
                                     }
+                            ) {
+                                // প্লেয়ারের ঠিক নিচে পিনড ট্যাব বার
+                                PlayerTabsHeader(
+                                    selectedTabIndex = selectedTabIndex,
+                                    commentsCount = persistentDramaComments.size,
+                                    onTabSelected = { idx -> selectedTabIndex = idx },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF0C0F15))
+                                        .padding(vertical = 4.dp)
+                                )
 
-                                    HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
+                                HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
 
+                                // কমেন্ট স্ক্রলেবল লিস্ট (বাকি পুরো স্ক্রিন জুড়ে থাকবে)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                ) {
                                     if (persistentDramaComments.isEmpty()) {
                                         Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxWidth(),
+                                            modifier = Modifier.fillMaxSize(),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
@@ -1053,9 +1038,8 @@ fun PlayerScreen(
                                         }
                                     } else {
                                         LazyColumn(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxWidth()
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentPadding = PaddingValues(vertical = 8.dp)
                                         ) {
                                             items(
                                                 count = persistentDramaComments.size,
@@ -1079,7 +1063,6 @@ fun PlayerScreen(
                                                     },
                                                     onOpenReplies = {
                                                         selectedThreadParentComment = comment
-                                                        isDedicatedCommentsOpen = true
                                                     },
                                                     onShare = {
                                                         try {
@@ -1103,38 +1086,47 @@ fun PlayerScreen(
                                             }
                                         }
                                     }
+                                }
 
-                                    PlayerInlineCommentInput(
-                                        userInitials = userInitials,
-                                        currentUserAvatar = currentUserAvatar,
-                                        isLoggedIn = isUserLoggedIn,
-                                        text = inlineCommentText,
-                                        onTextChange = { inlineCommentText = it },
-                                        onOpenMediaPicker = { showCommentMediaPicker = true },
-                                        onRequireLogin = {
+                                // =============================================================
+                                // 🎯 টাইপিং বক্স: ডিফল্টভাবে একদম নিচে পিন থাকবে
+                                // এবং কিবোর্ড ওপেন করলে কিবোর্ডের মাথায় উপরে উঠবে
+                                // =============================================================
+                                PlayerInlineCommentInput(
+                                    userInitials = userInitials,
+                                    currentUserAvatar = currentUserAvatar,
+                                    isLoggedIn = isUserLoggedIn,
+                                    text = inlineCommentText,
+                                    onTextChange = { inlineCommentText = it },
+                                    onOpenMediaPicker = { showCommentMediaPicker = true },
+                                    onRequireLogin = {
+                                        Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                        showAuthSheet = true
+                                    },
+                                    onSend = {
+                                        if (!isUserLoggedIn) {
                                             Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
                                             showAuthSheet = true
-                                        },
-                                        onSend = {
-                                            if (!isUserLoggedIn) {
-                                                Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
-                                                showAuthSheet = true
-                                                return@PlayerInlineCommentInput
-                                            }
-                                            if (inlineCommentText.isNotBlank()) {
-                                                viewModel.postComment(inlineCommentText.trim())
-                                                inlineCommentText = ""
-                                                keyboardController?.hide()
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .navigationBarsPadding()
-                                            .imePadding()
-                                    )
-                                }
+                                            return@PlayerInlineCommentInput
+                                        }
+                                        if (inlineCommentText.isNotBlank()) {
+                                            viewModel.postComment(inlineCommentText.trim())
+                                            inlineCommentText = ""
+                                            keyboardController?.hide()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF10141D))
+                                        .navigationBarsPadding()
+                                        .imePadding()
+                                )
                             }
-                        } else {
+                        }
+                        // =========================================================================
+                        // 🎬 ২. For you মোড (টাইটেল, এপিসোড রো, স্টিকি ট্যাব ও রিকমেন্ডেশন)
+                        // =========================================================================
+                        else {
                             PullToRefreshBox(
                                 isRefreshing = isRefreshing,
                                 onRefresh = {
@@ -1160,10 +1152,9 @@ fun PlayerScreen(
                                             detectHorizontalDragGestures(
                                                 onDragStart = { totalDragX = 0f },
                                                 onDragEnd = {
-                                                    if (totalDragX < -45f && selectedTabIndex == 0) {
+                                                    // বামে সোয়াইপ করলে কমেন্ট মোডে চলে যাবে
+                                                    if (totalDragX < -45f) {
                                                         selectedTabIndex = 1
-                                                    } else if (totalDragX > 45f && selectedTabIndex == 1) {
-                                                        selectedTabIndex = 0
                                                     }
                                                 },
                                                 onHorizontalDrag = { change, dragAmount ->
@@ -1176,7 +1167,6 @@ fun PlayerScreen(
                                         },
                                     contentPadding = PaddingValues(bottom = 80.dp)
                                 ) {
-                                    // ⬇️ টাইটেল ধরে নিচে টানলে প্লেয়ার ফুলস্ক্রিন হওয়া
                                     item {
                                         Box(
                                             modifier = Modifier
@@ -1235,7 +1225,7 @@ fun PlayerScreen(
                                         }
                                     }
 
-                                    // এপিসোড রো (যেখানে শেষ দেখা ১০ নম্বর এপিসোড স্বয়ংক্রিয়ভাবে একটিভ বা পিন হয়ে থাকবে)
+                                    // এপিসোড রো
                                     item {
                                         PlayerEpisodesRow(
                                             episodes = effectiveEpisodes,
@@ -1256,7 +1246,7 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // 📌 স্ক্রল করলেও দুটি ট্যাব উপরে পিন (Sticky Header) হয়ে থাকবে
+                                    // স্টিকি ট্যাব বার
                                     stickyHeader {
                                         PlayerTabsHeader(
                                             selectedTabIndex = selectedTabIndex,
@@ -1271,124 +1261,28 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    if (selectedTabIndex == 0) {
-                                        // 🎬 ট্যাব ১: For you
-                                        val dramaRows = shuffledRecommendations.chunked(4)
-                                        items(dramaRows.size) { rowIndex ->
-                                            val rowDramas = dramaRows[rowIndex]
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                for (drama in rowDramas) {
-                                                    PlayerRecommendationCard(
-                                                        drama = drama,
-                                                        cardTitle = drama.displayName,
-                                                        shiningBorderBrush = shiningBorderBrush,
-                                                        onClick = {
-                                                            // 👈 ক্লিক করলে MainActivity-এর স্ট্যাক অনুযায়ী নেভিগেট হবে
-                                                            onRelatedDramaClick(drama.slug)
-                                                        },
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                }
-                                                repeat(4 - rowDramas.size) { Spacer(modifier = Modifier.weight(1f)) }
-                                            }
-                                        }
-                                    } else {
-                                        // 💬 ট্যাব ২: Comments
-                                        if (persistentDramaComments.isEmpty()) {
-                                            item {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(200.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = "No comments yet. Be the first to comment!",
-                                                        color = Color(0xFF8E95A5),
-                                                        fontSize = 13.sp
-                                                    )
-                                                }
-                                            }
-                                        } else {
-                                            items(
-                                                count = persistentDramaComments.size,
-                                                key = { index -> persistentDramaComments[index].id }
-                                            ) { index ->
-                                                val comment = persistentDramaComments[index]
-                                                ModernCommentRowItem(
-                                                    comment = comment,
-                                                    currentUserAvatar = currentUserAvatar,
-                                                    currentUserName = currentUserName,
-                                                    currentUserId = currentUser?.id,
-                                                    onLike = {
-                                                        val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
-                                                        if (cIdx != -1) {
-                                                            val c = persistentDramaComments[cIdx]
-                                                            val newLiked = !c.isLiked
-                                                            val newCount = if (newLiked) c.likesCount + 1 else (c.likesCount - 1).coerceAtLeast(0)
-                                                            persistentDramaComments[cIdx] = c.copy(isLikedVal = newLiked, rawLikesCount = newCount)
-                                                        }
-                                                        viewModel.toggleCommentLike(comment.id)
+                                    // রিকমেন্ডেশন গ্রিড
+                                    val dramaRows = shuffledRecommendations.chunked(4)
+                                    items(dramaRows.size) { rowIndex ->
+                                        val rowDramas = dramaRows[rowIndex]
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            for (drama in rowDramas) {
+                                                PlayerRecommendationCard(
+                                                    drama = drama,
+                                                    cardTitle = drama.displayName,
+                                                    shiningBorderBrush = shiningBorderBrush,
+                                                    onClick = {
+                                                        onRelatedDramaClick(drama.slug)
                                                     },
-                                                    onOpenReplies = {
-                                                        selectedThreadParentComment = comment
-                                                        isDedicatedCommentsOpen = true
-                                                    },
-                                                    onShare = {
-                                                        try {
-                                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "text/plain"
-                                                                putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
-                                                            }
-                                                            context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
-                                                        } catch (_: Exception) {}
-                                                    },
-                                                    onDeleteComment = { commentId ->
-                                                        deletedCommentIds.add(commentId)
-                                                        val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-                                                        savedSet.add(commentId)
-                                                        deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
-
-                                                        persistentDramaComments.removeAll { it.id == commentId }
-                                                        Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
-                                                    }
+                                                    modifier = Modifier.weight(1f)
                                                 )
                                             }
-                                        }
-
-                                        item {
-                                            PlayerInlineCommentInput(
-                                                userInitials = userInitials,
-                                                currentUserAvatar = currentUserAvatar,
-                                                isLoggedIn = isUserLoggedIn,
-                                                text = inlineCommentText,
-                                                onTextChange = { inlineCommentText = it },
-                                                onOpenMediaPicker = { showCommentMediaPicker = true },
-                                                onRequireLogin = {
-                                                    Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
-                                                    showAuthSheet = true
-                                                },
-                                                onSend = {
-                                                    if (!isUserLoggedIn) {
-                                                        Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
-                                                        showAuthSheet = true
-                                                        return@PlayerInlineCommentInput
-                                                    }
-                                                    if (inlineCommentText.isNotBlank()) {
-                                                        viewModel.postComment(inlineCommentText.trim())
-                                                        inlineCommentText = ""
-                                                        keyboardController?.hide()
-                                                    }
-                                                },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 10.dp)
-                                            )
+                                            repeat(4 - rowDramas.size) { Spacer(modifier = Modifier.weight(1f)) }
                                         }
                                     }
                                 }
