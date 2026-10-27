@@ -9,7 +9,7 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
-    private const val BASE_URL = "https://playdramaflix.com/api/v1/"
+    private const val BASE_URL = "https://www.playdramaflix.com/api/v1/"
 
     private val moshi: Moshi by lazy {
         Moshi.Builder()
