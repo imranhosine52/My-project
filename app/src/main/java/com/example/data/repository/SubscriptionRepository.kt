@@ -26,7 +26,7 @@ class SubscriptionRepository(
 
     companion object {
         private const val TAG = "SubscriptionRepo"
-        private const val SUBMIT_API_URL = "https://playdramaflix.com/api/v1/subscription/submit"
+        private const val SUBMIT_API_URL = "https://www.playdramaflix.com/api/v1/subscription/submit"
     }
 
     // =========================================================================
