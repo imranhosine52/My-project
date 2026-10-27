@@ -112,17 +112,28 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
 
         setContent {
+            // 🎯 স্প্ল্যাশ স্ক্রিন শো/হাইড কন্ট্রোল স্টেট
+            var showSplash by remember { mutableStateOf(true) }
+
             DramaFlixTheme {
-                MainAppContent(
-                    activity = this,
-                    viewModel = viewModel,
-                    pendingNotificationSlug = pendingNotificationSlug.value,
-                    pendingNotificationIsShorts = pendingNotificationIsShorts.value,
-                    pendingExternalMediaItem = pendingExternalMediaItem.value,
-                    pendingOpenCommunityChat = pendingOpenCommunityChat.value,
-                    pendingOpenVipScreen = pendingOpenVipScreen.value,
-                    onFinish = { finish() }
-                )
+                if (showSplash) {
+                    // অ্যাপ ওপেন হলে প্রথমে ভিডিও স্প্ল্যাশ স্ক্রিন দেখাবে
+                    VideoSplashScreen(
+                        onVideoFinished = { showSplash = false }
+                    )
+                } else {
+                    // ভিডিও শেষ হলে মূল অ্যাপ চালু হবে
+                    MainAppContent(
+                        activity = this,
+                        viewModel = viewModel,
+                        pendingNotificationSlug = pendingNotificationSlug.value,
+                        pendingNotificationIsShorts = pendingNotificationIsShorts.value,
+                        pendingExternalMediaItem = pendingExternalMediaItem.value,
+                        pendingOpenCommunityChat = pendingOpenCommunityChat.value,
+                        pendingOpenVipScreen = pendingOpenVipScreen.value,
+                        onFinish = { finish() }
+                    )
+                }
             }
         }
     }
@@ -406,7 +417,7 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
-    // 🎯 সঠিক বটম ট্যাব ম্যাপিং (শর্ট টিভি বা ক্যাটেগরি ঠিকমতো ধরে রাখা)
+    // 🎯 সঠিক বটম ট্যাব ম্যাপিং
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> {
@@ -431,7 +442,7 @@ private fun MainAppContent(
     }
 
     // =========================================================================
-    // 🔙 পারফেক্ট ব্যাক নেভিগেশন (পূর্বের ক্যাটেগরি পেজ ১০০% সংরক্ষণ)
+    // 🔙 ব্যাক নেভিগেশন (ক্যাটেগরি মেমোরি সহ)
     // =========================================================================
     val handleBackNavigation: () -> Unit = {
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -443,7 +454,6 @@ private fun MainAppContent(
                 HomeNavHelper.activeCategory = previousScreen.category
             }
         } else if (currentScreen !is Screen.Home) {
-            // যদি সরাসরি প্লেয়ার বা অন্য স্ক্রিন থেকে ব্যাক করে, তাহলে শেষ দেখা ক্যাটেগরিতে যাবে
             currentScreen = Screen.Home(category = HomeNavHelper.activeCategory)
             selectedTab = resolveTabForScreen(currentScreen)
         } else {
@@ -500,7 +510,6 @@ private fun MainAppContent(
                     home.trendingDramas + home.banglaDubbed + home.hindiDubbed + home.dramaSeriesContent
             val targetDrama = allDramas.find { it.slug == cleanSlug || it.id == cleanSlug }
 
-            // 🎯 ইউজার কোন ক্যাটেগরি পেজে ছিল তা স্বয়ংক্রিয়ভাবে শনাক্ত ও সেভ করা
             val detectedCategory = when {
                 !sourceCategory.isNullOrBlank() -> sourceCategory
                 sourceSubTab != null -> "Short TV"
@@ -526,7 +535,6 @@ private fun MainAppContent(
 
             HomeNavHelper.activeCategory = detectedCategory
 
-            // 🛡️ প্লেয়ারে যাওয়ার আগে ব্যাকস্ট্যাকে সেই নির্দিষ্ট ক্যাটেগরি পেজটি রেকর্ড রাখা
             if (currentScreen is Screen.Home) {
                 currentScreen = Screen.Home(category = detectedCategory)
             }
