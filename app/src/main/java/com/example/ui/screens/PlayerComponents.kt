@@ -131,26 +131,32 @@ fun SleekSkipIconOnline(
 }
 
 // -------------------------------------------------------------
-// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার (সিডিএন বাফার লাইন ও ৮ মিনিট অ্যাড ডট সহ)
+// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার (🎯 টেনে ছেড়ে দিলে ব্যাকে যাওয়া ফিক্সড)
 // -------------------------------------------------------------
 @Composable
 fun SleekOnlineTimeline(
     currentPositionMs: Long,
     totalDurationMs: Long,
-    bufferedPositionMs: Long = 0L,              // 👈 ২ মিনিট সামনে বাফার হওয়া সিডিএন প্রোগ্রেস
+    bufferedPositionMs: Long = 0L,
     onSeekStarted: () -> Unit,
     onSeeking: (Long) -> Unit,
     onSeekFinished: (Long) -> Unit,
     modifier: Modifier = Modifier,
     activeColor: Color = Color(0xFF00E5FF),
-    bufferedColor: Color = Color.White.copy(alpha = 0.40f), // 👈 বাফার ট্র্যাক লাইন কালার
+    bufferedColor: Color = Color.White.copy(alpha = 0.40f),
     inactiveColor: Color = Color.White.copy(alpha = 0.16f),
-    adCueFractions: List<Float> = emptyList(),  // 👈 ৮ মিনিট পর পর ডট বা মার্কারের ভগ্নাংশ
-    adDotColor: Color = Color(0xFFFFCC00)        // 👈 স্পনসর মার্কার কালার
+    adCueFractions: List<Float> = emptyList(),
+    adDotColor: Color = Color(0xFFFFCC00)
 ) {
-    val progress = if (totalDurationMs > 0) {
+    var isDragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableFloatStateOf(-1f) }
+
+    val currentFraction = if (totalDurationMs > 0) {
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
+
+    // 🎯 ড্র্যাগ করার সময় লাইভ ড্র্যাগ পজিশন দেখাবে, নয়তো সাধারণ প্লে পজিশন
+    val effectiveProgress = if (isDragging && dragFraction in 0f..1f) dragFraction else currentFraction
 
     val bufferedProgress = if (totalDurationMs > 0) {
         (bufferedPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -159,29 +165,53 @@ fun SleekOnlineTimeline(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(20.dp) // 👈 কমপ্যাক্ট উচ্চতা
+            .height(24.dp)
             .pointerInput(totalDurationMs) {
                 detectTapGestures { offset ->
-                    val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    val newTarget = (newProgress * totalDurationMs).toLong()
-                    onSeekFinished(newTarget)
+                    if (totalDurationMs > 0) {
+                        val tapFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        val targetMs = (tapFraction * totalDurationMs).toLong()
+                        onSeeking(targetMs)
+                        onSeekFinished(targetMs)
+                    }
                 }
             }
             .pointerInput(totalDurationMs) {
                 detectHorizontalDragGestures(
-                    onDragStart = { onSeekStarted() },
+                    onDragStart = { offset ->
+                        isDragging = true
+                        onSeekStarted()
+                        if (totalDurationMs > 0) {
+                            val startFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            dragFraction = startFraction
+                            onSeeking((startFraction * totalDurationMs).toLong())
+                        }
+                    },
                     onDragEnd = {
-                        val currentTarget = (progress * totalDurationMs).toLong()
-                        onSeekFinished(currentTarget)
+                        // 🎯 ফিক্স: আঙুল তোলার সাথে সাথে ড্র্যাগ করা সুনির্দিষ্ট পজিশনে প্লেব্যাক জাম্প করবে
+                        if (isDragging && dragFraction in 0f..1f && totalDurationMs > 0) {
+                            val finalTarget = (dragFraction * totalDurationMs).toLong()
+                            onSeeking(finalTarget)
+                            onSeekFinished(finalTarget)
+                        }
+                        isDragging = false
+                        dragFraction = -1f
                     },
                     onDragCancel = {
-                        val currentTarget = (progress * totalDurationMs).toLong()
-                        onSeekFinished(currentTarget)
+                        if (isDragging && dragFraction in 0f..1f && totalDurationMs > 0) {
+                            val finalTarget = (dragFraction * totalDurationMs).toLong()
+                            onSeekFinished(finalTarget)
+                        }
+                        isDragging = false
+                        dragFraction = -1f
                     },
                     onHorizontalDrag = { change, _ ->
-                        val newProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        val newTarget = (newProgress * totalDurationMs).toLong()
-                        onSeeking(newTarget)
+                        if (totalDurationMs > 0) {
+                            val newFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            dragFraction = newFraction
+                            val newTarget = (newFraction * totalDurationMs).toLong()
+                            onSeeking(newTarget)
+                        }
                     }
                 )
             },
@@ -189,9 +219,9 @@ fun SleekOnlineTimeline(
     ) {
         Canvas(modifier = Modifier.fillMaxWidth().height(10.dp)) {
             val centerY = size.height / 2f
-            val trackHeight = 1.6.dp.toPx() // 👈 অনেক চিকন আল্ট্রা-স্লিম দাগ (Ultra-thin)
-            val thumbRadius = 3.6.dp.toPx() // 👈 ছোট ও স্লিম থাম্ব
-            val adDotRadius = 2.0.dp.toPx() // 👈 ছোট কিউ-মার্কার ডট
+            val trackHeight = 1.6.dp.toPx()
+            val thumbRadius = if (isDragging) 4.5.dp.toPx() else 3.6.dp.toPx()
+            val adDotRadius = 2.0.dp.toPx()
             val trackWidth = size.width
 
             // ১. ব্যাকগ্রাউন্ড ইনঅ্যাক্টিভ ট্র্যাক
@@ -203,7 +233,7 @@ fun SleekOnlineTimeline(
                 cap = StrokeCap.Round
             )
 
-            // ২. সিডিএন প্রি-ডাউনলোড বাফার ট্র্যাক (প্লেহেডের সামনে ২ মিনিট পর্যন্ত যা ডাউনলোড হয়েছে)
+            // ২. সিডিএন প্রি-ডাউনলোড বাফার ট্র্যাক
             val bufferedEnd = trackWidth * bufferedProgress
             if (bufferedEnd > 0) {
                 drawLine(
@@ -215,8 +245,8 @@ fun SleekOnlineTimeline(
                 )
             }
 
-            // ৩. কারেন্ট প্লেড অংশ (সায়ান লাইন)
-            val activeEnd = trackWidth * progress
+            // ৩. কারেন্ট প্লেড অংশ (লাইভ ড্র্যাগ বা প্লেহেড)
+            val activeEnd = trackWidth * effectiveProgress
             if (activeEnd > 0) {
                 drawLine(
                     color = activeColor,
@@ -227,11 +257,10 @@ fun SleekOnlineTimeline(
                 )
             }
 
-            // ৪. ৮ মিনিট পর পর স্পনসর অ্যাড মার্কার ডট (স্ক্রিনশটের মতো ডট আঁকা)
+            // ৪. ৮ মিনিট পর পর স্পনসর অ্যাড মার্কার ডট
             for (fraction in adCueFractions) {
                 if (fraction in 0.01f..0.99f) {
                     val dotCenterX = trackWidth * fraction
-                    // ডটের পেছনের কালো রিং যাতে লাইনের ওপর স্পষ্টভাবে ফুটে ওঠে
                     drawCircle(
                         color = Color.Black.copy(alpha = 0.7f),
                         radius = adDotRadius + 0.8.dp.toPx(),
