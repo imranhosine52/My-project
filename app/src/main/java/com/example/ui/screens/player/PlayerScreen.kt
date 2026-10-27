@@ -33,9 +33,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -168,14 +170,12 @@ fun PlayerScreen(
 
     val isUserLoggedIn = authState.isLoggedIn
 
-    // 👑 VIP স্ট্যাটাস চেকার
     val isUserVip = playerState.isVip ||
             authState.isVip ||
             (authState.userProfile?.isVip == true) ||
             (authState.userProfile?.plan?.lowercase() == "vip") ||
             (authState.userProfile?.plan?.lowercase() == "premium")
 
-    // 🎯 কমেন্ট ভিউ ফুলস্ক্রিন স্টেট
     var isDedicatedCommentsOpen by rememberSaveable { mutableStateOf(false) }
 
     fun handleBackNavigation() {
@@ -196,7 +196,6 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // 404 / NOT FOUND চেকার
     if (playerState.isNotFound) {
         NotFoundScreen(
             onNavigateHome = {
@@ -238,7 +237,6 @@ fun PlayerScreen(
 
     var isMediaSendingLock by remember { mutableStateOf(false) }
 
-    // কাস্টম অ্যাড কনফিগারেশন
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
 
@@ -476,7 +474,6 @@ fun PlayerScreen(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     isWebLoading = false
                 }
-                // 🛡️ ব্রাউজারের কোনো কুৎসিত এরর পেজ বা গোপন লিংক যাতে ডিসপ্লে না হয়
                 override fun onReceivedError(
                     view: WebView?,
                     request: WebResourceRequest?,
@@ -592,7 +589,6 @@ fun PlayerScreen(
                 isPlaying = playing
             }
 
-            // 🛡️ ডিরেক্ট স্ট্রিমে এরর হলে সোর্স লিংক WebView-তে পাঠিয়ে ফাঁস করা বন্ধ
             override fun onPlayerError(error: PlaybackException) {
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                     persistentWebView.loadUrl(activeStreamUrl)
@@ -603,7 +599,6 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // টাইম ও ওয়াচ প্রগ্রেস আপডেট লুপ
     LaunchedEffect(isPlaying, isUserVip) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -682,7 +677,7 @@ fun PlayerScreen(
                         .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                         .build()
 
-                    exoPlayer.setMediaItem(mediaItem, /* startPositionMs = */ 0L)
+                    exoPlayer.setMediaItem(mediaItem, 0L)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
                     if (activeCustomVideoAd == null) {
@@ -698,7 +693,6 @@ fun PlayerScreen(
         }
     }
 
-    // রিকমেন্ডেশন তালিকা (৩২টি কার্ড)
     LaunchedEffect(
         playerState.recommendations,
         homeState.popularDramas,
@@ -1135,55 +1129,100 @@ fun PlayerScreen(
                                     }
                                 },
                                 state = pullRefreshState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .pointerInput(selectedTabIndex) {
-                                        detectHorizontalDragGestures { _, dragAmount ->
-                                            if (dragAmount < -30f && selectedTabIndex == 0) {
-                                                isDedicatedCommentsOpen = true
-                                            }
-                                        }
-                                    }
+                                modifier = Modifier.fillMaxSize()
                             ) {
                                 LazyColumn(
                                     state = mainScrollListState,
-                                    modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF0C0F15))
+                                        // =========================================================================
+                                        // 👈👉 পেজের মাঝখানে ডানে-বামে স্মুথ সোয়াইপ নেভিগেশন
+                                        // =========================================================================
+                                        .pointerInput(selectedTabIndex) {
+                                            var totalDragX = 0f
+                                            detectHorizontalDragGestures(
+                                                onDragStart = { totalDragX = 0f },
+                                                onDragEnd = {
+                                                    // বামে টানলে (Drag Left) -> Comments ট্যাবে স্মুথ সুইচ
+                                                    if (totalDragX < -45f && selectedTabIndex == 0) {
+                                                        selectedTabIndex = 1
+                                                    }
+                                                    // ডানে টানলে (Drag Right) -> For You ট্যাবে স্মুথ সুইচ
+                                                    else if (totalDragX > 45f && selectedTabIndex == 1) {
+                                                        selectedTabIndex = 0
+                                                    }
+                                                },
+                                                onHorizontalDrag = { change, dragAmount ->
+                                                    totalDragX += dragAmount
+                                                    if (kotlin.math.abs(totalDragX) > 20f) {
+                                                        change.consume()
+                                                    }
+                                                }
+                                            )
+                                        },
                                     contentPadding = PaddingValues(bottom = 80.dp)
                                 ) {
+                                    // =========================================================================
+                                    // ⬇️ ১ নম্বর ছবি: টাইটেলের এখানে ধরে নিচে টানলে প্লেয়ার ফুলস্ক্রিন হওয়া
+                                    // =========================================================================
                                     item {
-                                        PlayerHeaderSection(
-                                            content = content,
-                                            shortTitle = cleanShortTitle,
-                                            viewsCount = playerState.viewsCount,
-                                            likesCount = playerState.likesCount.toLong(),
-                                            isLiked = playerState.isLiked,
-                                            isInWatchlist = playerState.isInWatchlist,
-                                            isDescriptionExpanded = isDescriptionExpanded,
-                                            myReaction = playerState.myReaction,
-                                            reactions = playerState.reactions,
-                                            onPreviousClick = { viewModel.playPreviousEpisode() },
-                                            onNextClick = { viewModel.playNextEpisode() },
-                                            onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
-                                            onLikeClick = {
-                                                if (!isUserLoggedIn) showAuthSheet = true
-                                                else viewModel.toggleLikeDrama()
-                                            },
-                                            onWatchlistClick = {
-                                                if (!isUserLoggedIn) showAuthSheet = true
-                                                else viewModel.toggleWatchlist()
-                                            },
-                                            onToggleReaction = { reactionKey ->
-                                                if (!isUserLoggedIn) showAuthSheet = true
-                                                else viewModel.toggleReaction(reactionKey)
-                                            },
-                                            onReplyClick = {
-                                                isDedicatedCommentsOpen = true
-                                            },
-                                            onForwardClick = { shareCurrentDrama() },
-                                            onSwipeDownFullscreen = {
-                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                            }
-                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .pointerInput(Unit) {
+                                                    var totalDragY = 0f
+                                                    detectVerticalDragGestures(
+                                                        onDragStart = { totalDragY = 0f },
+                                                        onDragEnd = {
+                                                            // নিচে টানলে (Swipe Down) -> ফুলস্ক্রিন ল্যান্ডস্কেপ
+                                                            if (totalDragY > 40f) {
+                                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                                            }
+                                                        },
+                                                        onVerticalDrag = { change, dragAmount ->
+                                                            totalDragY += dragAmount
+                                                            if (totalDragY > 20f) {
+                                                                change.consume()
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                        ) {
+                                            PlayerHeaderSection(
+                                                content = content,
+                                                shortTitle = cleanShortTitle,
+                                                viewsCount = playerState.viewsCount,
+                                                likesCount = playerState.likesCount.toLong(),
+                                                isLiked = playerState.isLiked,
+                                                isInWatchlist = playerState.isInWatchlist,
+                                                isDescriptionExpanded = isDescriptionExpanded,
+                                                myReaction = playerState.myReaction,
+                                                reactions = playerState.reactions,
+                                                onPreviousClick = { viewModel.playPreviousEpisode() },
+                                                onNextClick = { viewModel.playNextEpisode() },
+                                                onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
+                                                onLikeClick = {
+                                                    if (!isUserLoggedIn) showAuthSheet = true
+                                                    else viewModel.toggleLikeDrama()
+                                                },
+                                                onWatchlistClick = {
+                                                    if (!isUserLoggedIn) showAuthSheet = true
+                                                    else viewModel.toggleWatchlist()
+                                                },
+                                                onToggleReaction = { reactionKey ->
+                                                    if (!isUserLoggedIn) showAuthSheet = true
+                                                    else viewModel.toggleReaction(reactionKey)
+                                                },
+                                                onReplyClick = {
+                                                    selectedTabIndex = 1
+                                                },
+                                                onForwardClick = { shareCurrentDrama() },
+                                                onSwipeDownFullscreen = {
+                                                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                                }
+                                            )
+                                        }
                                     }
 
                                     item {
@@ -1206,50 +1245,149 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    item {
+                                    // =========================================================================
+                                    // 📌 ২ নম্বর ছবি: স্ক্রল ডাউন করলেও দুটি ট্যাব উপরে পিন (Sticky Header) হয়ে থাকবে
+                                    // =========================================================================
+                                    stickyHeader {
                                         PlayerTabsHeader(
                                             selectedTabIndex = selectedTabIndex,
                                             commentsCount = persistentDramaComments.size,
                                             onTabSelected = { idx ->
-                                                if (idx == 1) {
-                                                    isDedicatedCommentsOpen = true
-                                                } else {
-                                                    selectedTabIndex = 0
-                                                }
+                                                selectedTabIndex = idx
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .background(Color(0xFF0C0F15))
+                                                .padding(vertical = 4.dp)
                                         )
                                     }
 
-                                    val dramaRows = shuffledRecommendations.chunked(4)
-                                    items(dramaRows.size) { rowIndex ->
-                                        val rowDramas = dramaRows[rowIndex]
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            for (drama in rowDramas) {
-                                                PlayerRecommendationCard(
-                                                    drama = drama,
-                                                    cardTitle = drama.displayName,
-                                                    shiningBorderBrush = shiningBorderBrush,
-                                                    onClick = {
-                                                        dramaHistoryStack.add(currentActiveSlug)
-                                                        currentActiveSlug = drama.slug
-                                                        persistentDramaComments.clear()
-                                                        selectedThreadParentComment = null
-                                                        inlineCommentText = ""
-                                                        viewModel.loadDramaDetails(drama.slug, context)
-                                                        onRelatedDramaClick(drama.slug)
+                                    // =========================================================================
+                                    // 🔄 দুটি ট্যাবের স্মুথ কনটেন্ট ট্রানজিশন
+                                    // =========================================================================
+                                    if (selectedTabIndex == 0) {
+                                        // 🎬 ট্যাব ১: For you (ড্রামা কার্ড গ্রিড)
+                                        val dramaRows = shuffledRecommendations.chunked(4)
+                                        items(dramaRows.size) { rowIndex ->
+                                            val rowDramas = dramaRows[rowIndex]
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                for (drama in rowDramas) {
+                                                    PlayerRecommendationCard(
+                                                        drama = drama,
+                                                        cardTitle = drama.displayName,
+                                                        shiningBorderBrush = shiningBorderBrush,
+                                                        onClick = {
+                                                            dramaHistoryStack.add(currentActiveSlug)
+                                                            currentActiveSlug = drama.slug
+                                                            persistentDramaComments.clear()
+                                                            selectedThreadParentComment = null
+                                                            inlineCommentText = ""
+                                                            viewModel.loadDramaDetails(drama.slug, context)
+                                                            onRelatedDramaClick(drama.slug)
+                                                        },
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
+                                                repeat(4 - rowDramas.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                            }
+                                        }
+                                    } else {
+                                        // 💬 ট্যাব ২: Comments
+                                        if (persistentDramaComments.isEmpty()) {
+                                            item {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(200.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "No comments yet. Be the first to comment!",
+                                                        color = Color(0xFF8E95A5),
+                                                        fontSize = 13.sp
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            items(
+                                                count = persistentDramaComments.size,
+                                                key = { index -> persistentDramaComments[index].id }
+                                            ) { index ->
+                                                val comment = persistentDramaComments[index]
+                                                ModernCommentRowItem(
+                                                    comment = comment,
+                                                    currentUserAvatar = currentUserAvatar,
+                                                    currentUserName = currentUserName,
+                                                    currentUserId = currentUser?.id,
+                                                    onLike = {
+                                                        val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
+                                                        if (cIdx != -1) {
+                                                            val c = persistentDramaComments[cIdx]
+                                                            val newLiked = !c.isLiked
+                                                            val newCount = if (newLiked) c.likesCount + 1 else (c.likesCount - 1).coerceAtLeast(0)
+                                                            persistentDramaComments[cIdx] = c.copy(isLikedVal = newLiked, rawLikesCount = newCount)
+                                                        }
+                                                        viewModel.toggleCommentLike(comment.id)
                                                     },
-                                                    modifier = Modifier.weight(1f)
+                                                    onOpenReplies = {
+                                                        selectedThreadParentComment = comment
+                                                        isDedicatedCommentsOpen = true
+                                                    },
+                                                    onShare = {
+                                                        try {
+                                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                                type = "text/plain"
+                                                                putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                            }
+                                                            context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+                                                        } catch (_: Exception) {}
+                                                    },
+                                                    onDeleteComment = { commentId ->
+                                                        deletedCommentIds.add(commentId)
+                                                        val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                                        savedSet.add(commentId)
+                                                        deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
+
+                                                        persistentDramaComments.removeAll { it.id == commentId }
+                                                        Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 )
                                             }
-                                            repeat(4 - rowDramas.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                        }
+
+                                        item {
+                                            PlayerInlineCommentInput(
+                                                userInitials = userInitials,
+                                                currentUserAvatar = currentUserAvatar,
+                                                isLoggedIn = isUserLoggedIn,
+                                                text = inlineCommentText,
+                                                onTextChange = { inlineCommentText = it },
+                                                onOpenMediaPicker = { showCommentMediaPicker = true },
+                                                onRequireLogin = {
+                                                    Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                                    showAuthSheet = true
+                                                },
+                                                onSend = {
+                                                    if (!isUserLoggedIn) {
+                                                        Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                                        showAuthSheet = true
+                                                        return@PlayerInlineCommentInput
+                                                    }
+                                                    if (inlineCommentText.isNotBlank()) {
+                                                        viewModel.postComment(inlineCommentText.trim())
+                                                        inlineCommentText = ""
+                                                        keyboardController?.hide()
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 10.dp)
+                                            )
                                         }
                                     }
                                 }
