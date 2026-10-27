@@ -22,6 +22,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -101,10 +103,10 @@ class MainActivity : ComponentActivity() {
     private val pendingOpenVipScreen = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 🎯 ১. অ্যান্ড্রয়েড সিস্টেম উইন্ডোর ব্যাকগ্রাউন্ড সাথে সাথে পিওর ব্ল্যাক করা
+        // 🎯 ১. অ্যান্ড্রয়েড সিস্টেম উইন্ডোর ব্যাকগ্রাউন্ড সাথে সাথে পিওর ব্ল্যাক করা (আইকন ফ্লিকার বন্ধে)
         window.setBackgroundDrawableResource(android.R.color.black)
 
-        // 🎯 ২. Android 12+ সিস্টেম স্প্ল্যাশ আইকন শুরুতেই জোরপূর্বক সরিয়ে দেওয়া
+        // 🎯 ২. Android 12+ সিস্টেম স্প্ল্যাশ লোগো শূন্য মিলিসেকেন্ডে সরানো
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashScreenView ->
                 splashScreenView.remove()
@@ -122,7 +124,7 @@ class MainActivity : ComponentActivity() {
         UnifiedAdManager.init(this)
         handleIncomingIntents(intent)
 
-        // 🚀 স্প্ল্যাশ চলাকালীনই ব্যাকগ্রাউন্ডে ডেটা প্রিলোড হবে যাতে ট্রানজিশনে কোনো ল্যাগ না হয়
+        // 🚀 স্প্ল্যাশ ভিডিও চলাকালীনই ব্যাকগ্রাউন্ড থ্রেডে হোম ফিড ক্যাশ লোড করা
         viewModel.loadHomeContent(forceRefresh = false)
         viewModel.refreshVipStatusAndProfile()
 
@@ -135,29 +137,30 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Color.Black)
                 ) {
-                    // 🌟 ৩. মাখনের মতো মসৃণ Crossfade ট্রানজিশন (কোনো ফ্রেম ড্রপ ছাড়া)
-                    Crossfade(
-                        targetState = showSplash,
-                        animationSpec = tween(
-                            durationMillis = 450,
-                            easing = FastOutSlowInEasing
-                        ),
-                        label = "SplashToHomeCrossfade"
-                    ) { isSplashVisible ->
-                        if (isSplashVisible) {
+                    // ১. হোম স্ক্রিন ব্যাকগ্রাউন্ডে সম্পূর্ণরূপে মাউন্ট ও প্রস্তুত থাকবে
+                    MainAppContent(
+                        activity = this@MainActivity,
+                        viewModel = viewModel,
+                        pendingNotificationSlug = pendingNotificationSlug.value,
+                        pendingNotificationIsShorts = pendingNotificationIsShorts.value,
+                        pendingExternalMediaItem = pendingExternalMediaItem.value,
+                        pendingOpenCommunityChat = pendingOpenCommunityChat.value,
+                        pendingOpenVipScreen = pendingOpenVipScreen.value,
+                        onFinish = { finish() }
+                    )
+
+                    // ২. স্প্ল্যাশ ভিডিও লেয়ার (ভিডিওর ভেতর থেকেই স্মুথ আলফা ফেড-আউট হয়ে ভ্যানিশ হবে)
+                    if (showSplash) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {} // স্প্ল্যাশ চলাকালীন নিচের ভিউতে ভুল টাচ ব্লক রাখা
+                        ) {
                             VideoSplashScreen(
                                 onVideoFinished = { showSplash = false }
-                            )
-                        } else {
-                            MainAppContent(
-                                activity = this@MainActivity,
-                                viewModel = viewModel,
-                                pendingNotificationSlug = pendingNotificationSlug.value,
-                                pendingNotificationIsShorts = pendingNotificationIsShorts.value,
-                                pendingExternalMediaItem = pendingExternalMediaItem.value,
-                                pendingOpenCommunityChat = pendingOpenCommunityChat.value,
-                                pendingOpenVipScreen = pendingOpenVipScreen.value,
-                                onFinish = { finish() }
                             )
                         }
                     }
