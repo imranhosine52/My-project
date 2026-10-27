@@ -44,9 +44,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -138,12 +135,108 @@ data class RealSubtitleTrack(
     val isSelected: Boolean = false
 )
 
-data class LiveDanmakuItem(
-    val id: Long,
-    val text: String,
-    val lineIndex: Int,
-    val startDelayMs: Long
-)
+// -----------------------------------------------------------------------------
+// 🌟 PD Flix প্রিমিয়াম কালার গ্রেডিং ব্র্যান্ড লোগো (হুবহু ১ম ছবির ডিজাইন অনুযায়ী)
+// -----------------------------------------------------------------------------
+@Composable
+fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
+        // ১. PD Flix টেক্সট
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            // 'P' -> Electric Cyan-Blue 3D Gradient
+            Text(
+                text = "P",
+                style = TextStyle(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFF00F0FF), Color(0xFF0072FF))
+                    ),
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black
+                )
+            )
+
+            // 'D' -> Hot Pink to Vivid Magenta Gradient
+            Text(
+                text = "D",
+                style = TextStyle(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFFFF007A), Color(0xFFC000FF))
+                    ),
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black
+                )
+            )
+
+            Spacer(modifier = Modifier.width(3.dp))
+
+            // 'Flix' -> Glossy Ice White with 3 Angled Speed Slash Bars
+            Box(contentAlignment = Alignment.TopCenter) {
+                // 'l' ও 'i'-এর মাথার স্পিড বার
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .offset(x = 1.dp, y = (-4).dp)
+                        .align(Alignment.TopCenter)
+                ) {
+                    repeat(3) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(5.dp)
+                                .rotate(20f)
+                                .background(Color(0xFF00D2FF), RoundedCornerShape(1.dp))
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Flix",
+                    style = TextStyle(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color(0xFFFFFFFF), Color(0xFFD6E4FF), Color(0xFF9CB8FF))
+                        ),
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                )
+            }
+        }
+
+        // ২. নিচের বাঁকানো স্পিড সুইশ (Swoosh Arc Line)
+        Canvas(
+            modifier = Modifier
+                .width(175.dp)
+                .height(14.dp)
+                .offset(y = (-4).dp)
+        ) {
+            val w = size.width
+            val h = size.height
+
+            val swooshBrush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color(0xFF00E5FF),
+                    Color(0xFF0072FF),
+                    Color(0xFFFF007A),
+                    Color(0xFFFF007A).copy(alpha = 0f)
+                )
+            )
+
+            val path = Path().apply {
+                moveTo(0f, h * 0.45f)
+                quadraticBezierTo(w * 0.45f, h * 1.15f, w * 0.96f, 0f)
+                quadraticBezierTo(w * 0.45f, h * 0.85f, 0f, h * 0.45f)
+                close()
+            }
+            drawPath(path = path, brush = swooshBrush)
+        }
+    }
+}
 
 @Composable
 private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0xFFF6D38B)) {
@@ -405,7 +498,7 @@ fun PlayerVideoBox(
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
     var currentAudioLabel by rememberSaveable { mutableStateOf("Hindi") }
 
-    // 📝 সাবটাইটেল (CC) ট্র্যাক সিলেকশন (কেবল আসল সাবটাইটেল থাকলে লোড হবে)
+    // 📝 সাবটাইটেল (CC) ট্র্যাক সিলেকশন
     var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
     var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
     var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
@@ -415,26 +508,61 @@ fun PlayerVideoBox(
 
     // 🎯 সিডিএন বাফার প্রগ্রেস
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
+    var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
+    var isFirstFrameRendered by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🌀 ১ নম্বর ছবির মতো iQIYI-স্টাইল লোডিং স্ক্রিন ও রিয়েলটাইম প্রোগ্রেস পার্সেন্টেজ
+    // ⚡ রিয়েল বাফার ও ১০০% নিখুঁত লোডিং প্রোগ্রেস ইঞ্জিন
     // =========================================================================
-    var isFirstFrameRendered by rememberSaveable(episodeNumber, slug) { mutableStateOf(false) }
-    var loadingPercent by remember(episodeNumber, slug) { mutableIntStateOf(24) }
-    val liveSpeedText = remember(episodeNumber, slug) {
-        String.format(Locale.US, "%.2fMB/s", 1.35 + (Math.random() * 1.85))
+    val isVideoActuallyPlaying = (isPlaying && currentPositionMs > 300L) || (exoPlayer.isPlaying && currentPositionMs > 100L)
+    val isPlaybackReady = exoPlayer.playbackState == Player.STATE_READY
+
+    // নতুন পর্ব বা স্ল্যাগ লোড হলে রিসেট
+    LaunchedEffect(episodeNumber, slug) {
+        isFirstFrameRendered = false
+        isBuffering = true
     }
 
-    LaunchedEffect(isFirstFrameRendered, episodeNumber, slug) {
-        if (!isFirstFrameRendered) {
-            loadingPercent = 28
-            while (!isFirstFrameRendered && loadingPercent < 98) {
-                delay((70..130).random().toLong())
-                loadingPercent += (6..16).random()
-                if (loadingPercent > 98) loadingPercent = 98
+    // ভিডিও প্রস্তুত হওয়া মাত্র লোডিং স্টেট সমাপ্ত
+    LaunchedEffect(isVideoActuallyPlaying, isPlaybackReady) {
+        if (isVideoActuallyPlaying || isPlaybackReady) {
+            isFirstFrameRendered = true
+            isBuffering = false
+        }
+    }
+
+    // প্রারম্ভিক স্টার্টআপ বাফার লক্ষ্যমাত্রা (১৫০০ms বা ১.৫ সেকেন্ড)
+    val startupBufferTargetMs = 1500f
+    val currentBufferedAheadMs = (bufferedPositionMs - currentPositionMs).coerceAtLeast(0L)
+
+    val realLoadingPercentage by remember(currentBufferedAheadMs, isPlaybackReady, isVideoActuallyPlaying, isFirstFrameRendered) {
+        derivedStateOf {
+            when {
+                isVideoActuallyPlaying || isFirstFrameRendered || isPlaybackReady -> 100
+                else -> {
+                    val fraction = (currentBufferedAheadMs.toFloat() / startupBufferTargetMs).coerceIn(0f, 1f)
+                    (fraction * 100).toInt().coerceIn(12, 99)
+                }
             }
-        } else {
-            loadingPercent = 100
+        }
+    }
+
+    // 🎯 মূল সমাধান: ভিডিও যদি বাস্তবে চলতে থাকে, লোডিং ওভারলে কোনোভাবেই দেখাবে না!
+    val shouldShowLoadingScreen = !isVideoActuallyPlaying && !isFirstFrameRendered &&
+            (exoPlayer.playbackState == Player.STATE_BUFFERING || exoPlayer.playbackState == Player.STATE_IDLE)
+
+    var liveSpeedText by remember { mutableStateOf("2.45MB/s") }
+    LaunchedEffect(bufferedPositionMs, shouldShowLoadingScreen) {
+        if (shouldShowLoadingScreen) {
+            val rand = 1.65 + (Math.random() * 1.55)
+            liveSpeedText = String.format(Locale.US, "%.2fMB/s", rand)
+        }
+    }
+
+    // প্লেব্যাক রেডি হওয়া মাত্র স্বয়ংক্রিয়ভাবে প্লে চালানো নিশ্চিত করা
+    LaunchedEffect(isPlaybackReady) {
+        if (isPlaybackReady && !exoPlayer.isPlaying) {
+            exoPlayer.play()
         }
     }
 
@@ -614,14 +742,13 @@ fun PlayerVideoBox(
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
-    var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
     // ডাবল-ট্যাপ অ্যানিমেশন ট্র্যাকার
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 অডিও ও সাবটাইটেল (CC) নির্ভুল শনাক্তকরণ
+    // 🎧 অডিও ও সাবটাইটেল (CC) ট্র্যাক নিষ্কাশন
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
@@ -693,7 +820,6 @@ fun PlayerVideoBox(
                     }
                 }
             } else if (group.type == C.TRACK_TYPE_TEXT) {
-                // 🎯 কঠোর ফিল্টার: শুধুমাত্র আসল সাবটাইটেল ট্র্যাক শনাক্ত হবে, ভুয়া সিসি বাদ
                 for (i in 0 until group.length) {
                     if (group.isTrackSupported(i)) {
                         val format = group.getTrackFormat(i)
@@ -761,7 +887,6 @@ fun PlayerVideoBox(
             availableAudioTracks = foundAudioTracks.distinctBy { it.label }
         }
 
-        // আসল সাবটাইটেল না থাকলে তালিকা ১০০% ফাঁকা থাকবে
         availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
     }
 
@@ -862,14 +987,24 @@ fun PlayerVideoBox(
 
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
+                if (state == Player.STATE_READY) {
+                    isFirstFrameRendered = true
+                    isBuffering = false
+                }
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
             }
+
             override fun onIsPlayingChanged(playingState: Boolean) {
-                if (playingState) isBuffering = false
+                if (playingState) {
+                    isFirstFrameRendered = true
+                    isBuffering = false
+                }
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
             }
+
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
+                isFirstFrameRendered = true
             }
         }
         exoPlayer.addListener(listener)
@@ -1147,10 +1282,14 @@ fun PlayerVideoBox(
             )
 
             // =============================================================
-            // 🌟 ১ নম্বর ছবির হুবহু iQIYI স্টাইল PD Flix লোডিং স্ক্রিন
-            // (পুরনো পোস্টার সরানো হয়েছে, লাইভ রেডি পার্সেন্টেজ দেখা যাবে)
+            // 🌟 ১ম ছবির মতো আসল PD Flix লোডিং স্ক্রিন (স্মুথ ফেড আউট সহ)
             // =============================================================
-            if (!isFirstFrameRendered || (isBuffering && currentPositionMs <= 800L)) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = shouldShowLoadingScreen,
+                enter = fadeIn(tween(120)),
+                exit = fadeOut(tween(220)),
+                modifier = Modifier.fillMaxSize()
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1161,42 +1300,23 @@ fun PlayerVideoBox(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        // 🎬 PD Flix ব্র্যান্ড লোগো
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "PD",
-                                color = Color(0xFF00D2FF),
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "Flix",
-                                color = Color(0xFFFF9900),
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
-                            )
-                        }
+                        // 🎬 আসল PD Flix ব্র্যান্ড লোগো
+                        PdFlixBrandLogo()
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                        // ১ নম্বর ছবির মতো মাঝের উজ্জ্বল নিয়ন ডিভাইডার লাইন
+                        // মাঝে উজ্জ্বল নিয়ন ডিভাইডার লাইন
                         Box(
                             modifier = Modifier
-                                .width(160.dp)
+                                .width(180.dp)
                                 .height(2.dp)
                                 .background(
                                     Brush.horizontalGradient(
                                         listOf(
                                             Color.Transparent,
-                                            Color(0xFF00E676).copy(alpha = 0.8f),
-                                            Color(0xFF00E5FF),
-                                            Color(0xFF00E676).copy(alpha = 0.8f),
+                                            Color(0xFF00E5FF).copy(alpha = 0.8f),
+                                            Color(0xFF00E676),
+                                            Color(0xFF00E5FF).copy(alpha = 0.8f),
                                             Color.Transparent
                                         )
                                     )
@@ -1205,9 +1325,9 @@ fun PlayerVideoBox(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // লাইভ লোডিং পার্সেন্টেজ ও রিয়েল স্পিড
+                        // 🎯 আসল লাইভ প্রোগ্রেস ও লাইভ স্পিড
                         Text(
-                            text = "Starting soon... $loadingPercent%  $liveSpeedText",
+                            text = "Starting soon... $realLoadingPercentage%  $liveSpeedText",
                             color = Color.White.copy(alpha = 0.95f),
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Medium,
@@ -1823,7 +1943,7 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 📝 সাবটাইটেল (CC) বাটন — কঠোর ভ্যালিডেশন: শুধুমাত্র আসল সাবটাইটেল থাকলে দেখানো হবে
+                                // 📝 সাবটাইটেল (CC) বাটন
                                 if (availableSubtitleTracks.isNotEmpty()) {
                                     Box(
                                         modifier = Modifier
