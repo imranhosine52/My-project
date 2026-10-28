@@ -1,5 +1,6 @@
 package com.example.ui.screens.shorts
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,8 +16,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,9 +31,46 @@ import com.example.data.model.ContentItemDto
 import com.example.ui.screens.SleekOnlineTimeline
 import java.util.Locale
 
+// 🎵 Dubbing Audio Music Note Vector Icon
+@Composable
+fun ShortsMusicNoteDubbingIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFF00E5FF)
+) {
+    Canvas(modifier = modifier.size(13.dp)) {
+        val w = size.width
+        val h = size.height
+
+        val headRadius = w * 0.22f
+        val headCenter = Offset(w * 0.30f, h * 0.72f)
+        drawCircle(color = tint, radius = headRadius, center = headCenter)
+
+        val stemStroke = 1.6.dp.toPx()
+        val stemX = headCenter.x + headRadius * 0.75f
+        drawLine(
+            color = tint,
+            start = Offset(stemX, headCenter.y),
+            end = Offset(stemX, h * 0.16f),
+            strokeWidth = stemStroke,
+            cap = StrokeCap.Round
+        )
+
+        val flagPath = Path().apply {
+            moveTo(stemX, h * 0.16f)
+            cubicTo(
+                w * 0.72f, h * 0.16f,
+                w * 0.82f, h * 0.30f,
+                w * 0.72f, h * 0.46f
+            )
+            lineTo(stemX, h * 0.38f)
+            close()
+        }
+        drawPath(flagPath, color = tint)
+    }
+}
+
 // =============================================================================
-// 🎬 ১. ভিডিও ফ্রেমের ওপর ভাসমান অংশ (পোস্টার + টাইটেল + ডেসক্রিপশন + টাইমলাইন)
-// এর পেছনে সরাসরি ভিডিও দেখা যাবে, কোনো সলিড কালো ব্যাকগ্রাউন্ড নেই
+// 🎬 1. Floating Video Frame Overlay (Poster + Title + Description + Timeline)
 // =============================================================================
 @Composable
 fun ShortsVideoFloatingOverlay(
@@ -47,7 +88,6 @@ fun ShortsVideoFloatingOverlay(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            // 🎯 হালকা স্বচ্ছ গ্রেডিয়েন্ট যাতে পেছনের ভিডিও পরিষ্কার দেখা যায়
             .background(
                 Brush.verticalGradient(
                     listOf(
@@ -60,7 +100,7 @@ fun ShortsVideoFloatingOverlay(
             .padding(horizontal = 14.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // ড্রামার টাইটেল ও পোস্টার
+        // Title & Poster
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -91,7 +131,7 @@ fun ShortsVideoFloatingOverlay(
             )
         }
 
-        // ডেসক্রিপশন ও More
+        // Description & More
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -117,7 +157,7 @@ fun ShortsVideoFloatingOverlay(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // 🎯 আপনার নির্দেশিত টাইমলাইনের নীল দাগটি (সরাসরি ভিডিওর ওপর)
+        // Blue Timeline Bar
         SleekOnlineTimeline(
             currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
             totalDurationMs = totalDurationMs,
@@ -132,8 +172,7 @@ fun ShortsVideoFloatingOverlay(
 }
 
 // =============================================================================
-// ⬛ ২. আপনার দাগের নিচে থাকা "একমাত্র" সলিড কালো ব্যাকগ্রাউন্ড বার
-// [বামপাশে: 03/72 ⌄]  ---------------------  [ডানপাশে: ⏱ 1x  [HD] 720P]
+// ⬛ 2. Solid Black Bottom Bar (Episode, Speed, Quality, Multi-Audio & Subtitles)
 // =============================================================================
 @Composable
 fun ShortsSolidBlackBottomBar(
@@ -141,9 +180,16 @@ fun ShortsSolidBlackBottomBar(
     totalEpCount: Int,
     currentSpeedText: String = "1x",
     currentQualityText: String = "720P",
+    currentAudioText: String = "Hindi",
+    currentSubtitleText: String = "CC",
+    hasMultipleAudio: Boolean = false,
+    hasSubtitles: Boolean = false,
+    isSubtitleActive: Boolean = false,
     onOpenEpisodesTab: () -> Unit,
     onSpeedClick: () -> Unit,
     onQualityClick: () -> Unit,
+    onAudioClick: () -> Unit = {},
+    onSubtitleClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val padCurrent = String.format(Locale.US, "%02d", currentEpNum)
@@ -151,7 +197,7 @@ fun ShortsSolidBlackBottomBar(
     val episodeDisplayText = "$padCurrent/$padTotal"
 
     Surface(
-        color = Color.Black, // 👈 শুধুমাত্র এই বারটিতেই সলিড কালো থাকবে
+        color = Color.Black,
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
@@ -163,7 +209,7 @@ fun ShortsSolidBlackBottomBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // 👈 বাম সাইডে: "03/72 ⌄"
+            // Left: "03/72 ⌄"
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -187,12 +233,12 @@ fun ShortsSolidBlackBottomBar(
                 )
             }
 
-            // 👉 ডান সাইডে: [ ⏱ 1x ] এবং [ [HD] 720P ]
+            // Right: [Speed] [Quality] [Audio Language] [Subtitles]
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // স্পিড বাটন
+                // 1. Playback Speed Button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -205,20 +251,20 @@ fun ShortsSolidBlackBottomBar(
                         imageVector = Icons.Outlined.Speed,
                         contentDescription = "Speed",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = currentSpeedText,
                         color = Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                // কোয়ালিটি বাটন
+                // 2. Video Quality Button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable { onQualityClick() }
@@ -227,7 +273,7 @@ fun ShortsSolidBlackBottomBar(
                     Box(
                         modifier = Modifier
                             .border(
-                                width = 1.2.dp,
+                                width = 1.dp,
                                 color = Color.White,
                                 shape = RoundedCornerShape(3.dp)
                             )
@@ -237,18 +283,56 @@ fun ShortsSolidBlackBottomBar(
                         Text(
                             text = "HD",
                             color = Color.White,
-                            fontSize = 8.5.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Black,
-                            lineHeight = 10.sp
+                            lineHeight = 9.sp
                         )
                     }
 
                     Text(
                         text = currentQualityText.replace("p", "P", ignoreCase = true),
                         color = Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+
+                // 3. Multi-Audio Language Button (Visible when multiple audio tracks exist)
+                if (hasMultipleAudio) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onAudioClick() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        ShortsMusicNoteDubbingIcon(tint = Color(0xFF00E5FF))
+                        Text(
+                            text = currentAudioText,
+                            color = Color(0xFF00E5FF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // 4. Closed Caption / Subtitle Button (Visible when subtitles exist)
+                if (hasSubtitles) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { onSubtitleClick() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = currentSubtitleText,
+                            color = if (isSubtitleActive) Color(0xFF00E5FF) else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
