@@ -1012,7 +1012,7 @@ fun ShortsPlayerScreen(
                 // =============================================================
                 // 🌟 Live Buffering Progress Screen with Speed
                 // =============================================================
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = shouldShowLoadingScreen,
                     enter = fadeIn(tween(120)),
                     exit = fadeOut(tween(200)),
