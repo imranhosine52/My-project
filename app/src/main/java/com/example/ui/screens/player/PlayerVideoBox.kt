@@ -683,6 +683,7 @@ fun PlayerVideoBox(
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
+var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     val speedOptions = remember { listOf(2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
     var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
