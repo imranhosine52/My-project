@@ -17,6 +17,7 @@ import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -36,8 +37,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
@@ -59,7 +63,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -74,7 +81,10 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.data.model.ContentItemDto
@@ -82,16 +92,19 @@ import com.example.data.model.CustomAdsConfigResponse
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.CustomVideoAdDialog
-import com.example.ui.screens.SleekSkipIconOnline
+import com.example.ui.screens.player.OttDoubleTapSkipBadge
+import com.example.ui.screens.player.PdFlixBrandLogo
+import com.example.ui.screens.player.RealAudioTrack
+import com.example.ui.screens.player.RealSubtitleTrack
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import kotlin.OptIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -202,7 +215,6 @@ fun ShortsPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    // 🎯 নোটিফিকেশন বার হাইড
     DisposableEffect(Unit) {
         activity?.let { act ->
             val window = act.window
@@ -226,9 +238,7 @@ fun ShortsPlayerScreen(
     val isUserLoggedIn = authState.isLoggedIn
     val isUserVip = playerState.isVip || authState.isVip
 
-    // =========================================================================
-    // 🚀 ১. ExoPlayer ডিক্লেয়ারেশন (সবার শীর্ষে স্থানান্তরিত যাতে কোনো Unresolved এরর না আসে)
-    // =========================================================================
+    // 🚀 ExoPlayer Engine
     val exoPlayer = remember {
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(buildUponParameters().setAllowMultipleAdaptiveSelections(true))
@@ -262,9 +272,7 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // =========================================================================
-    // 📢 ২. সার্ভার থেকে ডায়নামিক কাস্টম অ্যাড ও রিলস স্ক্রোল ইন্টারভাল লোড
-    // =========================================================================
+    // 📢 Custom Ads Config
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
     var watchedEpisodesCounter by rememberSaveable { mutableIntStateOf(0) }
@@ -289,7 +297,6 @@ fun ShortsPlayerScreen(
         customAdsConfig?.ads?.filter { it.placement == "shorts" || it.placement == "all" } ?: emptyList()
     }
 
-    // 🎯 সার্ভার থেকে আসা সোয়াইপ ইন্টারভাল (ডিফল্ট: ৩ টি রিলস পর পর)
     val shortsAdInterval = remember(customAdsConfig) {
         customAdsConfig?.shortsRules?.intervalEpisodes?.coerceAtLeast(1) ?: 3
     }
@@ -317,6 +324,7 @@ fun ShortsPlayerScreen(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(false) }
+    var isFirstFrameRendered by remember { mutableStateOf(false) }
     var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     var isUserSeeking by remember { mutableStateOf(false) }
@@ -332,19 +340,39 @@ fun ShortsPlayerScreen(
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showQualitySelectionSheet by remember { mutableStateOf(false) }
     var showSpeedSelectionSheet by remember { mutableStateOf(false) }
+    var showAudioSelectionSheet by remember { mutableStateOf(false) }
+    var showSubtitleSelectionSheet by remember { mutableStateOf(false) }
 
+    // 🎯 কোয়ালিটি ও মাল্টি-অডিও/সাবটাইটেল ট্র্যাকার স্টেট
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
+    var hasMultipleQualities by rememberSaveable { mutableStateOf(false) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
+
+    var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
+    var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
+    var currentAudioLabel by rememberSaveable { mutableStateOf("Hindi") }
+
+    var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
+    var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
+    var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
+
     var currentSpeedFloat by rememberSaveable { mutableFloatStateOf(1.0f) }
     var currentSpeedLabel by rememberSaveable { mutableStateOf("1x") }
 
-    var isRewindActive by remember { mutableStateOf(false) }
-    var isForwardActive by remember { mutableStateOf(false) }
-    val rewindRotation = remember { Animatable(0f) }
-    val forwardRotation = remember { Animatable(0f) }
-    val rewindPopupScale = remember { Animatable(0f) }
-    val forwardPopupScale = remember { Animatable(0f) }
+    var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // =========================================================================
+    // ⚡ লাইভ বাফারিং স্পিড ও ১% থেকে ১০০% প্রোগ্রেস কাউন্টার
+    // =========================================================================
+    val targetStartupBufferBytes = 2 * 1024 * 1024L
+    var realDownloadedBytes by remember(cleanShortTitle) { mutableLongStateOf(0L) }
+    var realBitrateBps by remember(cleanShortTitle) { mutableLongStateOf(0L) }
+
+    var smoothProgressPct by remember(cleanShortTitle) { mutableFloatStateOf(1f) }
+    var hasCompletedStartup by remember(cleanShortTitle) { mutableStateOf(false) }
+
+    val isVideoActuallyPlaying = (isPlaying && currentPositionMs > 300L) || (exoPlayer.isPlaying && currentPositionMs > 100L)
 
     val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes, isCurrentDramaLoaded) {
         if (isCurrentDramaLoaded && playerState.episodes.isNotEmpty()) {
@@ -363,9 +391,64 @@ fun ShortsPlayerScreen(
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(activePageIndex) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
 
-    // =========================================================================
-    // 🎯 ৩. সার্ভার নির্ধারিত সংখ্যক রিলস স্ক্রোলের পর অ্যাড ট্রিগার
-    // =========================================================================
+    LaunchedEffect(currentEpNum, slug) {
+        smoothProgressPct = 1f
+        hasCompletedStartup = false
+        realDownloadedBytes = 0L
+        realBitrateBps = 0L
+        isFirstFrameRendered = false
+        isBuffering = true
+        playbackErrorMessage = null
+
+        while (!hasCompletedStartup && playbackErrorMessage == null) {
+            val isReady = exoPlayer.playbackState == Player.STATE_READY || isFirstFrameRendered || isVideoActuallyPlaying
+
+            if (isReady) {
+                if (smoothProgressPct < 100f) {
+                    smoothProgressPct = (smoothProgressPct + 12f).coerceAtMost(100f)
+                } else {
+                    delay(80L)
+                    hasCompletedStartup = true
+                    isFirstFrameRendered = true
+                    isBuffering = false
+                    if (!exoPlayer.isPlaying) {
+                        exoPlayer.play()
+                    }
+                    break
+                }
+            } else {
+                if (realDownloadedBytes > 0L) {
+                    val realPct = ((realDownloadedBytes.toFloat() / targetStartupBufferBytes.toFloat()) * 100f).coerceIn(1f, 98f)
+                    smoothProgressPct = maxOf(smoothProgressPct + 0.8f, smoothProgressPct + (realPct - smoothProgressPct) * 0.25f).coerceIn(1f, 98f)
+                } else {
+                    val step = when {
+                        smoothProgressPct < 30f -> 1.8f
+                        smoothProgressPct < 70f -> 1.2f
+                        smoothProgressPct < 90f -> 0.8f
+                        else -> 0.3f
+                    }
+                    smoothProgressPct = (smoothProgressPct + step).coerceIn(1f, 98f)
+                }
+            }
+            delay(45L)
+        }
+    }
+
+    val displaySpeedText by remember(realBitrateBps, smoothProgressPct) {
+        derivedStateOf {
+            if (realBitrateBps > 0L) {
+                val speedMBs = (realBitrateBps / 8f) / (1024f * 1024f)
+                String.format(Locale.US, "%.2fMB/s", speedMBs)
+            } else {
+                val simulatedSpeed = 2.15f + ((smoothProgressPct % 7) * 0.16f)
+                String.format(Locale.US, "%.2fMB/s", simulatedSpeed)
+            }
+        }
+    }
+
+    val shouldShowLoadingScreen = !hasCompletedStartup && playbackErrorMessage == null
+
+    // Scroll counter for Ads
     LaunchedEffect(activePageIndex) {
         if (activePageIndex > 0) {
             watchedEpisodesCounter++
@@ -429,17 +512,24 @@ fun ShortsPlayerScreen(
             showBatchDownloadDialog -> showBatchDownloadDialog = false
             showQualitySelectionSheet -> showQualitySelectionSheet = false
             showSpeedSelectionSheet -> showSpeedSelectionSheet = false
+            showAudioSelectionSheet -> showAudioSelectionSheet = false
+            showSubtitleSelectionSheet -> showSubtitleSelectionSheet = false
             isHalfDrawerOpen -> isHalfDrawerOpen = false
             isImmersiveFullscreen -> isImmersiveFullscreen = false
             else -> exitPlayerCleanly()
         }
     }
 
+    // =========================================================================
+    // 🎯 ট্র্যাক এক্সট্র্যাকশন (ভিডিও, অডিও ও সাবটাইটেল)
+    // =========================================================================
     fun extractRealTracks(tracks: Tracks) {
-        val foundTracks = mutableListOf<RealVideoTrack>()
+        val foundVideoTracks = mutableListOf<RealVideoTrack>()
+        val foundAudioTracks = mutableListOf<RealAudioTrack>()
+        val foundSubtitleTracks = mutableListOf<RealSubtitleTrack>()
         val seenResolutions = mutableSetOf<Int>()
 
-        for (group in tracks.groups) {
+        for ((groupIndex, group) in tracks.groups.withIndex()) {
             if (group.type == C.TRACK_TYPE_VIDEO) {
                 for (i in 0 until group.length) {
                     if (group.isTrackSupported(i)) {
@@ -448,12 +538,12 @@ fun ShortsPlayerScreen(
 
                         if (resolution > 0 && seenResolutions.add(resolution)) {
                             val label = when {
-                                resolution >= 1080 -> "${resolution}p Full HD"
-                                resolution >= 720 -> "${resolution}p HD"
-                                resolution >= 480 -> "${resolution}p Standard"
-                                else -> "${resolution}p Data Saver"
+                                resolution >= 1080 -> "1080p"
+                                resolution >= 720 -> "720p"
+                                resolution >= 480 -> "480p"
+                                else -> "360p"
                             }
-                            foundTracks.add(
+                            foundVideoTracks.add(
                                 RealVideoTrack(
                                     height = resolution,
                                     width = maxOf(format.width, format.height),
@@ -464,22 +554,107 @@ fun ShortsPlayerScreen(
                         }
                     }
                 }
+            } else if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (i in 0 until group.length) {
+                    if (group.isTrackSupported(i)) {
+                        val format = group.getTrackFormat(i)
+                        val lang = format.language?.lowercase() ?: "und"
+                        val isSelected = group.isTrackSelected(i)
+
+                        val readableLabel = when {
+                            lang.contains("hi") || lang.contains("hin") || format.label?.contains("hindi", true) == true -> "Hindi"
+                            lang.contains("ta") || lang.contains("tam") || format.label?.contains("tamil", true) == true -> "Tamil"
+                            lang.contains("te") || lang.contains("tel") || format.label?.contains("telugu", true) == true -> "Telugu"
+                            lang.contains("ml") || lang.contains("mal") || format.label?.contains("malayalam", true) == true -> "Malayalam"
+                            lang.contains("bn") || lang.contains("ben") || format.label?.contains("bengali", true) == true || format.label?.contains("bangla", true) == true -> "Bengali"
+                            lang.contains("en") || lang.contains("eng") || format.label?.contains("english", true) == true -> "English"
+                            lang.contains("ja") || lang.contains("jpn") || format.label?.contains("japanese", true) == true -> "Japanese"
+                            lang.contains("ko") || lang.contains("kor") || format.label?.contains("korean", true) == true -> "Korean"
+                            lang.contains("zh") || lang.contains("chi") || format.label?.contains("chinese", true) == true -> "Chinese"
+                            else -> format.label?.takeIf { it.isNotBlank() } ?: "Audio ${foundAudioTracks.size + 1}"
+                        }
+
+                        val trackId = "${groupIndex}_$i"
+                        if (isSelected) {
+                            selectedAudioTrackId = trackId
+                            currentAudioLabel = readableLabel
+                        }
+
+                        foundAudioTracks.add(
+                            RealAudioTrack(
+                                id = trackId,
+                                language = lang,
+                                label = readableLabel,
+                                groupIndex = groupIndex,
+                                trackIndex = i,
+                                isSelected = isSelected
+                            )
+                        )
+                    }
+                }
+            } else if (group.type == C.TRACK_TYPE_TEXT) {
+                for (i in 0 until group.length) {
+                    if (group.isTrackSupported(i)) {
+                        val format = group.getTrackFormat(i)
+                        val mime = format.sampleMimeType ?: ""
+                        val lang = format.language?.lowercase() ?: ""
+                        val label = format.label ?: ""
+
+                        val isCeaDummy = mime.contains("cea", true) || mime.contains("eia", true)
+                        val hasValidLanguageOrLabel = (lang.isNotBlank() && lang != "und") || label.isNotBlank()
+
+                        if (!isCeaDummy && hasValidLanguageOrLabel) {
+                            val readableLabel = when {
+                                lang.contains("bn") || lang.contains("ben") || label.contains("bangla", true) -> "Bangla Subtitle"
+                                lang.contains("en") || lang.contains("eng") || label.contains("english", true) -> "English Subtitle"
+                                lang.contains("hi") || lang.contains("hin") || label.contains("hindi", true) -> "Hindi Subtitle"
+                                else -> label.ifBlank { "Subtitle ${foundSubtitleTracks.size + 1}" }
+                            }
+
+                            val trackId = "sub_${groupIndex}_$i"
+                            val isSelected = group.isTrackSelected(i)
+                            if (isSelected) {
+                                selectedSubtitleTrackId = trackId
+                                currentSubtitleLabel = "CC"
+                            }
+
+                            foundSubtitleTracks.add(
+                                RealSubtitleTrack(
+                                    id = trackId,
+                                    language = lang,
+                                    label = readableLabel,
+                                    groupIndex = groupIndex,
+                                    trackIndex = i,
+                                    isSelected = isSelected
+                                )
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        if (foundTracks.size > 1) {
-            foundTracks.sortByDescending { it.height }
+        if (foundVideoTracks.size > 1) {
+            hasMultipleQualities = true
+            foundVideoTracks.sortByDescending { it.height }
             availableVideoTracks = listOf(
-                RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto (Adaptive)", isAuto = true)
-            ) + foundTracks
+                RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto", isAuto = true)
+            ) + foundVideoTracks.distinctBy { it.label }
+        } else if (foundVideoTracks.size == 1) {
+            hasMultipleQualities = false
+            availableVideoTracks = foundVideoTracks
         } else {
-            availableVideoTracks = foundTracks
+            hasMultipleQualities = false
+            availableVideoTracks = listOf(RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto", isAuto = true))
         }
+
+        availableAudioTracks = foundAudioTracks.distinctBy { it.label }
+        availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
     }
 
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
-        currentQualityLabel = label
+        currentQualityLabel = if (targetResolution == 0) "Auto" else "${targetResolution}P"
 
         if (targetResolution == 0) {
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
@@ -510,6 +685,48 @@ fun ShortsPlayerScreen(
                 if (overrideApplied) break
             }
             Toast.makeText(context, "Quality set to: $label", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack) {
+        selectedAudioTrackId = audioTrack.id
+        currentAudioLabel = audioTrack.label
+
+        val currentTracks = exoPlayer.currentTracks
+        val targetGroup = currentTracks.groups.getOrNull(audioTrack.groupIndex)
+
+        if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_AUDIO) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, audioTrack.trackIndex))
+                .build()
+        }
+        Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
+    }
+
+    fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
+        if (subTrack == null) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .build()
+            selectedSubtitleTrackId = "off"
+            currentSubtitleLabel = "CC"
+            Toast.makeText(context, "Subtitles: Off", Toast.LENGTH_SHORT).show()
+        } else {
+            val currentTracks = exoPlayer.currentTracks
+            val targetGroup = currentTracks.groups.getOrNull(subTrack.groupIndex)
+            if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_TEXT) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, subTrack.trackIndex))
+                    .build()
+                selectedSubtitleTrackId = subTrack.id
+                currentSubtitleLabel = "CC"
+                Toast.makeText(context, "Subtitle: ${subTrack.label}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -553,6 +770,13 @@ fun ShortsPlayerScreen(
                 extractRealTracks(tracks)
             }
 
+            override fun onRenderedFirstFrame() {
+                isFirstFrameRendered = true
+                isBuffering = false
+                hasCompletedStartup = true
+                playbackErrorMessage = null
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val width = videoSize.width
                 val height = videoSize.height
@@ -577,6 +801,9 @@ fun ShortsPlayerScreen(
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                    isFirstFrameRendered = true
+                    hasCompletedStartup = true
+                    playbackErrorMessage = null
                     if (activeCustomVideoAd == null) exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     advanceToNextEpisode()
@@ -589,10 +816,51 @@ fun ShortsPlayerScreen(
 
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
+                isFirstFrameRendered = true
+                hasCompletedStartup = true
+                playbackErrorMessage = when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+                        "Network connection failed! Please check your internet connection."
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
+                        "Video server is currently down or file unavailable."
+                    else -> "Playback error occurred. Please try again."
+                }
             }
         }
+
+        val analyticsListener = object : AnalyticsListener {
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalDurationMs: Int,
+                totalBytesTransferred: Long,
+                bitrateEstimate: Long
+            ) {
+                if (totalBytesTransferred > realDownloadedBytes) {
+                    realDownloadedBytes = totalBytesTransferred
+                }
+                realBitrateBps = bitrateEstimate
+            }
+
+            override fun onLoadCompleted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData
+            ) {
+                if (loadEventInfo.bytesLoaded > 0L) {
+                    realDownloadedBytes += loadEventInfo.bytesLoaded
+                }
+            }
+        }
+
         exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
+        exoPlayer.addAnalyticsListener(analyticsListener)
+
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.removeAnalyticsListener(analyticsListener)
+        }
     }
 
     LaunchedEffect(isPlaying, isUserSeeking) {
@@ -620,22 +888,6 @@ fun ShortsPlayerScreen(
         val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
         exoPlayer.seekTo(target)
         currentPositionMs = target
-
-        coroutineScope.launch {
-            if (seconds < 0) {
-                isRewindActive = true
-                launch { rewindRotation.snapTo(0f); rewindRotation.animateTo(-360f, tween(360, easing = LinearEasing)) }
-                launch { rewindPopupScale.snapTo(0.6f); rewindPopupScale.animateTo(1.2f, spring(Spring.DampingRatioMediumBouncy)); delay(300); rewindPopupScale.animateTo(0f, tween(180)) }
-                delay(450)
-                isRewindActive = false
-            } else {
-                isForwardActive = true
-                launch { forwardRotation.snapTo(0f); forwardRotation.animateTo(360f, tween(360, easing = LinearEasing)) }
-                launch { forwardPopupScale.snapTo(0.6f); forwardPopupScale.animateTo(1.2f, spring(Spring.DampingRatioMediumBouncy)); delay(300); forwardPopupScale.animateTo(0f, tween(180)) }
-                delay(450)
-                isForwardActive = false
-            }
-        }
     }
 
     LaunchedEffect(currentVideoUrl, activePageIndex, slug) {
@@ -671,7 +923,7 @@ fun ShortsPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // 🔝 ১. ওপরের বার
+            // 🔝 Top Action Bar
             if (!isImmersiveFullscreen) {
                 Surface(
                     color = Color.Black,
@@ -723,7 +975,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া
+            // 🎬 Video Playback Area
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -756,6 +1008,169 @@ fun ShortsPlayerScreen(
                     onSeekSkip = { seconds -> triggerSkip(seconds) },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // =============================================================
+                // 🌟 Live Buffering Progress Screen with Speed
+                // =============================================================
+                AnimatedVisibility(
+                    visible = shouldShowLoadingScreen,
+                    enter = fadeIn(tween(120)),
+                    exit = fadeOut(tween(200)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF06080E))
+                            .drawBehind {
+                                val centerOffset = Offset(size.width / 2f, size.height / 2f)
+
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFF00E5FF).copy(alpha = 0.16f),
+                                            Color(0xFFFF007A).copy(alpha = 0.08f),
+                                            Color.Transparent
+                                        ),
+                                        center = centerOffset,
+                                        radius = size.minDimension * 0.72f
+                                    ),
+                                    radius = size.minDimension * 0.72f,
+                                    center = centerOffset
+                                )
+
+                                drawRect(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color(0xFF00F0FF).copy(alpha = 0.04f),
+                                            Color(0xFFFF007A).copy(alpha = 0.08f)
+                                        ),
+                                        center = centerOffset,
+                                        radius = size.maxDimension * 0.75f
+                                    )
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            PdFlixBrandLogo()
+
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            val statsText = String.format(
+                                Locale.US,
+                                "Starting soon... %02d%%  %s",
+                                smoothProgressPct.toInt().coerceIn(1, 100),
+                                displaySpeedText
+                            )
+
+                            Text(
+                                text = statsText,
+                                color = Color.White.copy(alpha = 0.95f),
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 0.4.sp,
+                                style = TextStyle(
+                                    shadow = androidx.compose.ui.graphics.Shadow(
+                                        color = Color.Black.copy(alpha = 0.85f),
+                                        blurRadius = 6f
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // =============================================================
+                // 🛡️ Error Popup Dialog (100% English)
+                // =============================================================
+                if (playbackErrorMessage != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.92f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF131722),
+                            border = BorderStroke(1.dp, Color(0xFF2E384D)),
+                            modifier = Modifier
+                                .fillMaxWidth(0.86f)
+                                .padding(16.dp)
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.padding(22.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFF334B).copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudOff,
+                                        contentDescription = "Error",
+                                        tint = Color(0xFFFF334B),
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = "Playback Problem",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Text(
+                                    text = playbackErrorMessage ?: "Video server is currently unavailable.",
+                                    color = Color(0xFF9EABC0),
+                                    fontSize = 12.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { exitPlayerCleanly() },
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF3B4861)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Go Back", color = Color.White, fontSize = 12.sp)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            playbackErrorMessage = null
+                                            isFirstFrameRendered = false
+                                            smoothProgressPct = 1f
+                                            hasCompletedStartup = false
+                                            exoPlayer.prepare()
+                                            exoPlayer.play()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Try Again", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 VerticalPager(
                     state = verticalPagerState,
@@ -855,7 +1270,7 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // ⚡ ২X স্পিড
+                // 2X Speed Indicator
                 if (is2xActive) {
                     Surface(
                         shape = RoundedCornerShape(20.dp),
@@ -876,7 +1291,7 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস
+                // Play/Pause and Skip Controls
                 if (isControlsVisible) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -886,25 +1301,11 @@ fun ShortsPlayerScreen(
                             horizontalArrangement = Arrangement.spacedBy(52.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (isRewindActive) {
-                                    Text(
-                                        text = "-10s",
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .offset(y = (-36).dp)
-                                            .scale(rewindPopupScale.value)
-                                            .alpha(rewindPopupScale.value.coerceIn(0f, 1f))
-                                    )
-                                }
-                                PureSkipButton(
-                                    isForward = false,
-                                    rotation = rewindRotation.value,
-                                    onClick = { triggerSkip(-10) }
-                                )
-                            }
+                            PureSkipButton(
+                                isForward = false,
+                                rotation = 0f,
+                                onClick = { triggerSkip(-10) }
+                            )
 
                             Box(
                                 modifier = Modifier
@@ -931,50 +1332,43 @@ fun ShortsPlayerScreen(
                                 }
                             }
 
-                            Box(contentAlignment = Alignment.Center) {
-                                if (isForwardActive) {
-                                    Text(
-                                        text = "+10s",
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .offset(y = (-36).dp)
-                                            .scale(forwardPopupScale.value)
-                                            .alpha(forwardPopupScale.value.coerceIn(0f, 1f))
-                                    )
-                                }
-                                PureSkipButton(
-                                    isForward = true,
-                                    rotation = forwardRotation.value,
-                                    onClick = { triggerSkip(10) }
-                                )
-                            }
+                            PureSkipButton(
+                                isForward = true,
+                                rotation = 0f,
+                                onClick = { triggerSkip(10) }
+                            )
                         }
                     }
                 }
             }
 
-            // ⬛ ৪. সলিড কালো ব্যাকগ্রাউন্ড বার
+            // =============================================================
+            // ⬛ Solid Black Bottom Bar (Speed, Quality, Audio & Subtitles)
+            // =============================================================
             if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                 ShortsSolidBlackBottomBar(
                     currentEpNum = currentEpNum,
                     totalEpCount = totalEpCount,
                     currentSpeedText = currentSpeedLabel,
                     currentQualityText = currentQualityLabel,
+                    currentAudioText = currentAudioLabel,
+                    currentSubtitleText = currentSubtitleLabel,
+                    hasMultipleAudio = availableAudioTracks.size > 1,
+                    hasSubtitles = availableSubtitleTracks.isNotEmpty(),
+                    isSubtitleActive = selectedSubtitleTrackId != "off",
                     onOpenEpisodesTab = {
                         drawerInitialTab = 1
                         isHalfDrawerOpen = true
                     },
                     onSpeedClick = { showSpeedSelectionSheet = true },
-                    onQualityClick = { showQualitySelectionSheet = true }
+                    onQualityClick = { showQualitySelectionSheet = true },
+                    onAudioClick = { showAudioSelectionSheet = true },
+                    onSubtitleClick = { showSubtitleSelectionSheet = true }
                 )
             }
         }
 
-        // =========================================================================
-        // 📢 ৫. ইউটিউব স্প্লিট কাস্টম ভিডিও অ্যাড
-        // =========================================================================
+        // Custom Video Ads
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
             CustomVideoAdDialog(
@@ -1005,9 +1399,7 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // =========================================================================
-        // 📑 ৬. সমস্ত বটম শিটসমূহ
-        // =========================================================================
+        // Half Drawer
         if (isHalfDrawerOpen) {
             Box(
                 modifier = Modifier
@@ -1055,10 +1447,14 @@ fun ShortsPlayerScreen(
             }
         }
 
+        // Quality Sheet
         if (showQualitySelectionSheet) {
             ShortsQualitySelectionSheet(
                 availableTracks = availableVideoTracks,
                 currentSelectedHeight = currentSelectedHeight,
+                hasMultipleQualities = hasMultipleQualities,
+                isVip = isUserVip,
+                onNavigateToVip = onNavigateToVip,
                 onSelectQuality = { targetResolution, label ->
                     applyExoPlayerQuality(targetResolution, label)
                 },
@@ -1066,6 +1462,31 @@ fun ShortsPlayerScreen(
             )
         }
 
+        // Multi-Audio Selection Sheet
+        if (showAudioSelectionSheet) {
+            ShortsAudioSelectionSheet(
+                audioTracks = availableAudioTracks,
+                selectedAudioTrackId = selectedAudioTrackId,
+                onSelectAudioTrack = { track ->
+                    applyExoPlayerAudioTrack(track)
+                },
+                onDismiss = { showAudioSelectionSheet = false }
+            )
+        }
+
+        // Subtitle Selection Sheet
+        if (showSubtitleSelectionSheet) {
+            ShortsSubtitleSelectionSheet(
+                subtitleTracks = availableSubtitleTracks,
+                selectedSubtitleTrackId = selectedSubtitleTrackId,
+                onSelectSubtitleTrack = { track ->
+                    applyExoPlayerSubtitleTrack(track)
+                },
+                onDismiss = { showSubtitleSelectionSheet = false }
+            )
+        }
+
+        // Playback Speed Sheet
         if (showSpeedSelectionSheet) {
             ShortsSpeedSelectionSheet(
                 currentSpeed = currentSpeedFloat,
@@ -1076,6 +1497,7 @@ fun ShortsPlayerScreen(
             )
         }
 
+        // Batch Download Sheet
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = cleanShortTitle,
@@ -1101,7 +1523,7 @@ fun ShortsPlayerScreen(
                             isMovie = false
                         )
                     }
-                    Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
                 }
             )
         }
