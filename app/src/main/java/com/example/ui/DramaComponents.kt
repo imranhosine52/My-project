@@ -81,7 +81,6 @@ fun LanguageDubBadge(
         }
     }
 
-    // ভাষার ধরন অনুযায়ী ব্যাকগ্রাউন্ড টিন্ট
     val (badgeBg, badgeBorder, badgeTextColor) = remember(cleanText) {
         when (cleanText.lowercase()) {
             "bangla" -> Triple(Color(0xFF2A2000), Color(0xFFFFB300), Color(0xFFFFB300))
@@ -113,7 +112,7 @@ fun LanguageDubBadge(
 }
 
 // =========================================================================
-// 👑 ছবির হুবহু ৩-পয়েন্ট গোল্ডেন ক্রাউন ও রুবি জেমস্টোন ভেক্টর আইকন
+// 👑 ৩-পয়েন্ট গোল্ডেন ক্রাউন ও রুবি জেমস্টোন ভেক্টর আইকন
 // =========================================================================
 @Composable
 fun VipCrownIllustratedIcon(
@@ -319,13 +318,15 @@ fun VipCrownBadge(
 }
 
 // =========================================================================
-// 🔝 আল্ট্রা-স্লিম টপ ন্যাভিগেশন বার
+// 🔝 আল্ট্রা-স্লিম টপ ন্যাভিগেশন বার (🟢 আসল লাইভ কাউন্টার ব্যাজ সহ)
 // =========================================================================
 @Composable
 fun TopNavigationBar(
     categories: List<String>,
     selectedCategoryIndex: Int,
     onCategorySelected: (Int) -> Unit,
+    liveOnlineFormatted: String = "1", // 👈 কোনো ডামি সংখ্যা নেই, সরাসরি সার্ভার থেকে আসা রিয়েল সংখ্যা
+    onLiveAnalyticsClick: () -> Unit = {}, // 👈 ক্লিক করলে সাইডবার ড্যাশবোর্ড ওপেন হবে
     onSearchClick: () -> Unit = {},
     onVoiceSearchClick: () -> Unit = {},
     onVipClick: () -> Unit = {},
@@ -350,6 +351,18 @@ fun TopNavigationBar(
         }
     }
 
+    // 🟢 আসল লাইভ পালসিং ডট অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "top_bar_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_alpha"
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -371,16 +384,37 @@ fun TopNavigationBar(
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // =============================================================
+            // 🎯 স্ক্রিনশটের চিহ্নিত অংশে: রিয়েল-টাইম লাইভ অনলাইন ব্যাজ
+            // =============================================================
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
-                    .clickable { onCategorySelected(0) }
-                    .padding(end = 6.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF092015))
+                    .border(0.8.dp, Color(0xFF00E676).copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                    .clickable { onLiveAnalyticsClick() }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Text("PD", color = Color(0xFF00D2FF), fontSize = 15.5.sp, fontWeight = FontWeight.Black)
-                Text("Flix", color = Color(0xFFFF9900), fontSize = 15.5.sp, fontWeight = FontWeight.Black)
+                Box(
+                    modifier = Modifier
+                        .size(6.5.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF00E676).copy(alpha = pulseAlpha))
+                )
+
+                Text(
+                    text = "$liveOnlineFormatted Live",
+                    color = Color(0xFF00E676),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // সার্চ বার
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -568,7 +602,6 @@ fun HotSpotlightHeroCard(
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
-                        // 🎯 ছোট ও পরিষ্কার ডিসপ্লে নেম
                         Text(drama.displayName, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(modifier = Modifier.height(6.dp))
 
@@ -731,7 +764,6 @@ fun DramaPosterCardHorizontal(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))))
             )
 
-            // 🎯 সার্ভার থেকে আসা যেকোনো ভাষার ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
@@ -748,7 +780,6 @@ fun DramaPosterCardHorizontal(
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // 🎯 পরিচ্ছন্ন ছোট নাম
         Text(
             text = drama.displayName,
             color = Color(0xFFDCE0E8),
