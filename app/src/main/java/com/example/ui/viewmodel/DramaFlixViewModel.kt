@@ -9,13 +9,16 @@ import androidx.lifecycle.viewModelScope
 import com.example.ads.UnifiedAdManager
 import com.example.data.manager.EpisodeUnlockManager
 import com.example.data.model.*
+import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.util.FirebaseChatManager
 import com.example.util.GoogleAuthManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -41,7 +44,7 @@ data class AuthUiState(
 )
 
 data class HomeUiState(
-    val isLoading: Boolean = false, // 👈 ডিফল্ট false রাখা হয়েছে যাতে স্টার্টআপে অপ্রয়োজনীয় লোডিং ফ্লিকার না করে
+    val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val categories: List<String> = listOf("Home", "Recently Added", "Popular Series", "Shorts Drama", "Drama Series", "Bangla Dub", "Hindi Dub"),
     val spotlightDramas: List<ContentItemDto> = emptyList(),
@@ -139,6 +142,14 @@ data class ActivityUiState(
     val errorMessage: String? = null
 )
 
+// 📊 নতুন: রিয়েল-টাইম পাবলিক অ্যানালিটিক্স UI স্টেট
+data class PublicLiveAnalyticsUiState(
+    val isLoading: Boolean = false,
+    val liveOnlineCount: Int = 1,
+    val liveData: PublicLiveAnalyticsResponse? = null,
+    val errorMessage: String? = null
+)
+
 class DramaFlixViewModel(
     val repository: PlayDramaFlixRepository
 ) : ViewModel() {
@@ -167,6 +178,12 @@ class DramaFlixViewModel(
     private val _activityUiState = MutableStateFlow(ActivityUiState())
     val activityUiState: StateFlow<ActivityUiState> = _activityUiState.asStateFlow()
 
+    // 🟢 নতুন: পাবলিক লাইভ অ্যানালিটিক্স স্টেট
+    private val _liveAnalyticsState = MutableStateFlow(PublicLiveAnalyticsUiState())
+    val liveAnalyticsState: StateFlow<PublicLiveAnalyticsUiState> = _liveAnalyticsState.asStateFlow()
+
+    private var liveAnalyticsPollingJob: Job? = null
+
     private val _authUiState = MutableStateFlow(
         AuthUiState(
             isLoggedIn = repository.isUserLoggedIn(),
@@ -188,23 +205,66 @@ class DramaFlixViewModel(
         loadRemoteAdsConfig()
         loadNotifications()
         loadUserActivity()
+        startLiveAnalyticsPolling() // 👈 অ্যাপ অন হওয়ার সাথে সাথেই ব্যাকগ্রাউন্ডে লাইভ অ্যানালিটিক্স সিঙ্ক শুরু
+    }
+
+    // =========================================================================
+    // 🟢 রিয়েল-টাইম পাবলিক অ্যানালিটিক্স পোলিং ইঞ্জিন (Redis Powered)
+    // =========================================================================
+
+    fun startLiveAnalyticsPolling() {
+        if (liveAnalyticsPollingJob?.isActive == true) return
+
+        liveAnalyticsPollingJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                fetchPublicLiveAnalytics(isInitial = false)
+                delay(4000L) // প্রতি ৪ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে স্বয়ংক্রিয় রিফ্রেশ
+            }
+        }
+    }
+
+    fun stopLiveAnalyticsPolling() {
+        liveAnalyticsPollingJob?.cancel()
+        liveAnalyticsPollingJob = null
+    }
+
+    fun fetchPublicLiveAnalytics(isInitial: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (isInitial) {
+                _liveAnalyticsState.update { it.copy(isLoading = true, errorMessage = null) }
+            }
+
+            try {
+                val response = ApiClient.apiService.getPublicLiveAnalytics()
+                if (response.isSuccessful && response.body() != null) {
+                    val body = response.body()!!
+                    _liveAnalyticsState.update {
+                        it.copy(
+                            isLoading = false,
+                            liveOnlineCount = maxOf(1, body.liveOnlineCount),
+                            liveData = body,
+                            errorMessage = null
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("DramaFlixViewModel", "Live analytics ping notice: ${e.message}")
+            }
+        }
     }
 
     private fun parseNumericId(item: ContentItemDto): Long {
         return item.id.filter { it.isDigit() }.toLongOrNull() ?: 0L
     }
 
-    // 🚀 ১০০% স্মুথ ব্যাকগ্রাউন্ড হোম ফিড লোডার (কোনো UI ল্যাগ বা লোডিং স্পিনার ছাড়া)
     fun loadHomeContent(forceRefresh: Boolean = false) {
         viewModelScope.launch {
             val hasMemoryItems = _homeUiState.value.popularDramas.isNotEmpty()
 
-            // মেমোরিতে অলরেডি ডেটা থাকলে ফুল-স্ক্রিন লোডিং দেখানোর কোনো প্রয়োজন নেই
             if (!hasMemoryItems && forceRefresh) {
                 _homeUiState.update { it.copy(isLoading = true, errorMessage = null) }
             }
 
-            // প্যারালাল জব: কনটেন্ট ও ভিআইপি প্ল্যান ফেচিং
             val contentsDeferred = async(Dispatchers.IO) {
                 repository.contentRepository.getContents(forceRefresh = forceRefresh)
             }
@@ -218,7 +278,6 @@ class DramaFlixViewModel(
             val rawContents = contentsResult.getOrDefault(repository.getFallbackContents())
             val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
 
-            // ব্যাকগ্রাউন্ড থ্রেডে ডেটা সর্টিং ও ক্যাটাগরিকরণ
             withContext(Dispatchers.Default) {
                 val contents = rawContents.sortedByDescending { parseNumericId(it) }
 
