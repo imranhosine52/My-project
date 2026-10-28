@@ -2,7 +2,9 @@
 
 package com.example.ui.screens.shorts
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Speed
@@ -21,11 +25,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.DownloadOptionDto
+import com.example.ui.screens.player.RealAudioTrack
+import com.example.ui.screens.player.RealSubtitleTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,7 +41,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
-// 🎯 আসল ভিডিও ট্র্যাক মডেল
+// 🎯 Video Track Model
 data class RealVideoTrack(
     val height: Int,
     val width: Int,
@@ -42,7 +50,25 @@ data class RealVideoTrack(
     val isAuto: Boolean = false
 )
 
-// ⚡ ক্লাউডফ্লেয়ার R2 থেকে ফাইলের আসল সাইজ বের করার ফাস্ট মেথড
+@Composable
+private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0xFFF6D38B)) {
+    Canvas(modifier = modifier.size(12.dp)) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(0f, h * 0.30f)
+            lineTo(w * 0.28f, h * 0.65f)
+            lineTo(w * 0.50f, 0f)
+            lineTo(w * 0.72f, h * 0.65f)
+            lineTo(w, h * 0.30f)
+            lineTo(w * 0.85f, h * 0.95f)
+            lineTo(w * 0.15f, h * 0.95f)
+            close()
+        }
+        drawPath(path = path, color = tint)
+    }
+}
+
 private suspend fun fetchLiveFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
@@ -62,29 +88,33 @@ private suspend fun fetchLiveFileSize(url: String): Long = withContext(Dispatche
 }
 
 // =========================================================================
-// 🎛️ ১. ExoPlayer-এর ভিডিও কোয়ালিটি বটম শীট (ওপরের ফাঁকা জায়গা কমানো হয়েছে)
+// 🎛️ ১. ভিডিও কোয়ালিটি সিলেকশন শিট (360p/480p ফ্রি • 720p+ VIP লকড)
 // =========================================================================
 @Composable
 fun ShortsQualitySelectionSheet(
     availableTracks: List<RealVideoTrack>,
     currentSelectedHeight: Int,
+    hasMultipleQualities: Boolean = false,
+    isVip: Boolean = false,
+    onNavigateToVip: () -> Unit = {},
     onSelectQuality: (targetHeight: Int, label: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141722),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        dragHandle = null // 👈 অতিরিক্ত বড় ডিফল্ট ফাঁকা জায়গা বন্ধ করা হলো
+        dragHandle = null
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp) // 👈 পারফেক্ট স্লিম প্যাডিং
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 🎯 স্লিম ড্র্যাগ হ্যান্ডেল (অপ্রয়োজনীয় গ্যাপ ছাড়া)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -100,7 +130,6 @@ fun ShortsQualitySelectionSheet(
                 )
             }
 
-            // হেডার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -145,19 +174,40 @@ fun ShortsQualitySelectionSheet(
             } else {
                 availableTracks.forEach { track ->
                     val isSelected = if (track.isAuto) currentSelectedHeight == 0 else currentSelectedHeight == track.height
+                    
+                    // 🎯 রুল: মাল্টিপল কোয়ালিটি থাকলে এবং 720p+ হলে ফ্রি ইউজারদের জন্য লক থাকবে
+                    val isTrackVipLocked = hasMultipleQualities && !isVip && (track.height >= 720)
 
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (isSelected) Color(0xFF1A2A38) else Color(0xFF1A1F2C),
+                        color = when {
+                            isSelected -> Color(0xFF1A2A38)
+                            isTrackVipLocked -> Color(0xFF241C10)
+                            else -> Color(0xFF1A1F2C)
+                        },
                         border = BorderStroke(
                             width = if (isSelected) 1.2.dp else 0.6.dp,
-                            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF28344A)
+                            color = when {
+                                isSelected -> Color(0xFF00E5FF)
+                                isTrackVipLocked -> Color(0xFFFFB300).copy(alpha = 0.6f)
+                                else -> Color(0xFF28344A)
+                            }
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onSelectQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
-                                onDismiss()
+                                if (isTrackVipLocked) {
+                                    Toast.makeText(
+                                        context,
+                                        "👑 720p and higher qualities are exclusive to VIP members!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onNavigateToVip()
+                                    onDismiss()
+                                } else {
+                                    onSelectQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
+                                    onDismiss()
+                                }
                             }
                     ) {
                         Row(
@@ -167,20 +217,33 @@ fun ShortsQualitySelectionSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
-                                Text(
-                                    text = track.label,
-                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                                if (track.isAuto) {
-                                    Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (isTrackVipLocked) {
+                                    MiniCrownVector(tint = Color(0xFFFFB300))
+                                }
+
+                                Column {
                                     Text(
-                                        text = "Automatically switches based on your network speed",
-                                        color = Color(0xFF8E95A5),
-                                        fontSize = 11.sp
+                                        text = track.label,
+                                        color = when {
+                                            isSelected -> Color(0xFF00E5FF)
+                                            isTrackVipLocked -> Color(0xFFFFB300)
+                                            else -> Color.White
+                                        },
+                                        fontSize = 13.5.sp,
+                                        fontWeight = if (isSelected || isTrackVipLocked) FontWeight.Bold else FontWeight.Medium
                                     )
+                                    if (track.isAuto) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Automatically adapts based on network speed",
+                                            color = Color(0xFF8E95A5),
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 }
                             }
 
@@ -210,30 +273,28 @@ fun ShortsQualitySelectionSheet(
 }
 
 // =========================================================================
-// ⏱️ ২. স্পিড সিলেকশন বটম শীট (ওপরের ফাঁকা জায়গা কমানো হয়েছে)
+// 🎵 ২. অডিও ট্র্যাক সিলেকশন শিট (Multi-Audio Support)
 // =========================================================================
 @Composable
-fun ShortsSpeedSelectionSheet(
-    currentSpeed: Float,
-    onSelectSpeed: (Float) -> Unit,
+fun ShortsAudioSelectionSheet(
+    audioTracks: List<RealAudioTrack>,
+    selectedAudioTrackId: String,
+    onSelectAudioTrack: (RealAudioTrack) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141722),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        dragHandle = null // 👈 অতিরিক্ত বড় ডিফল্ট ফাঁকা জায়গা বন্ধ করা হলো
+        dragHandle = null
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp) // 👈 পারফেক্ট স্লিম প্যাডিং
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 🎯 স্লিম ড্র্যাগ হ্যান্ডেল
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -249,7 +310,278 @@ fun ShortsSpeedSelectionSheet(
                 )
             }
 
-            // হেডার
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Audiotrack,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Select Audio Language",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                IconButton(onClick = onDismiss, modifier = Modifier.size(26.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
+
+            audioTracks.forEach { audioTrack ->
+                val isSelected = (selectedAudioTrackId == audioTrack.id)
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) Color(0xFF1A2A38) else Color(0xFF1A1F2C),
+                    border = BorderStroke(
+                        width = if (isSelected) 1.2.dp else 0.6.dp,
+                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF28344A)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onSelectAudioTrack(audioTrack)
+                            onDismiss()
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = audioTrack.label,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+// =========================================================================
+// 💬 ৩. সাবটাইটেল সিলেকশন শিট (Multi-Subtitle Support)
+// =========================================================================
+@Composable
+fun ShortsSubtitleSelectionSheet(
+    subtitleTracks: List<RealSubtitleTrack>,
+    selectedSubtitleTrackId: String,
+    onSelectSubtitleTrack: (RealSubtitleTrack?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF141722),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF333C4D))
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ClosedCaption,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Subtitles",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                IconButton(onClick = onDismiss, modifier = Modifier.size(26.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
+
+            // Off Option
+            val isOffSelected = (selectedSubtitleTrackId == "off")
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (isOffSelected) Color(0xFF1A2A38) else Color(0xFF1A1F2C),
+                border = BorderStroke(
+                    width = if (isOffSelected) 1.2.dp else 0.6.dp,
+                    color = if (isOffSelected) Color(0xFF00E5FF) else Color(0xFF28344A)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onSelectSubtitleTrack(null)
+                        onDismiss()
+                    }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Off",
+                        color = if (isOffSelected) Color(0xFF00E5FF) else Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = if (isOffSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+
+                    if (isOffSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+            }
+
+            subtitleTracks.forEach { subTrack ->
+                val isSelected = (selectedSubtitleTrackId == subTrack.id)
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) Color(0xFF1A2A38) else Color(0xFF1A1F2C),
+                    border = BorderStroke(
+                        width = if (isSelected) 1.2.dp else 0.6.dp,
+                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF28344A)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onSelectSubtitleTrack(subTrack)
+                            onDismiss()
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = subTrack.label,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+// =========================================================================
+// ⏱️ ৪. স্পিড সিলেকশন বটম শিট
+// =========================================================================
+@Composable
+fun ShortsSpeedSelectionSheet(
+    currentSpeed: Float,
+    onSelectSpeed: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF141722),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF333C4D))
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -329,7 +661,7 @@ fun ShortsSpeedSelectionSheet(
 }
 
 // =========================================================================
-// 📥 ৩. মাল্টি-কোয়ালিটি ডাউনলোড শীট (স্লিম প্যাডিং সহ)
+// 📥 ৫. মাল্টি-কোয়ালিটি ডাউনলোড শীট
 // =========================================================================
 @Composable
 fun MultiQualityDownloadSheet(
@@ -366,7 +698,7 @@ fun MultiQualityDownloadSheet(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141722),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        dragHandle = null // 👈 স্লিম লুক
+        dragHandle = null
     ) {
         Column(
             modifier = Modifier
