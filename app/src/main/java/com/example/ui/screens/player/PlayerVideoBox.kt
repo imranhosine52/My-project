@@ -488,7 +488,7 @@ fun PlayerVideoBox(
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var hasMultipleQualities by rememberSaveable { mutableStateOf(false) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
-    var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
+    var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
 
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
@@ -869,10 +869,24 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
             hasMultipleQualities = true
             foundVideoTracks.sortByDescending { it.height }
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
+
+            // 👑 ফ্রি ইউজারদের জন্য অটোমেটিক সর্বোচ্চ 480p ক্যাপ (Auto মোডেও 720p/1080p প্লে হবে না)
+            if (!isVip && currentSelectedHeight == 0) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setMaxVideoSize(854, 480)
+                    .build()
+            }
         } else if (foundVideoTracks.size == 1) {
             // 🎯 সিঙ্গেল ডিরেক্ট স্ট্রিম (যেমন নন-এনকোডেড 1080p বা 720p)
             hasMultipleQualities = false
             availableVideoTracks = foundVideoTracks
+            
+            // সিঙ্গেল কোয়ালিটি থাকলে সব ইউজারের জন্য ক্যাপ মুক্ত রাখা হবে যাতে প্লেয়ার খালি না থাকে
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .build()
         } else {
             hasMultipleQualities = false
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
@@ -902,10 +916,18 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
         currentQualityLabel = if (targetResolution == 0) "Auto" else "${targetResolution}P"
 
         if (targetResolution == 0) {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+            val builder = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                .build()
+
+            // ফ্রি ইউজারদের জন্য মাল্টিপল কোয়ালিটিতে সর্বোচ্চ 480p সীমা লক থাকবে
+            if (!isVip && hasMultipleQualities) {
+                builder.setMaxVideoSize(854, 480)
+            } else {
+                builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+            }
+
+            exoPlayer.trackSelectionParameters = builder.build()
         } else {
             val currentTracks = exoPlayer.currentTracks
             var overrideApplied = false
@@ -917,10 +939,14 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                         val res = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
 
                         if (res == targetResolution) {
-                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                            val builder = exoPlayer.trackSelectionParameters
                                 .buildUpon()
                                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
-                                .build()
+
+                            // নির্দিষ্ট কোয়ালিটি সেট করার সময় রেজোলিউশন কনস্ট্রেইন্ট রিমুভ রাখা
+                            builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+
+                            exoPlayer.trackSelectionParameters = builder.build()
                             overrideApplied = true
                             break
                         }
