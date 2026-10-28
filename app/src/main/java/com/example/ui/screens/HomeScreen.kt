@@ -29,6 +29,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.TopNavigationBar
+import com.example.ui.screens.PublicLiveAnalyticsSheet
 import com.example.ui.screens.categories.*
 import com.example.ui.screens.profile.components.VersionScannerDialog
 import com.example.ui.theme.*
@@ -52,16 +53,19 @@ fun HomeScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
+    // 🟢 রিয়েল-টাইম লাইভ অ্যানালিটিক্স পর্যবেক্ষণ (কোনো ডামি সংখ্যা নেই, সরাসরি সার্ভারের Redis ডাটা)
+    val liveAnalyticsState by viewModel.liveAnalyticsState.collectAsStateWithLifecycle()
+    var showLiveAnalyticsSheet by remember { mutableStateOf(false) }
+
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🚀 লাইভ অ্যাপ আপডেট স্ক্যানার পপ-আপ কন্ট্রোল
     var showVersionScannerDialog by remember { mutableStateOf(false) }
     val installedVersion = remember { viewModel.getInstalledAppVersion() }
 
-    // 🎯 ফিক্সড: অন-রিজিউমে ক্যাশ ডিলিট করা বন্ধ করা হয়েছে যাতে কোনো লোডিং না আসে
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refreshVipStatusAndProfile()
+        viewModel.fetchPublicLiveAnalytics() // অ্যাপে ফিরে আসার সাথে সাথে লাইভ কাউন্টার আপডেট
     }
 
     val categories = remember {
@@ -124,7 +128,6 @@ fun HomeScreen(
         AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
     }
 
-    // 🎯 স্মুথ ট্যাব অ্যানিমেশন
     LaunchedEffect(initialCategory) {
         val targetIdx = resolveCategoryIndex(initialCategory)
         if (categoryPagerState.currentPage != targetIdx) {
@@ -165,7 +168,6 @@ fun HomeScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        // যদি মেমোরিতে অলরেডি ডেটা থাকে, তবে কোনো স্পিনার দেখানো হবে না
         if (homeState.isLoading && !isRefreshing && homeState.popularDramas.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -185,9 +187,9 @@ fun HomeScreen(
                 onRefresh = {
                     coroutineScope.launch {
                         isRefreshing = true
-                        // ইউজার নিজে পুল-টু-রিফ্রেশ করলেই কেবল ফ্রেশ ডেটা ফেচ হবে
                         viewModel.loadHomeContent(forceRefresh = true)
                         viewModel.refreshVipStatusAndProfile()
+                        viewModel.fetchPublicLiveAnalytics()
                         delay(500)
                         isRefreshing = false
                     }
@@ -199,12 +201,10 @@ fun HomeScreen(
                     state = categoryPagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
-                    // 🌟 মাখনের মতো মসৃণ পেজ ট্রানজিশন ইফেক্ট (Alpha & Scale Animation)
                     val pageOffset = ((categoryPagerState.currentPage - page) + categoryPagerState.currentPageOffsetFraction).absoluteValue
                     val pageAlpha = lerp(0.55f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
                     val pageScale = lerp(0.96f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
-                    // 🎯 কনটেন্ট মার্জিন ব্যালান্স
                     val compactTopMargin = (statusBarTop - 24.dp).coerceAtLeast(0.dp)
 
                     Box(
@@ -292,7 +292,7 @@ fun HomeScreen(
                 }
             }
 
-            // 🔝 কমপ্যাক্ট আল্ট্রা-স্লিম টপ বার
+            // 🔝 কমপ্যাক্ট আল্ট্রা-স্লিম টপ বার (আসল লাইভ কাউন্টার ও ক্লিক ইভেন্ট সহ)
             TopNavigationBar(
                 categories = categories,
                 selectedCategoryIndex = categoryPagerState.currentPage,
@@ -304,6 +304,12 @@ fun HomeScreen(
                         )
                     }
                 },
+                // 🎯 সার্ভার থেকে আসা আসল ফরম্যাটেড লাইভ সংখ্যা (কোনো ফেক বা ডামি সংখ্যা নেই)
+                liveOnlineFormatted = liveAnalyticsState.liveData?.formattedLiveCount ?: liveAnalyticsState.liveOnlineCount.toString(),
+                onLiveAnalyticsClick = {
+                    viewModel.fetchPublicLiveAnalytics() // ক্লিক করার সাথে সাথে তাৎক্ষণিক ফ্রেশ ডাটা আনা
+                    showLiveAnalyticsSheet = true
+                },
                 onSearchClick = onNavigateToSearch,
                 onVoiceSearchClick = { startVoiceSearch() },
                 onVipClick = onNavigateToVip,
@@ -313,8 +319,21 @@ fun HomeScreen(
         }
 
         // =========================================================================
-        // 🛰️ লাইভ অ্যাপ আপডেট ও ভার্সন স্ক্যানার ডায়ালগ
+        // 📊 রিয়েল-টাইম পাবলিক লাইভ অ্যানালিটিক্স সাইডবার ড্রয়ার
         // =========================================================================
+        if (showLiveAnalyticsSheet) {
+            PublicLiveAnalyticsSheet(
+                analyticsData = liveAnalyticsState.liveData,
+                isLoading = liveAnalyticsState.isLoading,
+                onDismiss = { showLiveAnalyticsSheet = false },
+                onPostClick = { dramaSlug ->
+                    showLiveAnalyticsSheet = false
+                    onNavigateToPlayer(dramaSlug)
+                }
+            )
+        }
+
+        // 🛰️ লাইভ অ্যাপ আপডেট স্ক্যানার ডায়ালগ
         if (showVersionScannerDialog) {
             VersionScannerDialog(
                 viewModel = viewModel,
