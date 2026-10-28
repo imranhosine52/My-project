@@ -47,12 +47,12 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.DramaApiComment
 import com.example.ui.screens.CommentVideoStickerPlayer
 import com.example.ui.screens.SlateVoiceCommentPill
 import com.example.ui.screens.chat.components.TelegramMediaPickerSheet
@@ -69,7 +69,17 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.TimeUnit
 
+private val sharedUploadClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+}
+
+// 🎯 টাইপ-সেফ ও ক্র্যাশ-প্রুফ মডেল
 data class ParsedComment(
     val id: String,
     val parentId: String?,
@@ -84,103 +94,37 @@ data class ParsedComment(
     val replies: List<Any>
 )
 
+// রিফ্লেকশন মুক্ত টাইপ-সেফ কনভার্টার
 fun extractCommentData(comment: Any): ParsedComment {
-    val clazz = comment.javaClass
-
-    fun getVal(vararg candidateNames: String): Any? {
-        for (name in candidateNames) {
-            val getterName = "get" + name.replaceFirstChar { it.uppercase() }
-            try {
-                val method = clazz.methods.find {
-                    it.name.equals(getterName, ignoreCase = true) || it.name.equals(name, ignoreCase = true)
-                }
-                if (method != null && method.parameterCount == 0) {
-                    val result = method.invoke(comment)
-                    if (result != null) return result
-                }
-            } catch (_: Exception) {}
-
-            try {
-                val field = clazz.declaredFields.find { it.name.equals(name, ignoreCase = true) }
-                if (field != null) {
-                    field.isAccessible = true
-                    val result = field.get(comment)
-                    if (result != null) return result
-                }
-            } catch (_: Exception) {}
-        }
-        return null
+    if (comment is DramaApiComment) {
+        return ParsedComment(
+            id = comment.id,
+            parentId = comment.rawParentId?.toString(),
+            userName = comment.displayName,
+            userAvatar = comment.avatarUrl,
+            text = comment.commentText,
+            createdAt = comment.displayDate,
+            likesCount = comment.likesCount,
+            repliesCount = comment.repliesCount,
+            sharesCount = comment.sharesCount,
+            isLiked = comment.isLiked,
+            replies = comment.repliesList
+        )
     }
 
-    val rawIdVal = getVal("rawId", "id", "commentId", "_id")
-    val id = when (rawIdVal) {
-        is Number -> rawIdVal.toLong().toString()
-        is String -> if (rawIdVal.endsWith(".0")) rawIdVal.substringBefore(".0") else rawIdVal
-        else -> "c_${System.currentTimeMillis()}"
-    }
-
-    val rawParentIdVal = getVal("rawParentId", "parentId", "parent_id")
-    val parentId = when (rawParentIdVal) {
-        is Number -> rawParentIdVal.toLong().toString()
-        is String -> if (rawParentIdVal.endsWith(".0")) rawParentIdVal.substringBefore(".0") else rawParentIdVal
-        else -> null
-    }
-
-    val userName = getVal("userName", "authorName", "name", "user")?.toString() ?: "DramaFlix Viewer"
-    val userAvatar = getVal("userAvatar", "fallbackAvatar", "avatar", "photoUrl")?.toString()
-
-    val rawText = getVal("commentText", "text", "comment", "content", "message")?.toString()
-    val text = if (!rawText.isNullOrBlank() && !rawText.startsWith("DramaApiComment(")) {
-        rawText
-    } else {
-        val regex = Regex("""commentText=([^,\)]+)""")
-        regex.find(comment.toString())?.groupValues?.get(1) ?: "..."
-    }
-
-    val rawDate = getVal("dateDisplay", "timeAgo", "createdAt", "date")?.toString() ?: "Today"
-    val createdAt = if (rawDate.contains("/")) {
-        val parts = rawDate.split("/")
-        if (parts.size >= 2) "${parts[0]}/${parts[1]}" else rawDate
-    } else rawDate
-
-    val likesCount = when (val l = getVal("rawLikesCount", "likesCount", "fallbackLikes", "likes")) {
-        is Number -> l.toInt()
-        is String -> l.toDoubleOrNull()?.toInt() ?: 0
-        else -> 0
-    }
-
-    val repliesCount = when (val r = getVal("rawRepliesCount", "repliesCount", "replies")) {
-        is Number -> r.toInt()
-        is String -> r.toDoubleOrNull()?.toInt() ?: 0
-        else -> 0
-    }
-
-    val sharesCount = when (val s = getVal("rawSharesCount", "sharesCount", "shares")) {
-        is Number -> s.toInt()
-        is String -> s.toDoubleOrNull()?.toInt() ?: 0
-        else -> 0
-    }
-
-    val isLiked = (getVal("isLikedVal", "isLiked", "liked") as? Boolean) ?: false
-
-    val repliesRaw = getVal("replies", "replyList", "subComments")
-    val repliesList: List<Any> = when (repliesRaw) {
-        is List<*> -> repliesRaw.filterNotNull()
-        else -> emptyList()
-    }
-
+    val str = comment.toString()
     return ParsedComment(
-        id = id,
-        parentId = parentId,
-        userName = userName,
-        userAvatar = userAvatar,
-        text = text,
-        createdAt = createdAt,
-        likesCount = likesCount,
-        repliesCount = repliesCount,
-        sharesCount = sharesCount,
-        isLiked = isLiked,
-        replies = repliesList
+        id = "c_${comment.hashCode()}",
+        parentId = null,
+        userName = "DramaFlix Viewer",
+        userAvatar = null,
+        text = str.takeIf { !it.startsWith("DramaApiComment") } ?: "...",
+        createdAt = "Recent",
+        likesCount = 0,
+        repliesCount = 0,
+        sharesCount = 0,
+        isLiked = false,
+        replies = emptyList()
     )
 }
 
@@ -208,7 +152,6 @@ fun ShortsCommentsSheet(
     var inputText by remember { mutableStateOf("") }
     var showMediaPicker by remember { mutableStateOf(false) }
 
-    // 🎙️ অডিও প্লেয়ার ও রেকর্ডার স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
@@ -221,7 +164,6 @@ fun ShortsCommentsSheet(
 
     val isFullScreen = activeThreadComment != null
 
-    // অডিও প্রোগ্রেস লুপ
     LaunchedEffect(activeVoiceAudioUrl) {
         if (activeVoiceAudioUrl != null) {
             while (isActive && activeVoiceAudioUrl != null) {
@@ -248,7 +190,6 @@ fun ShortsCommentsSheet(
         }
     }
 
-    // 🎙️ ভয়েস রেকর্ডিং ফাংশনসমূহ
     fun startVoiceRecording() {
         try {
             val audioFile = File(context.cacheDir, "shorts_voice_${System.currentTimeMillis()}.m4a")
@@ -283,7 +224,7 @@ fun ShortsCommentsSheet(
             }
         } catch (e: Exception) {
             isRecordingVoice = false
-            Toast.makeText(context, "Could not start voice record", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Could not start voice recording", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -291,7 +232,7 @@ fun ShortsCommentsSheet(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) startVoiceRecording()
-        else Toast.makeText(context, "Microphone permission required", Toast.LENGTH_SHORT).show()
+        else Toast.makeText(context, "Microphone permission is required", Toast.LENGTH_SHORT).show()
     }
 
     fun toggleVoiceRecording(parentId: String? = null) {
@@ -316,14 +257,18 @@ fun ShortsCommentsSheet(
             if (file != null && file.exists() && file.length() > 0) {
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
-                        val client = OkHttpClient()
                         val reqBody = MultipartBody.Builder()
                             .setType(MultipartBody.FORM)
                             .addFormDataPart("type", "audio")
                             .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaTypeOrNull()))
                             .build()
 
-                        val res = client.newCall(Request.Builder().url("https://dramaflixbucket.imranhosine52.workers.dev").post(reqBody).build()).execute()
+                        val res = sharedUploadClient.newCall(
+                            Request.Builder()
+                                .url("https://dramaflixbucket.imranhosine52.workers.dev")
+                                .post(reqBody)
+                                .build()
+                        ).execute()
                         file.delete()
                         val json = JSONObject(res.body?.string() ?: "")
                         val audioUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
@@ -336,7 +281,7 @@ fun ShortsCommentsSheet(
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(context, "Voice upload failed", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Failed to upload audio comment", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -369,7 +314,6 @@ fun ShortsCommentsSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                // 🎯 উচ্চতা বৃদ্ধি: স্ক্রিনশটের নীল দাগ অনুযায়ী ০.৬৮ (৬৮%) করা হয়েছে
                 .fillMaxHeight(if (isFullScreen) 1f else 0.68f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -380,9 +324,7 @@ fun ShortsCommentsSheet(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
 
-                // =============================================================
-                // 🔝 ১. হেডার
-                // =============================================================
+                // 🔝 Header
                 if (isFullScreen) {
                     Row(
                         modifier = Modifier
@@ -445,7 +387,6 @@ fun ShortsCommentsSheet(
 
                     HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp)
 
-                    // ✍️ হাফ স্ক্রিনের আধুনিক ইনপুট বার (ভয়েস + স্টিকার বাটন সহ)
                     ShortsCommentInputBar(
                         currentUserName = currentUserName,
                         currentUserAvatar = currentUserAvatar,
@@ -476,9 +417,7 @@ fun ShortsCommentsSheet(
                     HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp)
                 }
 
-                // =============================================================
-                // 💬 ২. কমেন্ট লিস্ট (ভয়েস, স্টিকার ও ৩-ডট মেনু সাপোর্ট সহ)
-                // =============================================================
+                // 💬 Comments List
                 Box(modifier = Modifier.weight(1f)) {
                     if (isFullScreen && activeThreadComment != null) {
                         val parentParsed = remember(activeThreadComment) { extractCommentData(activeThreadComment!!) }
@@ -662,7 +601,7 @@ fun ShortsCommentsSheet(
                     }
                 }
 
-                // 🧸 ৩. স্টিকার ও GIF প্যানেল
+                // Media Picker (Sticker / GIF)
                 if (showMediaPicker) {
                     TelegramMediaPickerSheet(
                         onSendSticker = { stickerUrl ->
@@ -683,7 +622,6 @@ fun ShortsCommentsSheet(
                     )
                 }
 
-                // ফুলস্ক্রিনের ইনপুট বার
                 if (isFullScreen && !showMediaPicker) {
                     ShortsCommentInputBar(
                         currentUserName = currentUserName,
@@ -727,9 +665,6 @@ fun ShortsCommentsSheet(
     }
 }
 
-// -------------------------------------------------------------
-// ✍️ আধুনিক কমেন্ট ইনপুট বার (ভয়েস + স্টিকার বাটন সহ)
-// -------------------------------------------------------------
 @Composable
 private fun ShortsCommentInputBar(
     currentUserName: String,
@@ -757,7 +692,6 @@ private fun ShortsCommentInputBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 🖼️ অবতার
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -785,7 +719,6 @@ private fun ShortsCommentInputBar(
             }
         }
 
-        // 🎙️ রেকর্ডিং বনাম টাইপিং বক্স
         if (isRecordingVoice) {
             Row(
                 modifier = Modifier
@@ -833,7 +766,6 @@ private fun ShortsCommentInputBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // 🧸 ইমোজি ও স্টিকার পিকার বাটন
                 Icon(
                     imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                     contentDescription = "Emojis & Stickers",
@@ -871,7 +803,6 @@ private fun ShortsCommentInputBar(
                 }
             }
 
-            // 🎯 ডানের অ্যাকশন বাটন (টেক্সট থাকলে সেন্ড করবে, ফাঁকা থাকলে ভয়েস রেকর্ড শুরু করবে)
             IconButton(
                 onClick = {
                     if (!isLoggedIn) onRequireLogin()
@@ -894,9 +825,6 @@ private fun ShortsCommentInputBar(
     }
 }
 
-// -------------------------------------------------------------
-// 💬 কমেন্ট রো আইটেম (৩-ডট মেনু, ভয়েস, স্টিকার ও লাইক সাপোর্ট)
-// -------------------------------------------------------------
 @Composable
 private fun ShortsRichCommentRowItem(
     comment: Any,
@@ -951,7 +879,6 @@ private fun ShortsRichCommentRowItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // 🖼️ অবতার
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -1000,7 +927,6 @@ private fun ShortsRichCommentRowItem(
                     )
                 }
 
-                // 🧸 ১. ভিডিও স্টিকার
                 if (isVideoSticker) {
                     key(parsed.id, text) {
                         Box(
@@ -1011,9 +937,7 @@ private fun ShortsRichCommentRowItem(
                             CommentVideoStickerPlayer(videoUrl = text, modifier = Modifier.fillMaxSize())
                         }
                     }
-                }
-                // 🧸 ২. ইমেজ/GIF স্টিকার
-                else if (isImageSticker) {
+                } else if (isImageSticker) {
                     key(parsed.id, text) {
                         Box(
                             modifier = Modifier
@@ -1028,9 +952,7 @@ private fun ShortsRichCommentRowItem(
                             )
                         }
                     }
-                }
-                // 🎙️ ৩. ভয়েস কমেন্ট বাবল
-                else if (isVoiceComment) {
+                } else if (isVoiceComment) {
                     val isPlaying = (activeAudioUrl == text)
                     SlateVoiceCommentPill(
                         audioUrl = text,
@@ -1039,9 +961,7 @@ private fun ShortsRichCommentRowItem(
                         onPlayToggle = { onPlayAudio(text) },
                         modifier = Modifier.padding(top = 2.dp)
                     )
-                }
-                // 💬 ৪. সাধারণ টেক্সট কমেন্ট
-                else {
+                } else {
                     Text(
                         text = text,
                         color = Color(0xFFCBD5E1),
@@ -1052,15 +972,11 @@ private fun ShortsRichCommentRowItem(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // =============================================================
-                // 🔘 অ্যাকশন রো: লাইক, রিপ্লাই ও ৩-ডট মেনু
-                // =============================================================
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // ❤️ লাইক বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1088,7 +1004,6 @@ private fun ShortsRichCommentRowItem(
                         }
                     }
 
-                    // 💬 রিপ্লাই বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1108,7 +1023,6 @@ private fun ShortsRichCommentRowItem(
                         }
                     }
 
-                    // 🎯 ৩-ডট মেনু (Share + Delete)
                     Box {
                         IconButton(
                             onClick = { showMenuDropdown = true },
