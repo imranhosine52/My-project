@@ -258,4 +258,10 @@ interface PlayDramaFlixApiService {
     suspend fun trackCustomAdEvent(
         @Body request: TrackAdEventRequest
     ): Response<Map<String, Any>>
+
+    // =========================================================================
+    // ⚡ 14. রিয়েল-টাইম পাবলিক অ্যানালিটিক্স API (Redis Powered)
+    // =========================================================================
+    @GET("analytics/public-live")
+    suspend fun getPublicLiveAnalytics(): Response<PublicLiveAnalyticsResponse>
 }
