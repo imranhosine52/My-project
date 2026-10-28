@@ -142,7 +142,7 @@ data class RealSubtitleTrack(
 )
 
 // -----------------------------------------------------------------------------
-// 🌟 PD Flix ব্র্যান্ড লোগো
+// 🌟 PD Flix Brand Logo
 // -----------------------------------------------------------------------------
 @Composable
 fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
@@ -484,7 +484,9 @@ fun PlayerVideoBox(
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
+    // 🎯 কোয়ালিটি ট্র্যাকার এবং মাল্টি-কোয়ালিটি ডিটেকশন
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
+    var hasMultipleQualities by rememberSaveable { mutableStateOf(false) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
 
@@ -503,9 +505,6 @@ fun PlayerVideoBox(
     var isFirstFrameRendered by remember { mutableStateOf(false) }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // =========================================================================
-    // ⚡ ১% থেকে ১০০% স্মুথ বাফার কাউন্ট-আপ ও লাইভ স্পিড ইঞ্জিন
-    // =========================================================================
     val targetStartupBufferBytes = 2 * 1024 * 1024L
     var realDownloadedBytes by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
     var realBitrateBps by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
@@ -572,7 +571,6 @@ fun PlayerVideoBox(
 
     val shouldShowLoadingScreen = !hasCompletedStartup && playbackErrorMessage == null
 
-    // 🏷️ Last Seen
     val watchPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_seen_prefs", Context.MODE_PRIVATE)
     }
@@ -685,7 +683,6 @@ fun PlayerVideoBox(
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
-    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     val speedOptions = remember { listOf(2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
     var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
@@ -731,9 +728,6 @@ fun PlayerVideoBox(
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // =========================================================================
-    // 🔊 ব্রাইটনেসের মতো ১০০% স্মুথ ভলিউম স্টেট
-    // =========================================================================
     var brightnessLevel by remember {
         mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
     }
@@ -755,6 +749,9 @@ fun PlayerVideoBox(
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
+    // =========================================================================
+    // 🎯 ট্র্যাক এক্সট্র্যাকশন ও মাল্টিপল কোয়ালিটি ডিটেকশন
+    // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -866,15 +863,19 @@ fun PlayerVideoBox(
             }
         }
 
-        val standardResolutions = listOf(
-            RealVideoTrack(0, 0, 0, "Auto", isAuto = true),
-            RealVideoTrack(720, 1280, 0, "720p"),
-            RealVideoTrack(480, 854, 0, "480p"),
-            RealVideoTrack(360, 640, 0, "360p")
-        )
-        availableVideoTracks = if (foundVideoTracks.isNotEmpty()) {
-            listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
-        } else standardResolutions
+        // 🎯 মাল্টিপল কোয়ালিটি রুল: যদি ২ বা ততোধিক কোয়ালিটি ট্র্যাক পাওয়া যায়
+        if (foundVideoTracks.size > 1) {
+            hasMultipleQualities = true
+            foundVideoTracks.sortByDescending { it.height }
+            availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
+        } else if (foundVideoTracks.size == 1) {
+            // 🎯 সিঙ্গেল ডিরেক্ট স্ট্রিম (যেমন নন-এনকোডেড 1080p বা 720p)
+            hasMultipleQualities = false
+            availableVideoTracks = foundVideoTracks
+        } else {
+            hasMultipleQualities = false
+            availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
+        }
 
         if (foundAudioTracks.isEmpty()) {
             val sampleLanguages = listOf("Hindi", "Tamil", "Telugu", "Malayalam", "Bengali", "English", "Japanese")
@@ -1020,11 +1021,11 @@ fun PlayerVideoBox(
                 playbackErrorMessage = when (error.errorCode) {
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                        "নেটওয়ার্ক কানেকশন ফেইল্ড! অনুগ্রহ করে ইন্টারনেট চেক করুন।"
+                        "Network connection failed! Please check your internet connection."
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
                     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
-                        "ভিডিও সার্ভার বর্তমানে ডাউন বা ফাইলটি অনুপলব্ধ।"
-                    else -> "প্লেব্যাক এরর হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।"
+                        "Video server is currently down or file unavailable."
+                    else -> "Playback error occurred. Please try again."
                 }
             }
         }
@@ -1073,7 +1074,7 @@ fun PlayerVideoBox(
         if (seconds > 0 && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
             pendingAdClicks--
             UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-            Toast.makeText(context, "⚠️ Please clear sponsor ad to skip forward!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Please view sponsor ad to continue skipping!", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -1135,12 +1136,6 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                // =========================================================================
-                // 🎯 নিখুঁত টাচ জেসচার:
-                // ১. সাইড ড্রয়ার ওপেন থাকলে জেসচার ডিজেবল (এপিসোড স্ক্রলে ভলিউম নড়বে না)
-                // ২. 👈 বাম পাশ = উপরে-নিচে স্মুথ ভলিউম কন্ট্রোল (Float Accumulator)
-                // ৩. 👉 ডান পাশ = ব্রাইটনেস কন্ট্রোল
-                // =========================================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer) {
                     if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
 
@@ -1158,7 +1153,6 @@ fun PlayerVideoBox(
                         val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
                         val startScrubPos = exoPlayer.currentPosition
 
-                        // টাচ ডাউনের মুহূর্তে ভলিউম স্টেট সিঙ্ক
                         if (isLeft && maxVol > 0) {
                             val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
                             volumeFloat = cur / maxVol
@@ -1210,8 +1204,6 @@ fun PlayerVideoBox(
                                 }
 
                                 if (isVerticalDragging) {
-                                    // উপরে টানলে dragY নেগেটিভ -> delta পজিটিভ (ভলিউম বাড়বে)
-                                    // নিচে টানলে dragY পজিটিভ -> delta নেগেটিভ (ভলিউম কমবে)
                                     val delta = -dragY / (size.height * 0.70f)
                                     if (isLeft) {
                                         volumeFloat = (volumeFloat + delta).coerceIn(0f, 1f)
@@ -1243,7 +1235,7 @@ fun PlayerVideoBox(
                             if (scrubTargetPositionMs > startScrubPos && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                                 pendingAdClicks--
                                 UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-                                Toast.makeText(context, "⚠️ Please clear sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Please clear sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
                             } else {
                                 onSeekFinished(scrubTargetPositionMs)
                                 exoPlayer.seekTo(scrubTargetPositionMs)
@@ -1345,9 +1337,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // =========================================================================
-            // 🌟 ১০০% স্মুথ বাফার লোডিং স্ক্রিন (Starting soon... 00%  0.00MB/s)
-            // =========================================================================
+            // Starting soon overlay
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
                 enter = fadeIn(tween(120)),
@@ -1421,7 +1411,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🛡️ সুরক্ষিত এরর পপ-আপ
+            // Error Dialog (English Only)
             if (playbackErrorMessage != null) {
                 Box(
                     modifier = Modifier
@@ -1458,14 +1448,14 @@ fun PlayerVideoBox(
                             }
 
                             Text(
-                                text = "প্লেব্যাক সমস্যা হয়েছে",
+                                text = "Playback Problem",
                                 color = Color.White,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
 
                             Text(
-                                text = playbackErrorMessage ?: "ভিডিও সার্ভার বর্তমানে অনুপুস্থিত।",
+                                text = playbackErrorMessage ?: "Video server is currently unavailable.",
                                 color = Color(0xFF9EABC0),
                                 fontSize = 12.5.sp,
                                 textAlign = TextAlign.Center,
@@ -1482,7 +1472,7 @@ fun PlayerVideoBox(
                                     border = BorderStroke(1.dp, Color(0xFF3B4861)),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("ফিরে যান", color = Color.White, fontSize = 12.sp)
+                                    Text("Go Back", color = Color.White, fontSize = 12.sp)
                                 }
 
                                 Button(
@@ -1500,7 +1490,7 @@ fun PlayerVideoBox(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("পুনরায় চেষ্টা করুন", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Try Again", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1508,7 +1498,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ২X স্পিড
+            // 2X Speed Overlay
             if (is2xActive) {
                 Row(
                     modifier = Modifier
@@ -1538,7 +1528,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // স্ক্রাবিং
+            // Horizontal Scrubbing Display
             if (isHorizontalScrubbing) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1587,7 +1577,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ডাবল ট্যাপ অ্যানিমেশন
+            // Double Tap Skip Animations
             val screenWidthDp = configuration.screenWidthDp.dp
             val doubleTapOffset = remember(screenWidthDp) { screenWidthDp * 0.25f }
 
@@ -1613,7 +1603,7 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // স্পনসর ব্যানার
+            // Sponsor Ad Badge
             if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -1648,14 +1638,14 @@ fun PlayerVideoBox(
                 }
             }
 
-            // বাফারিং ইন্ডিকেটর
+            // Buffering Spinner
             if (isBuffering && isFirstFrameRendered && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                 }
             }
 
-            // 👈 বাম পাশে ভলিউম ওভারলে (১০০% স্মুথ)
+            // Volume Overlay
             if (showVolumeOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1687,7 +1677,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 👉 ডান পাশে ব্রাইটনেস ওভারলে
+            // Brightness Overlay
             if (showBrightnessOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1745,7 +1735,7 @@ fun PlayerVideoBox(
                     }
                 }
             } else {
-                // টপ বার
+                // Top Action Bar
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -1787,7 +1777,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // সেন্টার প্লে/পজ
+                // Center Play/Pause Button
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -1810,7 +1800,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // লক বাটন
+                // Landscape Lock Button
                 if (isDeviceLandscape) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
@@ -1837,7 +1827,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // বটম কন্ট্রোল বার
+                // Bottom Controls Bar
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
@@ -1936,7 +1926,7 @@ fun PlayerVideoBox(
                                 if (targetPos > currentPositionMs && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                                     pendingAdClicks--
                                     UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-                                    Toast.makeText(context, "⚠️ Please clear sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Please view sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     onSeekFinished(targetPos)
                                 }
@@ -2159,7 +2149,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার প্যানেল
+            // 📑 সাইড ড্রয়ার প্যানেল (কোয়ালিটি, স্পিড, অডিও ও ডাউনলোড)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -2170,7 +2160,7 @@ fun PlayerVideoBox(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(if (isDeviceLandscape) 0.22f else 0.48f)
+                        .fillMaxWidth(if (isDeviceLandscape) 0.24f else 0.52f)
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
@@ -2228,11 +2218,14 @@ fun PlayerVideoBox(
                             }
                         }
                     } else if (sideDrawerType == "quality") {
+                        // =============================================================
+                        // 🎯 কোয়ালিটি সিলেকশন (360p, 480p ফ্রি • 720p+ VIP লকড)
+                        // =============================================================
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(top = 16.dp, end = 16.dp, start = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             horizontalAlignment = Alignment.End
                         ) {
                             item {
@@ -2252,19 +2245,48 @@ fun PlayerVideoBox(
 
                             items(availableVideoTracks) { track ->
                                 val isSelected = if (track.isAuto) currentSelectedHeight == 0 else currentSelectedHeight == track.height
+                                
+                                // 🎯 রুল: মাল্টিপল কোয়ালিটি থাকলে এবং height >= 720 হলে VIP লকড
+                                val isTrackVipLocked = hasMultipleQualities && !isVip && (track.height >= 720)
 
-                                Text(
-                                    text = track.label,
-                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier
                                         .clickable {
-                                            applyExoPlayerQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
-                                            showSideDrawer = false
+                                            if (isTrackVipLocked) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "👑 720p and higher qualities are exclusive to VIP members!",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                                onNavigateToVip()
+                                                showSideDrawer = false
+                                            } else {
+                                                applyExoPlayerQuality(
+                                                    track.height,
+                                                    if (track.isAuto) "Auto" else "${track.height}P"
+                                                )
+                                                showSideDrawer = false
+                                            }
                                         }
-                                        .padding(vertical = 2.dp)
-                                )
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    if (isTrackVipLocked) {
+                                        MiniCrownVector(tint = Color(0xFFFFB300))
+                                    }
+
+                                    Text(
+                                        text = track.label,
+                                        color = when {
+                                            isSelected -> Color(0xFF00E5FF)
+                                            isTrackVipLocked -> Color(0xFFFFB300)
+                                            else -> Color.White
+                                        },
+                                        fontSize = 13.5.sp,
+                                        fontWeight = if (isSelected || isTrackVipLocked) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     } else if (sideDrawerType == "audio") {
@@ -2564,7 +2586,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🔓 আনলক বাটন
+            // Unlock Lock Screen Button
             if (isScreenLocked && !isPiPActive) {
                 IconButton(
                     onClick = {
@@ -2586,7 +2608,7 @@ fun PlayerVideoBox(
             }
         }
 
-        // For You সাইড প্যানেল
+        // For You Side Panel
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
             enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
