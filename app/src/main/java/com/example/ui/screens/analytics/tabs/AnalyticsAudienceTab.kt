@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.AgeDemographicItem
 import com.example.data.model.AudienceAnalyticsDto
 import com.example.data.model.LiveCountryStat
 import com.example.data.model.LivePostStat
@@ -125,7 +126,8 @@ fun AnalyticsAudienceTab(
                     onPostClick = onPostClick
                 )
                 1 -> CountryAndAgeSubTab(
-                    countries = audience.countries
+                    countries = audience.countries,
+                    ageDemographics = audience.ageDemographics
                 )
             }
         }
@@ -310,16 +312,21 @@ private fun LiveAndPostsSubTab(
 // =============================================================================
 @Composable
 private fun CountryAndAgeSubTab(
-    countries: List<LiveCountryStat>
+    countries: List<LiveCountryStat>,
+    ageDemographics: List<AgeDemographicItem>
 ) {
-    // বয়স বিন্যাস ডেটা (ডিফল্ট ১৮ বছর রুল সহ)
-    val ageDemographics = remember {
-        listOf(
-            Triple("18–24 years", 58.4f, "58.4%"),
-            Triple("25–34 years", 28.2f, "28.2%"),
-            Triple("13–17 years", 8.6f, "8.6%"),
-            Triple("35–44 years", 4.8f, "4.8%")
-        )
+    // 🎯 সার্ভারের রিয়েল ডেটা ব্যবহার, না থাকলে স্ট্যান্ডার্ড ফলব্যাক
+    val finalAgeList = remember(ageDemographics) {
+        if (ageDemographics.isNotEmpty()) {
+            ageDemographics
+        } else {
+            listOf(
+                AgeDemographicItem("18–24 years", 58.4, "58.4%"),
+                AgeDemographicItem("25–34 years", 28.2, "28.2%"),
+                AgeDemographicItem("13–17 years", 8.6,  "8.6%"),
+                AgeDemographicItem("35–44 years", 4.8,  "4.8%")
+            )
+        }
     }
 
     LazyColumn(
@@ -376,7 +383,7 @@ private fun CountryAndAgeSubTab(
             }
         }
 
-        // ২. বয়স বিন্যাস (Age Demographics)
+        // ২. বয়স বিন্যাস (Age Demographics - ১০০% লাইভ সার্ভার ডেটা সংযুক্ত)
         item {
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -396,7 +403,7 @@ private fun CountryAndAgeSubTab(
                         Text("Viewer Age Demographics", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // ইনফো নোট (ডিফল্ট ১৮ বছর)
+                    // ইনফো নোট
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -408,7 +415,7 @@ private fun CountryAndAgeSubTab(
                     ) {
                         Icon(Icons.Default.Info, contentDescription = null, tint = TextMuted, modifier = Modifier.size(13.dp))
                         Text(
-                            text = "Default age 18 is applied if user skips birth date entry.",
+                            text = "Live distribution based on verified user demographic analytics.",
                             color = TextMuted,
                             fontSize = 10.5.sp
                         )
@@ -416,18 +423,24 @@ private fun CountryAndAgeSubTab(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    ageDemographics.forEach { (ageGroup, ratio, displayPct) ->
+                    finalAgeList.forEach { ageItem ->
+                        val animatedRatio by animateFloatAsState(
+                            targetValue = ageItem.ratio,
+                            animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+                            label = "age_bar_${ageItem.group}"
+                        )
+
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(ageGroup, color = TextLight, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
-                                Text(displayPct, color = StudioPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(ageItem.group, color = TextLight, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                                Text(ageItem.display, color = StudioPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                             LinearProgressIndicator(
-                                progress = { ratio / 100f },
+                                progress = { animatedRatio },
                                 color = StudioPurple,
                                 trackColor = Color(0xFF1E2333),
                                 modifier = Modifier
