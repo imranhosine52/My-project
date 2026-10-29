@@ -142,7 +142,7 @@ data class ActivityUiState(
     val errorMessage: String? = null
 )
 
-// 📊 নতুন: রিয়েল-টাইম পাবলিক অ্যানালিটিক্স UI স্টেট
+// 📊 রিয়েল-টাইম পাবলিক ও হিস্টোরিক্যাল অ্যানালিটিক্স UI স্টেট
 data class PublicLiveAnalyticsUiState(
     val isLoading: Boolean = false,
     val liveOnlineCount: Int = 1,
@@ -178,7 +178,7 @@ class DramaFlixViewModel(
     private val _activityUiState = MutableStateFlow(ActivityUiState())
     val activityUiState: StateFlow<ActivityUiState> = _activityUiState.asStateFlow()
 
-    // 🟢 নতুন: পাবলিক লাইভ অ্যানালিটিক্স স্টেট
+    // 🟢 পাবলিক লাইভ ও কমপ্লিট অ্যানালিটিক্স স্টেট
     private val _liveAnalyticsState = MutableStateFlow(PublicLiveAnalyticsUiState())
     val liveAnalyticsState: StateFlow<PublicLiveAnalyticsUiState> = _liveAnalyticsState.asStateFlow()
 
@@ -205,7 +205,7 @@ class DramaFlixViewModel(
         loadRemoteAdsConfig()
         loadNotifications()
         loadUserActivity()
-        startLiveAnalyticsPolling() // 👈 অ্যাপ অন হওয়ার সাথে সাথেই ব্যাকগ্রাউন্ডে লাইভ অ্যানালিটিক্স সিঙ্ক শুরু
+        startLiveAnalyticsPolling() // 👈 অ্যাপ ওপেন হওয়ার সাথে সাথেই ব্যাকগ্রাউন্ডে অ্যানালিটিক্স পোলিং শুরু
     }
 
     // =========================================================================
@@ -230,7 +230,7 @@ class DramaFlixViewModel(
 
     fun fetchPublicLiveAnalytics(isInitial: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (isInitial) {
+            if (isInitial && _liveAnalyticsState.value.liveData == null) {
                 _liveAnalyticsState.update { it.copy(isLoading = true, errorMessage = null) }
             }
 
@@ -246,9 +246,12 @@ class DramaFlixViewModel(
                             errorMessage = null
                         )
                     }
+                } else {
+                    _liveAnalyticsState.update { it.copy(isLoading = false) }
                 }
             } catch (e: Exception) {
                 Log.w("DramaFlixViewModel", "Live analytics ping notice: ${e.message}")
+                _liveAnalyticsState.update { it.copy(isLoading = false) }
             }
         }
     }
@@ -1402,6 +1405,14 @@ class DramaFlixViewModel(
             }
             _activityUiState.update { ActivityUiState() }
         }
+    }
+
+    /**
+     * 🧹 মেমোরি লিক রোধে ভিউমডেল ক্লিয়ারের সময় লাইভ পোলিং জব ক্যান্সেল
+     */
+    override fun onCleared() {
+        super.onCleared()
+        stopLiveAnalyticsPolling()
     }
 }
 
