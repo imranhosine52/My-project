@@ -15,7 +15,7 @@ import java.net.URL
 
 /**
  * ⚡ হাই-পারফরম্যান্স রিয়েল-টাইম অ্যানালিটিক্স ও হার্টবিট ট্র্যাকার
- * স্বয়ংক্রিয় ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম ও শর্টস সোয়াইপ ট্র্যাকিং সাপোর্ট সহ
+ * স্বয়ংক্রিয় ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম, শর্টস সোয়াইপ ও ২৪-ঘণ্টা ভিউ ফিল্টারিং সহ
  */
 object AppAnalyticsTracker {
     private const val TAG = "ANALYTICS_TRACKER"
@@ -25,6 +25,9 @@ object AppAnalyticsTracker {
 
     private const val PREFS_NAME = "drama_analytics_prefs"
     private const val KEY_FIRST_OPEN_TRACKED = "has_reported_first_install"
+    private const val KEY_USER_AGE_GROUP = "saved_user_age_group"
+
+    const val DEFAULT_AGE_GROUP = "18–24 years"
 
     private val trackerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var heartbeatJob: Job? = null
@@ -42,6 +45,9 @@ object AppAnalyticsTracker {
     private var currentUserId: Int? = null
 
     @Volatile
+    private var currentAgeGroup: String? = null
+
+    @Volatile
     private var lastPingTimestamp: Long = 0L
 
     private var deviceIdCache: String? = null
@@ -56,6 +62,29 @@ object AppAnalyticsTracker {
                 ?: "dev_${Build.MANUFACTURER}_${Build.MODEL}_${System.currentTimeMillis() % 1000000}"
             deviceIdCache = id
             id
+        }
+    }
+
+    /**
+     * 👥 ইউজারের বয়স গ্রুপ সেভ ও আপডেট করার মেথড
+     */
+    fun setAgeGroup(context: Context, ageGroup: String) {
+        currentAgeGroup = ageGroup.trim()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_USER_AGE_GROUP, currentAgeGroup)
+            .apply()
+    }
+
+    /**
+     * 👥 ইউজারের সংরক্ষিত বয়স গ্রুপ লোড করা (ডিফল্ট: 18–24 years)
+     */
+    fun getAgeGroup(context: Context): String {
+        return currentAgeGroup ?: run {
+            val saved = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_USER_AGE_GROUP, DEFAULT_AGE_GROUP) ?: DEFAULT_AGE_GROUP
+            currentAgeGroup = saved
+            saved
         }
     }
 
@@ -78,7 +107,8 @@ object AppAnalyticsTracker {
     fun init(context: Context, userId: Int? = null) {
         currentUserId = userId
         val isFirstOpen = checkIsFirstOpen(context)
-        Log.d(TAG, "✓ Initializing AppAnalyticsTracker (First Open: $isFirstOpen) for device: ${getDeviceId(context)}")
+        val age = getAgeGroup(context)
+        Log.d(TAG, "✓ Initializing AppAnalyticsTracker (First Open: $isFirstOpen, Age: $age) for device: ${getDeviceId(context)}")
 
         trackerScope.launch {
             sendPing(
@@ -87,7 +117,8 @@ object AppAnalyticsTracker {
                 postTitle = "",
                 postSlug = "",
                 userId = currentUserId,
-                isFirstOpen = isFirstOpen
+                isFirstOpen = isFirstOpen,
+                ageGroup = age
             )
         }
 
@@ -130,6 +161,8 @@ object AppAnalyticsTracker {
             currentUserId = userId
         }
 
+        val age = getAgeGroup(context)
+
         trackerScope.launch {
             sendPing(
                 context = context.applicationContext,
@@ -137,7 +170,8 @@ object AppAnalyticsTracker {
                 postTitle = currentPostTitle,
                 postSlug = currentPostSlug,
                 userId = currentUserId,
-                isFirstOpen = false
+                isFirstOpen = false,
+                ageGroup = age
             )
         }
 
@@ -149,6 +183,7 @@ object AppAnalyticsTracker {
      */
     fun trackSearch(context: Context, query: String) {
         if (query.trim().length < 3) return
+        val age = getAgeGroup(context)
         trackerScope.launch {
             sendPing(
                 context = context.applicationContext,
@@ -157,7 +192,8 @@ object AppAnalyticsTracker {
                 postSlug = "",
                 userId = currentUserId,
                 isFirstOpen = false,
-                searchQuery = query.trim()
+                searchQuery = query.trim(),
+                ageGroup = age
             )
         }
     }
@@ -167,6 +203,7 @@ object AppAnalyticsTracker {
      */
     fun trackShortAction(context: Context, isStayed: Boolean) {
         val action = if (isStayed) "stayed" else "swiped"
+        val age = getAgeGroup(context)
         trackerScope.launch {
             sendPing(
                 context = context.applicationContext,
@@ -175,7 +212,8 @@ object AppAnalyticsTracker {
                 postSlug = currentPostSlug,
                 userId = currentUserId,
                 isFirstOpen = false,
-                shortAction = action
+                shortAction = action,
+                ageGroup = age
             )
         }
     }
@@ -186,13 +224,15 @@ object AppAnalyticsTracker {
         heartbeatJob = trackerScope.launch {
             while (isActive) {
                 delay(HEARTBEAT_INTERVAL_MS)
+                val age = getAgeGroup(appContext)
                 sendPing(
                     context = appContext,
                     screen = currentScreenName,
                     postTitle = currentPostTitle,
                     postSlug = currentPostSlug,
                     userId = currentUserId,
-                    isFirstOpen = false
+                    isFirstOpen = false,
+                    ageGroup = age
                 )
             }
         }
@@ -209,17 +249,18 @@ object AppAnalyticsTracker {
         userId: Int?,
         isFirstOpen: Boolean,
         searchQuery: String = "",
-        shortAction: String = ""
+        shortAction: String = "",
+        ageGroup: String = DEFAULT_AGE_GROUP
     ) {
         var conn: HttpURLConnection? = null
         try {
             val now = System.currentTimeMillis()
 
-            // ⏱️ ওয়াচ টাইম (সেকেন্ড) হিসাব: বিগত পিং থেকে কত সেকেন্ড ইউজার অ্যাপে উপস্থিত ছিল
+            // ⏱️ ওয়াচ টাইম (সেকেন্ড) হিসাব
             val elapsedSec = if (lastPingTimestamp > 0L) {
                 ((now - lastPingTimestamp) / 1000L).coerceIn(5L, 120L).toInt()
             } else {
-                30 // ডিফল্ট প্রথম পিং ৩০ সেকেন্ড
+                30
             }
             lastPingTimestamp = now
 
@@ -250,6 +291,7 @@ object AppAnalyticsTracker {
                 put("device_brand", brand)
                 put("device_model", model)
                 put("os_version", osVersion)
+                put("age_group", ageGroup) // 👈 বয়স গ্রুপ পাঠানো হচ্ছে
 
                 // ⏱️ ওয়াচ-টাইম সেকেন্ড
                 put("watch_seconds", elapsedSec)
@@ -282,7 +324,7 @@ object AppAnalyticsTracker {
 
             val responseCode = conn.responseCode
             if (responseCode in 200..299) {
-                Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | ${elapsedSec}s watch time")
+                Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | ${elapsedSec}s | Age: $ageGroup")
             } else {
                 val stream = conn.errorStream ?: conn.inputStream
                 val errText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
