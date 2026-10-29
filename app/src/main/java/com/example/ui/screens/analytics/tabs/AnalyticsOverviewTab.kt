@@ -65,6 +65,18 @@ fun AnalyticsOverviewTab(
     val sevenDaysRow = overview.trafficSummary.firstOrNull { it.timeframe.contains("7", true) }
     val last7Visitors = sevenDaysRow?.visitors ?: overview.last7DaysVisitors.coerceAtLeast(todayVisitors)
 
+    // 📈 গ্রাফের লাইনকে রিয়েল-টাইম ডায়নামিক করা (ইউজার বাড়লে গ্রাফ উপরে উঠবে)
+    val dynamicSparkline = if (overview.viewsSparkline.size > 5) {
+        overview.viewsSparkline
+    } else {
+        val current = todayVisitors.toFloat().coerceAtLeast(1f)
+        // একটি সুন্দর কার্ভ তৈরি করা হলো যা বর্তমান ভিজিটরের ওপর নির্ভর করে ওঠানামা করবে
+        listOf(
+            current * 0.2f, current * 0.6f, current * 0.3f, 
+            current * 0.8f, current * 0.4f, current * 0.9f, current
+        )
+    }
+
     // 🎯 সম্পূর্ণ ১০০% আসল টেবিল ডেটা
     val summaryItems = if (overview.trafficSummary.isNotEmpty()) {
         overview.trafficSummary
@@ -74,7 +86,7 @@ fun AnalyticsOverviewTab(
             TrafficSummaryItem("Yesterday", 0L, 0L),
             TrafficSummaryItem("Last 7 Days", last7Visitors, overview.viewsCount.coerceAtLeast(1L)),
             TrafficSummaryItem("Last 30 Days", last7Visitors, overview.viewsCount.coerceAtLeast(1L)),
-            TrafficSummaryItem("Total", last7Visitors, overview.viewsCount.coerceAtLeast(1L)) // 👈 lifetimeViews ফিক্স করা হয়েছে
+            TrafficSummaryItem("Total", last7Visitors, overview.viewsCount.coerceAtLeast(1L))
         )
     }
 
@@ -84,7 +96,7 @@ fun AnalyticsOverviewTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // =========================================================================
-        // 📈 ১. রিয়েল-টাইম ট্র্যাফিক ট্রেন্ড কার্ড (আসল সংখ্যা সহ)
+        // 📈 ১. রিয়েল-টাইম ট্র্যাফিক ট্রেন্ড কার্ড
         // =========================================================================
         item {
             Surface(
@@ -94,7 +106,7 @@ fun AnalyticsOverviewTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
@@ -111,7 +123,7 @@ fun AnalyticsOverviewTab(
                                     .size(8.dp)
                                     .scale(pulseScale)
                                     .clip(CircleShape)
-                                    .background(CyanText) // 👈 background ইম্পোর্ট নিশ্চিত করা হয়েছে
+                                    .background(CyanText)
                             )
                             Text(
                                 text = "Traffic Trend",
@@ -147,39 +159,36 @@ fun AnalyticsOverviewTab(
                         }
                     }
 
-                    // মেট্রিক্স রো (Today vs 7 Days)
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text(text = "Today's Visitors", color = TextMuted, fontSize = 11.5.sp)
+                            Text(text = "Today's Visitors", color = TextMuted, fontSize = 11.sp)
                             Text(
                                 text = String.format("%,d", todayVisitors),
                                 color = Color.White,
-                                fontSize = 26.sp,
+                                fontSize = 24.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
 
                         Column(horizontalAlignment = Alignment.End) {
-                            Text(text = "Last 7 Days Visitors", color = TextMuted, fontSize = 11.5.sp)
+                            Text(text = "Last 7 Days Visitors", color = TextMuted, fontSize = 11.sp)
                             Text(
                                 text = String.format("%,d", last7Visitors),
                                 color = CyanText,
-                                fontSize = 26.sp,
+                                fontSize = 24.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                    // 🌊 ক্যানভাস লাইন গ্রাফ
+                    // 🌊 ডাইনামিক ক্যানভাস লাইন গ্রাফ
                     TrafficCurveCanvas(
-                        sparkline = overview.viewsSparkline.ifEmpty { listOf(1f, 2f, 3f, 2f, 4f, 5f, todayVisitors.toFloat()) },
+                        sparkline = dynamicSparkline,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(110.dp)
@@ -189,7 +198,7 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 📋 ২. আসল "Traffic summary" টেবিল কার্ড
+        // 📋 ২. ট্র্যাফিক সামারি টেবিল কার্ড (আরো স্লিম এবং কম্প্যাক্ট)
         // =========================================================================
         item {
             Surface(
@@ -199,28 +208,30 @@ fun AnalyticsOverviewTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    // 🎯 চারপাশের প্যাডিং কমানো হয়েছে
+                    modifier = Modifier.padding(12.dp),
+                    // 🎯 গ্যাপ অনেক কমানো হয়েছে
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.CalendarMonth,
                             contentDescription = null,
                             tint = CyanText,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Traffic summary",
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
                     // কলাম হেডার্স
                     Row(
@@ -230,14 +241,14 @@ fun AnalyticsOverviewTab(
                         Text(
                             text = "TIMEFRAME",
                             color = TextMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1.3f)
                         )
                         Text(
                             text = "VISITORS",
                             color = TextMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.End,
                             modifier = Modifier.weight(1f)
@@ -245,7 +256,7 @@ fun AnalyticsOverviewTab(
                         Text(
                             text = "VIEWS",
                             color = TextMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.End,
                             modifier = Modifier.weight(1f)
@@ -254,29 +265,30 @@ fun AnalyticsOverviewTab(
 
                     HorizontalDivider(color = CardBorder, thickness = 0.8.dp)
 
-                    // আসল রোগুলো
+                    // টেবিলের রোগুলো
                     summaryItems.forEach { item ->
                         val isTotalRow = item.timeframe.equals("Total", ignoreCase = true)
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 5.dp),
+                                // 🎯 প্রতি লাইনের প্যাডিং ৫ থেকে কমিয়ে ২.৫ করা হয়েছে
+                                .padding(vertical = 2.5.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = item.timeframe,
                                 color = if (isTotalRow) GoldTotal else TextLight,
-                                fontSize = 13.5.sp,
-                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.SemiBold,
+                                fontSize = 12.5.sp, // ফন্ট সাইজ একটু ছোট করা হয়েছে
+                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Medium,
                                 modifier = Modifier.weight(1.3f)
                             )
 
                             Text(
                                 text = item.formattedVisitors,
                                 color = if (isTotalRow) Color.White else Color(0xFFE2E8F0),
-                                fontSize = 13.5.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Bold,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f)
@@ -285,7 +297,7 @@ fun AnalyticsOverviewTab(
                             Text(
                                 text = item.formattedViews,
                                 color = if (isTotalRow) GreenTotal else CyanText,
-                                fontSize = 13.5.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f)
@@ -312,7 +324,8 @@ private fun TrafficCurveCanvas(
 
         val maxVal = sparkline.maxOrNull() ?: 1f
         val minVal = sparkline.minOrNull() ?: 0f
-        val range = (maxVal - minVal).coerceAtLeast(1f)
+        // রেঞ্জ ডায়নামিক করার জন্য অতিরিক্ত ১০% স্পেস রাখা হয়েছে
+        val range = ((maxVal - minVal).coerceAtLeast(1f)) * 1.1f 
 
         val stepX = size.width / (sparkline.size - 1)
         val strokePath = Path()
@@ -320,7 +333,7 @@ private fun TrafficCurveCanvas(
 
         sparkline.forEachIndexed { i, value ->
             val x = i * stepX
-            val y = size.height - ((value - minVal) / range * (size.height * 0.82f))
+            val y = size.height - ((value - minVal) / range * (size.height * 0.85f))
 
             if (i == 0) {
                 strokePath.moveTo(x, y)
@@ -328,7 +341,7 @@ private fun TrafficCurveCanvas(
                 fillPath.lineTo(x, y)
             } else {
                 val prevX = (i - 1) * stepX
-                val prevY = size.height - ((sparkline[i - 1] - minVal) / range * (size.height * 0.82f))
+                val prevY = size.height - ((sparkline[i - 1] - minVal) / range * (size.height * 0.85f))
                 val cx = (prevX + x) / 2f
                 strokePath.cubicTo(cx, prevY, cx, y, x, y)
                 fillPath.cubicTo(cx, prevY, cx, y, x, y)
@@ -354,7 +367,7 @@ private fun TrafficCurveCanvas(
         )
 
         val lastX = size.width
-        val lastY = size.height - ((sparkline.last() - minVal) / range * (size.height * 0.82f))
+        val lastY = size.height - ((sparkline.last() - minVal) / range * (size.height * 0.85f))
         drawCircle(color = CyanText.copy(alpha = 0.35f), radius = 6.dp.toPx(), center = Offset(lastX, lastY))
         drawCircle(color = CyanText, radius = 3.dp.toPx(), center = Offset(lastX, lastY))
     }
