@@ -19,7 +19,10 @@ import java.net.URL
  */
 object AppAnalyticsTracker {
     private const val TAG = "ANALYTICS_TRACKER"
-    private const val PING_URL = "https://playdramaflix.com/api/v1/analytics/ping"
+    
+    // 🎯 ফিক্সড: www যুক্ত করা হয়েছে যাতে 301 রিডাইরেক্টে POST ডাটা মুছে না যায়
+    private const val PING_URL = "https://www.playdramaflix.com/api/v1/analytics/ping"
+    
     private const val HEARTBEAT_INTERVAL_MS = 40_000L // ৪০ সেকেন্ড পর পর লাইভ হার্টবিট
     private const val MIN_SCREEN_INTERVAL_MS = 2_500L // পরপর দ্রুত স্ক্রিন চেঞ্জের স্প্যাম প্রটেকশন
 
@@ -149,6 +152,8 @@ object AppAnalyticsTracker {
         postSlug: String = ""
     ) {
         val now = System.currentTimeMillis()
+        
+        // একই স্ক্রিনে বারবার দ্রুত রিকোয়েস্ট স্প্যামিং প্রতিরোধ
         if (screenName == currentScreenName && postSlug == currentPostSlug && (now - lastPingTimestamp) < MIN_SCREEN_INTERVAL_MS) {
             return
         }
@@ -285,13 +290,13 @@ object AppAnalyticsTracker {
                 put("device_id", deviceId)
                 put("screen_name", screen)
                 put("post_title", resolvedPostTitle)
-                put("post_slug", postSlug)
+                put("post_slug", postSlug) // 🎯 আসল স্লাগ নিশ্চিত করা হচ্ছে
                 put("user_id", userId ?: 0)
                 put("is_first_open", isFirstOpen)
                 put("device_brand", brand)
                 put("device_model", model)
                 put("os_version", osVersion)
-                put("age_group", ageGroup) // 👈 বয়স গ্রুপ পাঠানো হচ্ছে
+                put("age_group", ageGroup)
 
                 // ⏱️ ওয়াচ-টাইম সেকেন্ড
                 put("watch_seconds", elapsedSec)
