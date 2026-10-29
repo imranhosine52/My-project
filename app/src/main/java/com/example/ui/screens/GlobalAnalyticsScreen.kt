@@ -59,7 +59,7 @@ fun GlobalAnalyticsScreen(
     val audience = data.audienceAnalytics ?: AudienceAnalyticsDto()
     val growth = data.growth ?: GrowthAnalyticsStats()
 
-    // 🟢 লাইভ স্পন্দন অ্যানিমেশন
+    // 🟢 রিয়েল-টাইম লাইভ স্পন্দন অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "studio_pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
@@ -81,7 +81,7 @@ fun GlobalAnalyticsScreen(
                     .background(StudioDarkBg)
                     .statusBarsPadding()
             ) {
-                // ১. হেডার রো (টাইটেল ও লাইভ অডিয়েন্স ব্যাজ)
+                // ১. হেডার বার (টাইটেল ও লাইভ অডিয়েন্স ব্যাজ)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -175,7 +175,7 @@ fun GlobalAnalyticsScreen(
             }
         }
     ) { innerPadding ->
-        // 🎯 মাঝখানে ধরে ডানে-বামে স্মুথ সোয়াইপ পেজার
+        // 🎯 ডানে-বামে স্মুথ সোয়াইপ পেজার
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
@@ -188,21 +188,22 @@ fun GlobalAnalyticsScreen(
                     overview = overview
                 )
 
-                // ২. Content ট্যাব: রিয়েল-টাইম পোস্ট তালিকা ও স্মুথ পজিশন অ্যানিমেশন
+                // ২. Content ট্যাব: রিয়েল-টাইম পোস্ট তালিকা ও পজিশন অ্যানিমেশন
                 1 -> AnalyticsContentTab(
                     content = content,
                     onPostClick = onPostClick
                 )
 
-                // ৩. Audience ট্যাব: সাব-ট্যাব সহ লাইভ ইউজার, বর্তমানে দেখা পোস্ট, দেশ ও বয়স বিন্যাস
+                // ৩. Audience ট্যাব: লাইভ স্ক্রিন ট্র্যাকার, দেশভিত্তিক গোল পতাকা ও বয়স বিন্যাস
                 2 -> AnalyticsAudienceTab(
                     audience = audience,
                     topPosts = content.topDramas,
                     liveOnlineCount = data.liveOnlineCount,
+                    activeScreens = data.activeScreens, // 👈 রিয়েল-টাইম স্ক্রিন লোকেশন পাস করা হলো
                     onPostClick = onPostClick
                 )
 
-                // ৪. Growth ট্যাব: টোটাল আজীবনের হিসাব এবং রিয়েল-টাইম Installation Summary টেবিল
+                // ৪. Growth ট্যাব: লাইফটাইম ইন্সটল, আনইন্সটল ও অ্যানিমেটেড সামারি
                 3 -> AnalyticsGrowthTab(
                     growth = growth
                 )
