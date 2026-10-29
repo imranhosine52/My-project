@@ -304,6 +304,9 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🎯 ড্রামা ওপেন হলে সঠিক স্লাগ ও টাইটেল সহ লাইভ ভিউ ট্র্যাকিং
+    // =========================================================================
     LaunchedEffect(slug) {
         persistentDramaComments.clear()
         completedAdClicks = 0
@@ -314,21 +317,22 @@ fun PlayerScreen(
             ?: slug.replace("-", " ").replaceFirstChar { it.uppercase() }
 
         val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+
+        // 🎯 ফিক্সড: postTitle এবং postSlug সরাসরি পাস করা হয়েছে
         AppAnalyticsTracker.trackScreen(
-            context,
-            "Watching: $initialTitle",
-            numericUid
+            context = context,
+            screenName = "Watching: $initialTitle",
+            userId = numericUid,
+            postTitle = initialTitle,
+            postSlug = slug
         )
 
         viewModel.loadDramaDetails(slug, context)
     }
 
-    // =========================================================================
-    // 🎯 ফিক্সড: কমেন্টের আইডি ও ড্রামা স্লাগ মিসম্যাচে কমেন্ট হাইড হওয়া বন্ধ করা হলো
-    // =========================================================================
     LaunchedEffect(playerState.comments, slug, currentContentId) {
         val serverComments = playerState.comments.filter { comment ->
-            comment.id !in deletedCommentIds // শুধুমাত্র ডিলিট হওয়া কমেন্টগুলো বাদ যাবে
+            comment.id !in deletedCommentIds
         }
 
         val serverTexts = serverComments.map { it.commentText.trim() }.toSet()
@@ -386,9 +390,6 @@ fun PlayerScreen(
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // =========================================================================
-    // 💾 শেষ দেখা ১০ নম্বর এপিসোড মেমোরি
-    // =========================================================================
     val lastWatchedEpPrefs = remember {
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
     }
@@ -416,9 +417,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🚀 ExoPlayer ইঞ্জিন
-    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -624,6 +622,16 @@ fun PlayerScreen(
                 viewModel.showEpisodeUnlockModal(currentEp)
                 return@LaunchedEffect
             }
+
+            // 🎯 এপিসোড চেঞ্জ হলেও ট্র্যাকার রিফ্রেশ নিশ্চিত করা
+            val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+            AppAnalyticsTracker.trackScreen(
+                context = context,
+                screenName = "Watching: $cleanShortTitle - Ep ${currentEp.episodeNumber}",
+                userId = numericUid,
+                postTitle = cleanShortTitle,
+                postSlug = slug
+            )
 
             val appStream = currentEp.appStreamUrl?.trim() ?: ""
             val streamUrl = currentEp.directStreamUrl?.trim() ?: ""
@@ -965,7 +973,7 @@ fun PlayerScreen(
                             )
                         }
                         // =========================================================================
-                        // 💬 ১. কমেন্ট বক্স মোড (প্লেয়ারের নিচ থেকে ফুলস্ক্রিন, টাইপিং বক্স নিচে পিন)
+                        // 💬 ১. কমেন্ট বক্স মোড
                         // =========================================================================
                         else if (selectedTabIndex == 1) {
                             Column(
@@ -1070,7 +1078,6 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // 🎯 টাইপিং বক্স: একদম নিচে পিন এবং কিবোর্ডের সাথে উপরে উঠবে
                                 PlayerInlineCommentInput(
                                     userInitials = userInitials,
                                     currentUserAvatar = currentUserAvatar,
@@ -1090,7 +1097,6 @@ fun PlayerScreen(
                                         }
                                         val textToSend = inlineCommentText.trim()
                                         if (textToSend.isNotBlank()) {
-                                            // 🎯 অপটিমিস্টিক আপডেট: সেন্ড বাটনে চাপামাত্রই সাথে সাথে যেন কমেন্ট লিস্টে শো করে
                                             val tempCommentId = "temp_text_${System.currentTimeMillis()}"
                                             val optimisticComment = DramaApiComment(
                                                 rawId = tempCommentId,
@@ -1115,7 +1121,7 @@ fun PlayerScreen(
                             }
                         }
                         // =========================================================================
-                        // 🎬 ২. For you মোড (টাইটেল, এপিসোড রো, স্টিকি ট্যাব ও রিকমেন্ডেশন)
+                        // 🎬 ২. For you মোড
                         // =========================================================================
                         else {
                             PullToRefreshBox(
