@@ -13,6 +13,7 @@ data class PublicLiveAnalyticsResponse(
     @Json(name = "status") val status: Int? = 200,
     @Json(name = "timestamp") val timestamp: Long? = 0L,
     @Json(name = "live_online_count") val liveOnlineCount: Int = 1,
+    @Json(name = "active_screens") val activeScreens: List<LiveScreenStat> = emptyList(), // 👈 পূর্বের ফাইলের কম্প্যাটিবিলিটির জন্য
     @Json(name = "overview") val overview: OverviewAnalyticsDto? = null,
     @Json(name = "content_analytics") val contentAnalytics: ContentAnalyticsDto? = null,
     @Json(name = "audience_analytics") val audienceAnalytics: AudienceAnalyticsDto? = null,
@@ -21,7 +22,7 @@ data class PublicLiveAnalyticsResponse(
     val formattedLiveCount: String
         get() = formatMetric(liveOnlineCount.toLong())
 
-    // 🎯 ফলব্যাক হেল্পার প্রোপার্টিজ (যাতে অন্যান্য স্ক্রিনের সাথে কম্প্যাটিবিলিটি ঠিক থাকে)
+    // 🎯 ফলব্যাক হেল্পার প্রোপার্টিজ (যাতে সব স্ক্রিন থেকে সরাসরি রিড করা যায়)
     val countries: List<LiveCountryStat> get() = audienceAnalytics?.countries ?: emptyList()
     val topPosts: List<LivePostStat> get() = contentAnalytics?.topDramas ?: emptyList()
     val topBrands: List<LiveBrandStat> get() = audienceAnalytics?.topBrands ?: emptyList()
@@ -92,7 +93,7 @@ data class SearchTermStat(
  */
 @JsonClass(generateAdapter = true)
 data class AudienceAnalyticsDto(
-    @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(), // ৭টি কলাম (বার) এবং ২৪টি ঘণ্টা (রো)
+    @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(), // ৭টি কলাম (দিন) এবং ২৪টি সারি (ঘণ্টা)
     @Json(name = "new_viewers_pct") val newViewersPct: Double = 91.1,
     @Json(name = "casual_viewers_pct") val casualViewersPct: Double = 8.9,
     @Json(name = "vip_viewers_pct") val vipViewersPct: Double = 5.2,
