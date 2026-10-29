@@ -26,6 +26,7 @@ data class PublicLiveAnalyticsResponse(
     val countries: List<LiveCountryStat> get() = audienceAnalytics?.countries ?: emptyList()
     val topPosts: List<LivePostStat> get() = contentAnalytics?.topDramas ?: emptyList()
     val topBrands: List<LiveBrandStat> get() = audienceAnalytics?.topBrands ?: emptyList()
+    val ageDemographics: List<AgeDemographicItem> get() = audienceAnalytics?.ageDemographics ?: emptyList()
 
     companion object {
         fun formatMetric(value: Long): String {
@@ -95,14 +96,27 @@ data class RealtimePostItem(
 }
 
 /**
- * 👥 Audience Tab: ডেমোগ্রাফিক্স
+ * 👥 Audience Tab: ডেমোগ্রাফিক্স (দেশ, ব্র্যান্ড এবং লাইভ বয়স গ্রুপ)
  */
 @JsonClass(generateAdapter = true)
 data class AudienceAnalyticsDto(
     @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(),
     @Json(name = "top_brands") val topBrands: List<LiveBrandStat> = emptyList(),
-    @Json(name = "countries") val countries: List<LiveCountryStat> = emptyList()
+    @Json(name = "countries") val countries: List<LiveCountryStat> = emptyList(),
+    @Json(name = "age_demographics") val ageDemographics: List<AgeDemographicItem> = emptyList() // 👈 লাইভ বয়স গ্রুপ লিস্ট
 )
+
+/**
+ * 🎂 একক বয়স ডেমোগ্রাফিক আইটেম
+ */
+@JsonClass(generateAdapter = true)
+data class AgeDemographicItem(
+    @Json(name = "group") val group: String = "18–24 years",
+    @Json(name = "percentage") val percentage: Double = 0.0,
+    @Json(name = "display") val display: String = "0.0%"
+) {
+    val ratio: Float get() = (percentage / 100.0).toFloat().coerceIn(0.01f, 1f)
+}
 
 /**
  * 📈 Growth Tab: অ্যাপ ইন্সটল, আনইন্সটল ও সামারি টেবিল
@@ -115,7 +129,7 @@ data class GrowthAnalyticsStats(
     @Json(name = "today_uninstalls") val todayUninstalls: Long = 0L,
     @Json(name = "active_users_base") val activeUsersBase: Long = 0L,
     @Json(name = "retention_rate") val retentionRate: Double = 100.0,
-    @Json(name = "growth_summary") val growthSummary: List<GrowthSummaryItem> = emptyList() // 👈 নতুন সামারি বোর্ড
+    @Json(name = "growth_summary") val growthSummary: List<GrowthSummaryItem> = emptyList()
 ) {
     val formattedLifetimeInstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeInstalls)
     val formattedTodayInstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(todayInstalls)
@@ -125,7 +139,7 @@ data class GrowthAnalyticsStats(
 }
 
 /**
- * 📋 নতুন Growth Summary টেবিল আইটেম (Today, Yesterday, 1M, 3M, 1Y, Total)
+ * 📋 Growth Summary টেবিল আইটেম
  */
 @JsonClass(generateAdapter = true)
 data class GrowthSummaryItem(
