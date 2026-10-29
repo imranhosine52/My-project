@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -156,12 +157,10 @@ fun GlobalAnalyticsScreen(
                     divider = { HorizontalDivider(color = StudioCardBorder, thickness = 0.6.dp) },
                     indicator = { tabPositions ->
                         if (pagerState.currentPage < tabPositions.size) {
-                            Box(
-                                modifier = Modifier
-                                    .tabIndicatorOffset(tabPositions[pagerState.currentPage])
-                                    .height(2.5.dp)
-                                    .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
-                                    .background(Color.White)
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                                height = 2.5.dp,
+                                color = Color.White
                             )
                         }
                     }
