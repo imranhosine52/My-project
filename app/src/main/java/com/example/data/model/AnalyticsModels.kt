@@ -90,6 +90,7 @@ data class RealtimePostItem(
     @Json(name = "slug") val slug: String = "",
     @Json(name = "poster_url") val posterUrl: String? = null,
     @Json(name = "views") val views: Long = 0L,
+    @Json(name = "today_views") val todayViews: Long? = 0L,
     @Json(name = "progress_ratio") val progressRatio: Float = 0.5f
 ) {
     val formattedViews: String get() = PublicLiveAnalyticsResponse.formatMetric(views)
@@ -103,7 +104,7 @@ data class AudienceAnalyticsDto(
     @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(),
     @Json(name = "top_brands") val topBrands: List<LiveBrandStat> = emptyList(),
     @Json(name = "countries") val countries: List<LiveCountryStat> = emptyList(),
-    @Json(name = "age_demographics") val ageDemographics: List<AgeDemographicItem> = emptyList() // 👈 লাইভ বয়স গ্রুপ লিস্ট
+    @Json(name = "age_demographics") val ageDemographics: List<AgeDemographicItem> = emptyList()
 )
 
 /**
@@ -169,15 +170,24 @@ data class LiveCountryStat(
     val formattedCount: String get() = PublicLiveAnalyticsResponse.formatMetric(count.toLong())
 }
 
+/**
+ * 🎬 লাইভ পোস্ট ও ওয়াচিং সময় স্ট্যাটাস (আপডেটেড)
+ */
 @JsonClass(generateAdapter = true)
 data class LivePostStat(
     @Json(name = "title") val title: String = "",
     @Json(name = "slug") val slug: String = "",
-    @Json(name = "watching_count") val watchingCount: Int = 0
+    @Json(name = "watching_count") val watchingCount: Int = 0,
+    @Json(name = "duration_text") val durationText: String? = null,       // 👈 নতুন ফিল্ড: কত সময় ধরে দেখছে
+    @Json(name = "duration_minutes") val durationMinutes: Int? = null     // 👈 নতুন ফিল্ড: কত মিনিট
 ) {
     val formattedWatchingCount: String get() = PublicLiveAnalyticsResponse.formatMetric(watchingCount.toLong())
+    val formattedDuration: String get() = durationText ?: "${durationMinutes ?: 1}m watching"
 }
 
+/**
+ * 📱 লাইভ স্ক্রিন স্ট্যাটাস
+ */
 @JsonClass(generateAdapter = true)
 data class LiveScreenStat(
     @Json(name = "screen") val screen: String = "",
@@ -191,6 +201,10 @@ data class LiveScreenStat(
             screen.contains("Chat", ignoreCase = true) -> "Community Live Chat"
             screen.contains("Home", ignoreCase = true) -> "Home Feed"
             screen.contains("Search", ignoreCase = true) -> "Searching Dramas"
+            screen.contains("VIP", ignoreCase = true) -> "VIP Pricing"
+            screen.contains("Profile", ignoreCase = true) -> "User Profile"
+            screen.contains("Download", ignoreCase = true) -> "Downloads"
+            screen.contains("Gallery", ignoreCase = true) -> "Local Media Gallery"
             else -> screen
         }
 }
