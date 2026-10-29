@@ -103,10 +103,10 @@ class MainActivity : ComponentActivity() {
     private val pendingOpenVipScreen = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 🎯 ১. অ্যান্ড্রয়েড সিস্টেম উইন্ডোর ব্যাকগ্রাউন্ড সাথে সাথে পিওর ব্ল্যাক করা (আইকন ফ্লিকার বন্ধে)
+        // ১. উইন্ডোর ব্যাকগ্রাউন্ড সাথে সাথে ব্ল্যাক করা (আইকন ফ্লিকার বন্ধে)
         window.setBackgroundDrawableResource(android.R.color.black)
 
-        // 🎯 ২. Android 12+ সিস্টেম স্প্ল্যাশ লোগো শূন্য মিলিসেকেন্ডে সরানো
+        // ২. Android 12+ সিস্টেম স্প্ল্যাশ লোগো অপসারণ
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashScreenView ->
                 splashScreenView.remove()
@@ -124,7 +124,7 @@ class MainActivity : ComponentActivity() {
         UnifiedAdManager.init(this)
         handleIncomingIntents(intent)
 
-        // 🚀 স্প্ল্যাশ ভিডিও চলাকালীনই ব্যাকগ্রাউন্ড থ্রেডে হোম ফিড ক্যাশ লোড করা
+        // ব্যাকগ্রাউন্ড থ্রেডে হোম ফিড ক্যাশ লোড করা
         viewModel.loadHomeContent(forceRefresh = false)
         viewModel.refreshVipStatusAndProfile()
 
@@ -137,7 +137,6 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Color.Black)
                 ) {
-                    // ১. হোম স্ক্রিন ব্যাকগ্রাউন্ডে সম্পূর্ণরূপে মাউন্ট ও প্রস্তুত থাকবে
                     MainAppContent(
                         activity = this@MainActivity,
                         viewModel = viewModel,
@@ -149,7 +148,6 @@ class MainActivity : ComponentActivity() {
                         onFinish = { finish() }
                     )
 
-                    // ২. স্প্ল্যাশ ভিডিও লেয়ার (ভিডিওর ভেতর থেকেই স্মুথ আলফা ফেড-আউট হয়ে ভ্যানিশ হবে)
                     if (showSplash) {
                         Box(
                             modifier = Modifier
@@ -157,7 +155,7 @@ class MainActivity : ComponentActivity() {
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
-                                ) {} // স্প্ল্যাশ চলাকালীন নিচের ভিউতে ভুল টাচ ব্লক রাখা
+                                ) {}
                         ) {
                             VideoSplashScreen(
                                 onVideoFinished = { showSplash = false }
@@ -595,23 +593,50 @@ private fun MainAppContent(
         authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
     }
 
+    // =========================================================================
+    // 📊 রিয়েল-টাইম স্ক্রিন ও পোস্ট অ্যানালিটিক্স ট্র্যাকার (১০০% ফিক্সড)
+    // =========================================================================
     LaunchedEffect(currentScreen) {
-        val screenLabel = when (val screen = currentScreen) {
-            is Screen.Home -> "Home: ${screen.category}"
-            is Screen.Player -> null
-            is Screen.ShortsPlayer -> null
-            is Screen.Vip -> "VIP Pricing Screen"
-            is Screen.Watchlist -> "My Watchlist Screen"
-            is Screen.Profile -> "Profile Screen"
-            is Screen.Downloads -> "Downloads Screen"
-            is Screen.Search -> "Search Screen"
-            is Screen.CommunityChat -> "Community Live Chat"
-            is Screen.LocalGallery -> "Local Media Gallery"
-            is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
-            is Screen.NotFound -> "404 Not Found Screen"
-        }
-        if (screenLabel != null) {
-            AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+        when (val screen = currentScreen) {
+            // 🎬 ১. লং ভিডিও প্লেয়ার স্ক্রিন (সরাসরি স্লাগ ও টাইটেল সহ পিং)
+            is Screen.Player -> {
+                AppAnalyticsTracker.trackScreen(
+                    context = context,
+                    screenName = "Watching: ${screen.slug}",
+                    userId = numericUserId,
+                    postTitle = "",
+                    postSlug = screen.slug
+                )
+            }
+            // 📱 ২. শর্টস প্লেয়ার স্ক্রিন (সরাসরি স্লাগ ও শর্টস ফরম্যাট সহ পিং)
+            is Screen.ShortsPlayer -> {
+                AppAnalyticsTracker.trackScreen(
+                    context = context,
+                    screenName = "Watching Short: ${screen.slug}",
+                    userId = numericUserId,
+                    postTitle = "",
+                    postSlug = screen.slug
+                )
+            }
+            // 🌐 ৩. অন্যান্য সাধারণ স্ক্রিনসমূহ
+            else -> {
+                val screenLabel = when (screen) {
+                    is Screen.Home -> "Home: ${screen.category}"
+                    is Screen.Vip -> "VIP Pricing Screen"
+                    is Screen.Watchlist -> "My Watchlist Screen"
+                    is Screen.Profile -> "Profile Screen"
+                    is Screen.Downloads -> "Downloads Screen"
+                    is Screen.Search -> "Search Screen"
+                    is Screen.CommunityChat -> "Community Live Chat"
+                    is Screen.LocalGallery -> "Local Media Gallery"
+                    is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
+                    is Screen.NotFound -> "404 Not Found Screen"
+                    else -> null
+                }
+                if (screenLabel != null) {
+                    AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+                }
+            }
         }
     }
 
