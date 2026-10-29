@@ -15,13 +15,16 @@ import java.net.URL
 
 /**
  * ⚡ হাই-পারফরম্যান্স রিয়েল-টাইম অ্যানালিটিক্স ও হার্টবিট ট্র্যাকার
- * ক্লাউডফ্লেয়ার ও Redis এর সাথে সমন্বিত হয়ে কোটি ভিজিটর সাপোর্ট করে।
+ * ক্লাউডফ্লেয়ার ও Redis এর সাথে সমন্বিত হয়ে মিলিয়ন ট্র্যাফিক ও ডিভাইস মডেল হ্যান্ডেল করে।
  */
 object AppAnalyticsTracker {
     private const val TAG = "ANALYTICS_TRACKER"
     private const val PING_URL = "https://playdramaflix.com/api/v1/analytics/ping"
     private const val HEARTBEAT_INTERVAL_MS = 40_000L // ৪০ সেকেন্ড পর পর লাইভ হার্টবিট
     private const val MIN_SCREEN_INTERVAL_MS = 2_500L // পরপর দ্রুত স্ক্রিন চেঞ্জের স্প্যাম প্রটেকশন
+
+    private const val PREFS_NAME = "drama_analytics_prefs"
+    private const val KEY_FIRST_OPEN_TRACKED = "has_reported_first_install"
 
     private val trackerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var heartbeatJob: Job? = null
@@ -57,11 +60,25 @@ object AppAnalyticsTracker {
     }
 
     /**
-     * 🚀 অ্যাপ চালু হওয়ার সাথে সাথে প্রাথমিক লাইভ সেশন রেজিস্টার করা
+     * 🎯 চেক করে যে এটি ইউজারের ফোনের প্রথম অ্যাপ ওপেন কি না (Install Tracker)
+     */
+    private fun checkIsFirstOpen(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val alreadyTracked = prefs.getBoolean(KEY_FIRST_OPEN_TRACKED, false)
+        if (!alreadyTracked) {
+            prefs.edit().putBoolean(KEY_FIRST_OPEN_TRACKED, true).apply()
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 🚀 অ্যাপ চালু হওয়ার সাথে সাথে প্রাথমিক সেশন ও ইন্সটল সিগন্যাল রেজিস্টার করা
      */
     fun init(context: Context, userId: Int? = null) {
         currentUserId = userId
-        Log.d(TAG, "✓ Initializing AppAnalyticsTracker for device: ${getDeviceId(context)}")
+        val isFirstOpen = checkIsFirstOpen(context)
+        Log.d(TAG, "✓ Initializing AppAnalyticsTracker (First Open: $isFirstOpen) for device: ${getDeviceId(context)}")
 
         trackerScope.launch {
             sendPing(
@@ -69,7 +86,8 @@ object AppAnalyticsTracker {
                 screen = "Home Screen",
                 postTitle = "",
                 postSlug = "",
-                userId = currentUserId
+                userId = currentUserId,
+                isFirstOpen = isFirstOpen
             )
         }
 
@@ -77,7 +95,7 @@ object AppAnalyticsTracker {
     }
 
     /**
-     * 📱 সাধারণ স্ক্রিন পরিবর্তন ট্র্যাকিং (ব্যাকওয়ার্ড কম্প্যাটিবল)
+     * 📱 সাধারণ স্ক্রিন পরিবর্তন ট্র্যাকিং
      */
     fun trackScreen(context: Context, screenName: String, userId: Int? = null) {
         trackScreen(
@@ -101,7 +119,7 @@ object AppAnalyticsTracker {
     ) {
         val now = System.currentTimeMillis()
         if (screenName == currentScreenName && postSlug == currentPostSlug && (now - lastPingTimestamp) < MIN_SCREEN_INTERVAL_MS) {
-            return // অপ্রয়োজনীয় ডুপ্লিকেট পিং ফিল্টার
+            return
         }
 
         currentScreenName = screenName
@@ -118,7 +136,8 @@ object AppAnalyticsTracker {
                 screen = currentScreenName,
                 postTitle = currentPostTitle,
                 postSlug = currentPostSlug,
-                userId = currentUserId
+                userId = currentUserId,
+                isFirstOpen = false
             )
         }
 
@@ -136,7 +155,8 @@ object AppAnalyticsTracker {
                     screen = currentScreenName,
                     postTitle = currentPostTitle,
                     postSlug = currentPostSlug,
-                    userId = currentUserId
+                    userId = currentUserId,
+                    isFirstOpen = false
                 )
             }
         }
@@ -150,14 +170,14 @@ object AppAnalyticsTracker {
         screen: String,
         postTitle: String,
         postSlug: String,
-        userId: Int?
+        userId: Int?,
+        isFirstOpen: Boolean
     ) {
         var conn: HttpURLConnection? = null
         try {
             lastPingTimestamp = System.currentTimeMillis()
             val deviceId = getDeviceId(context)
 
-            // টাইটেল থেকে ড্রামার নাম এক্সট্র্যাক্ট করা (যদি আলাদাভাবে পাঠানো না হয়ে থাকে)
             val resolvedPostTitle = if (postTitle.isNotBlank()) {
                 postTitle
             } else if (screen.startsWith("Watching:") || screen.startsWith("Watching Short:")) {
@@ -169,12 +189,21 @@ object AppAnalyticsTracker {
                 ""
             }
 
+            // 📱 ব্র্যান্ড ও মডেল ফরম্যাটিং
+            val brand = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+            val model = Build.MODEL
+            val osVersion = "Android ${Build.VERSION.RELEASE}"
+
             val jsonPayload = JSONObject().apply {
                 put("device_id", deviceId)
                 put("screen_name", screen)
                 put("post_title", resolvedPostTitle)
                 put("post_slug", postSlug)
                 put("user_id", userId ?: 0)
+                put("is_first_open", isFirstOpen)
+                put("device_brand", brand)
+                put("device_model", model)
+                put("os_version", osVersion)
             }
 
             val url = URL(PING_URL)
@@ -183,7 +212,6 @@ object AppAnalyticsTracker {
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Connection", "Keep-Alive")
-                // ক্লাউডফ্লেয়ার ফায়ারওয়াল বাইপাসিং হেডার
                 setRequestProperty(
                     "User-Agent",
                     "Mozilla/5.0 (Linux; Android ${Build.VERSION.RELEASE}; ${Build.MODEL}) PlayDramaFlixApp/1.0"
@@ -201,7 +229,7 @@ object AppAnalyticsTracker {
 
             val responseCode = conn.responseCode
             if (responseCode in 200..299) {
-                Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | $resolvedPostTitle")
+                Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | $brand $model")
             } else {
                 val stream = conn.errorStream ?: conn.inputStream
                 val errText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
