@@ -238,7 +238,6 @@ fun ShortsPlayerScreen(
     val isUserLoggedIn = authState.isLoggedIn
     val isUserVip = playerState.isVip || authState.isVip
 
-    // 🚀 ExoPlayer Engine
     val exoPlayer = remember {
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(buildUponParameters().setAllowMultipleAdaptiveSelections(true))
@@ -272,7 +271,6 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // 📢 Custom Ads Config
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
     var watchedEpisodesCounter by rememberSaveable { mutableIntStateOf(0) }
@@ -343,7 +341,6 @@ fun ShortsPlayerScreen(
     var showAudioSelectionSheet by remember { mutableStateOf(false) }
     var showSubtitleSelectionSheet by remember { mutableStateOf(false) }
 
-    // 🎯 কোয়ালিটি ও মাল্টি-অডিও/সাবটাইটেল ট্র্যাকার স্টেট
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var hasMultipleQualities by rememberSaveable { mutableStateOf(false) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
@@ -362,9 +359,6 @@ fun ShortsPlayerScreen(
 
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // =========================================================================
-    // ⚡ লাইভ বাফারিং স্পিড ও ১% থেকে ১০০% প্রোগ্রেস কাউন্টার
-    // =========================================================================
     val targetStartupBufferBytes = 2 * 1024 * 1024L
     var realDownloadedBytes by remember(cleanShortTitle) { mutableLongStateOf(0L) }
     var realBitrateBps by remember(cleanShortTitle) { mutableLongStateOf(0L) }
@@ -448,7 +442,6 @@ fun ShortsPlayerScreen(
 
     val shouldShowLoadingScreen = !hasCompletedStartup && playbackErrorMessage == null
 
-    // Scroll counter for Ads
     LaunchedEffect(activePageIndex) {
         if (activePageIndex > 0) {
             watchedEpisodesCounter++
@@ -470,12 +463,23 @@ fun ShortsPlayerScreen(
 
     val currentVideoUrl = remember(currentEp, slug) { resolveBestEpisodeUrl(currentEp, slug) }
 
+    // =========================================================================
+    // 🎯 শর্টস স্ক্রোল অথবা ওপেন হলে আসল স্লাগ সহ লাইভ ট্র্যাকিং নিশ্চিত করা
+    // =========================================================================
     LaunchedEffect(activePageIndex, slug, cleanShortTitle) {
         val target = effectiveEpisodes.getOrNull(activePageIndex)
         if (target != null) {
             viewModel.selectEpisode(target)
             val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-            AppAnalyticsTracker.trackScreen(context, "Watching Short: $cleanShortTitle - Ep ${target.episodeNumber}", numericUid)
+
+            // 🎯 ফিক্সড: postTitle এবং postSlug সরাসরি পাঠানো হচ্ছে
+            AppAnalyticsTracker.trackScreen(
+                context = context,
+                screenName = "Watching Short: $cleanShortTitle - Ep ${target.episodeNumber}",
+                userId = numericUid,
+                postTitle = cleanShortTitle,
+                postSlug = slug
+            )
         }
     }
 
@@ -520,9 +524,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 ট্র্যাক এক্সট্র্যাকশন (ভিডিও, অডিও ও সাবটাইটেল)
-    // =========================================================================
     fun extractRealTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -923,7 +924,6 @@ fun ShortsPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // 🔝 Top Action Bar
             if (!isImmersiveFullscreen) {
                 Surface(
                     color = Color.Black,
@@ -975,7 +975,6 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎬 Video Playback Area
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1009,9 +1008,6 @@ fun ShortsPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // =============================================================
-                // 🌟 Live Buffering Progress Screen with Speed
-                // =============================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = shouldShowLoadingScreen,
                     enter = fadeIn(tween(120)),
@@ -1085,9 +1081,6 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // =============================================================
-                // 🛡️ Error Popup Dialog (100% English)
-                // =============================================================
                 if (playbackErrorMessage != null) {
                     Box(
                         modifier = Modifier
@@ -1270,7 +1263,6 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // 2X Speed Indicator
                 if (is2xActive) {
                     Surface(
                         shape = RoundedCornerShape(20.dp),
@@ -1291,7 +1283,6 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // Play/Pause and Skip Controls
                 if (isControlsVisible) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -1342,9 +1333,6 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // =============================================================
-            // ⬛ Solid Black Bottom Bar (Speed, Quality, Audio & Subtitles)
-            // =============================================================
             if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                 ShortsSolidBlackBottomBar(
                     currentEpNum = currentEpNum,
@@ -1368,7 +1356,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // Custom Video Ads
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
             CustomVideoAdDialog(
@@ -1399,7 +1386,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // Half Drawer
         if (isHalfDrawerOpen) {
             Box(
                 modifier = Modifier
@@ -1447,7 +1433,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // Quality Sheet
         if (showQualitySelectionSheet) {
             ShortsQualitySelectionSheet(
                 availableTracks = availableVideoTracks,
@@ -1462,7 +1447,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // Multi-Audio Selection Sheet
         if (showAudioSelectionSheet) {
             ShortsAudioSelectionSheet(
                 audioTracks = availableAudioTracks,
@@ -1474,7 +1458,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // Subtitle Selection Sheet
         if (showSubtitleSelectionSheet) {
             ShortsSubtitleSelectionSheet(
                 subtitleTracks = availableSubtitleTracks,
@@ -1486,7 +1469,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // Playback Speed Sheet
         if (showSpeedSelectionSheet) {
             ShortsSpeedSelectionSheet(
                 currentSpeed = currentSpeedFloat,
@@ -1497,7 +1479,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // Batch Download Sheet
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = cleanShortTitle,
