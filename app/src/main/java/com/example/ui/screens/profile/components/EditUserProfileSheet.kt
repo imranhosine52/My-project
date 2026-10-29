@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -47,6 +48,7 @@ import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.UserProfileDto
+import com.example.util.AppAnalyticsTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,7 +60,7 @@ private val BlueAccent = Color(0xFF2AABEE)
 private val SheetBackground = Color(0xFF121724)
 
 /**
- * ✏️ প্রোফাইল নাম ও ছবি পরিবর্তনের জন্য আধুনিক বটম শীট
+ * ✏️ প্রোফাইল নাম, বয়স গ্রুপ ও ছবি পরিবর্তনের জন্য আধুনিক বটম শীট
  */
 @Composable
 fun EditUserProfileSheet(
@@ -72,6 +74,15 @@ fun EditUserProfileSheet(
     var inputName by remember { mutableStateOf(currentUser.displayName) }
     var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
 
+    // 🎯 ইউজারের বয়স গ্রুপ সিলেক্টর স্টেট
+    val ageOptions = remember {
+        listOf("13–17 years", "18–24 years", "25–34 years", "35–44 years", "45+ years")
+    }
+    var selectedAgeGroup by remember {
+        mutableStateOf(AppAnalyticsTracker.getAgeGroup(context))
+    }
+    var isAgeDropdownExpanded by remember { mutableStateOf(false) }
+
     var rawPickedUri by remember { mutableStateOf<Uri?>(null) }
     var showCropperDialog by remember { mutableStateOf(false) }
 
@@ -81,7 +92,7 @@ fun EditUserProfileSheet(
     ) { uri: Uri? ->
         if (uri != null) {
             rawPickedUri = uri
-            showCropperDialog = true // 👈 ক্রপ ডায়ালগ ওপেন
+            showCropperDialog = true
         }
     }
 
@@ -209,6 +220,60 @@ fun EditUserProfileSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // =========================================================================
+            // 👥 বয়স গ্রুপ সিলেক্টর (Age Group Dropdown Selector)
+            // =========================================================================
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = selectedAgeGroup,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Age Group (for personalized suggestions)", color = TextMutedSlate) },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select Age Group",
+                            tint = Color.White,
+                            modifier = Modifier.clickable { isAgeDropdownExpanded = !isAgeDropdownExpanded }
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = CardBorderStroke,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isAgeDropdownExpanded = true }
+                )
+
+                DropdownMenu(
+                    expanded = isAgeDropdownExpanded,
+                    onDismissRequest = { isAgeDropdownExpanded = false },
+                    modifier = Modifier
+                        .background(Color(0xFF1B2332))
+                        .border(1.dp, CardBorderStroke, RoundedCornerShape(8.dp))
+                ) {
+                    ageOptions.forEach { age ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = age,
+                                    color = if (age == selectedAgeGroup) ActionGreen else Color.White,
+                                    fontWeight = if (age == selectedAgeGroup) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            onClick = {
+                                selectedAgeGroup = age
+                                isAgeDropdownExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
             // সেভ বাটন
             Button(
                 onClick = {
@@ -216,6 +281,8 @@ fun EditUserProfileSheet(
                         Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
+                    // 🎯 বয়স গ্রুপ সরাসরি ট্র্যাকার ও লোকাল স্টোরেজে সংরক্ষণ
+                    AppAnalyticsTracker.setAgeGroup(context, selectedAgeGroup)
                     onSave(inputName.trim(), selectedAvatarUri)
                 },
                 enabled = !isLoading,
@@ -251,7 +318,7 @@ fun EditUserProfileSheet(
                 rawPickedUri = null
             },
             onCropSuccess = { croppedUri ->
-                selectedAvatarUri = croppedUri // 👈 ক্রপ করা ছবি প্রিভিউতে সেট হবে
+                selectedAvatarUri = croppedUri
                 showCropperDialog = false
                 rawPickedUri = null
                 Toast.makeText(context, "✓ Photo cropped! Tap 'Save Changes' to update.", Toast.LENGTH_SHORT).show()
@@ -262,7 +329,6 @@ fun EditUserProfileSheet(
 
 /**
  * ✂️ ১০০% দৃশ্যমান ও নিরাপদ ইন-অ্যাপ ক্রপার কম্পোনেন্ট
- * (টপ বারে [✓ Save] বাটন এবং বটমেও বড় [Crop & Set Profile Photo] বাটন রয়েছে)
  */
 @Composable
 fun InAppInteractiveImageCropper(
@@ -343,9 +409,7 @@ fun InAppInteractiveImageCropper(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // =========================================================================
             // 🔝 ১. টপ হেডার বার: [✕ Cancel]  [ Crop Profile Photo ]  [ ✓ Save ]
-            // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -367,7 +431,6 @@ fun InAppInteractiveImageCropper(
                     fontWeight = FontWeight.Bold
                 )
 
-                // 🎯 উপরেও সবসময় দৃশ্যমান সেভ বাটন
                 Button(
                     onClick = { performCrop() },
                     enabled = sourceBitmap != null && !isProcessing,
@@ -390,9 +453,7 @@ fun InAppInteractiveImageCropper(
                 }
             }
 
-            // =========================================================================
             // ✂️ ২. সেন্ট্রাল ক্রপ এরিয়া (Pinch to Zoom & Drag)
-            // =========================================================================
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -432,9 +493,7 @@ fun InAppInteractiveImageCropper(
                 }
             }
 
-            // =========================================================================
             // 🔘 ৩. নিচে ফিক্সড ও সুরক্ষিত সেভ বাটন বার
-            // =========================================================================
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
