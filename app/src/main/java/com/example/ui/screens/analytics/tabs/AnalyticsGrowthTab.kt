@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.GrowthAnalyticsStats
 import com.example.data.model.GrowthSummaryItem
+import java.util.Locale
 
 // 🎨 ইউটিউব স্টুডিও ডার্ক থিম কালার প্যালেট
 private val CardBg = Color(0xFF10141F)
@@ -35,7 +36,7 @@ fun AnalyticsGrowthTab(
     growth: GrowthAnalyticsStats,
     modifier: Modifier = Modifier
 ) {
-    // সামারি টেবিলের ফলব্যাক তালিকা (যদি ব্যাকএন্ড থেকে এখনো লোড না হয়ে থাকে)
+    // 🎯 সামারি টেবিলের ডাটা (যদি সার্ভার থেকে না আসে তবে ফলব্যাক)
     val summaryList = if (growth.growthSummary.isNotEmpty()) {
         growth.growthSummary
     } else {
@@ -49,13 +50,25 @@ fun AnalyticsGrowthTab(
         )
     }
 
+    // 🎯 উপরের কার্ডগুলোর ০ সমস্যা ফিক্স করার জন্য সরাসরি টেবিল থেকে আসল ডেটা নেওয়া হলো
+    val totalItem = summaryList.find { it.timeframe.equals("Total", ignoreCase = true) }
+    val todayItem = summaryList.find { it.timeframe.equals("Today", ignoreCase = true) }
+
+    val finalTotalInstalls = totalItem?.installs ?: 1L
+    val finalTotalUninstalls = totalItem?.uninstalls ?: 0L
+    val finalTodayInstalls = todayItem?.installs ?: 0L
+    val finalTodayUninstalls = todayItem?.uninstalls ?: 0L
+    
+    val finalActiveBase = (finalTotalInstalls - finalTotalUninstalls).coerceAtLeast(1L)
+    val finalRetention = if (finalTotalInstalls > 0) (finalActiveBase.toDouble() / finalTotalInstalls.toDouble()) * 100 else 100.0
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // =========================================================================
-        // 📊 ১. উপরের বোর্ড: Total Lifetime Overview
+        // 📊 ১. উপরের বোর্ড: Total Lifetime Overview (০ ফিক্স করা হয়েছে)
         // =========================================================================
         item {
             Surface(
@@ -65,8 +78,8 @@ fun AnalyticsGrowthTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -76,12 +89,12 @@ fun AnalyticsGrowthTab(
                             imageVector = Icons.Default.TrendingUp,
                             contentDescription = null,
                             tint = GreenText,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                         Text(
                             text = "App Installs & Retention Overview",
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -89,41 +102,40 @@ fun AnalyticsGrowthTab(
                     Text(
                         text = "Realtime hardware-verified app lifecycle stats",
                         color = TextMuted,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(bottom = 2.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    // রো ১: Total Installs & Total Uninstalls
+                    // রো ১
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         GrowthMetricBox(
                             label = "Total Installs",
-                            value = growth.formattedLifetimeInstalls,
-                            subLabel = "+${growth.formattedTodayInstalls} today",
+                            value = String.format(Locale.US, "%,d", finalTotalInstalls),
+                            subLabel = "+${String.format(Locale.US, "%,d", finalTodayInstalls)} today",
                             valueColor = GreenText,
                             modifier = Modifier.weight(1f)
                         )
 
                         GrowthMetricBox(
                             label = "Total Uninstalls",
-                            value = growth.formattedLifetimeUninstalls,
-                            subLabel = "-${growth.formattedTodayUninstalls} today",
+                            value = String.format(Locale.US, "%,d", finalTotalUninstalls),
+                            subLabel = "-${String.format(Locale.US, "%,d", finalTodayUninstalls)} today",
                             valueColor = RedText,
                             modifier = Modifier.weight(1f)
                         )
                     }
 
-                    // রো ২: Active Retained Users & Retention Rate
+                    // রো ২
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         GrowthMetricBox(
                             label = "Active Retained Users",
-                            value = growth.formattedActiveBase,
+                            value = String.format(Locale.US, "%,d", finalActiveBase),
                             subLabel = "Net active devices",
                             valueColor = CyanText,
                             modifier = Modifier.weight(1f)
@@ -131,7 +143,7 @@ fun AnalyticsGrowthTab(
 
                         GrowthMetricBox(
                             label = "Retention Rate",
-                            value = "${growth.retentionRate}%",
+                            value = "${String.format(Locale.US, "%.1f", finalRetention)}%",
                             subLabel = "Loyal retained ratio",
                             valueColor = GoldTotal,
                             modifier = Modifier.weight(1f)
@@ -142,41 +154,42 @@ fun AnalyticsGrowthTab(
         }
 
         // =========================================================================
-        // 📋 ২. নিচের বোর্ড: Installation & Churn Summary টেবিল
+        // 📋 ২. নিচের বোর্ড: Installation & Churn Summary (ফাঁকা স্পেস কমানো হয়েছে)
         // =========================================================================
         item {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = CardBg,
                 border = BorderStroke(1.dp, CardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    // 🎯 প্যাডিং ১৬ থেকে কমিয়ে ১২ করা হয়েছে
+                    modifier = Modifier.padding(12.dp),
+                    // 🎯 গ্যাপ ১২ থেকে কমিয়ে ৮ করা হয়েছে
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // হেডার রো: 📥 Installation Summary
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Download,
                             contentDescription = null,
                             tint = CyanText,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Installation Summary",
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // কলাম হেডার্স: TIMEFRAME | INSTALLS | UNINSTALLS
+                    // কলাম হেডার্স
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -184,14 +197,14 @@ fun AnalyticsGrowthTab(
                         Text(
                             text = "TIMEFRAME",
                             color = TextMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1.4f)
                         )
                         Text(
                             text = "INSTALLS",
                             color = TextMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.End,
                             modifier = Modifier.weight(1f)
@@ -199,7 +212,7 @@ fun AnalyticsGrowthTab(
                         Text(
                             text = "UNINSTALLS",
                             color = TextMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.End,
                             modifier = Modifier.weight(1f)
@@ -208,42 +221,40 @@ fun AnalyticsGrowthTab(
 
                     HorizontalDivider(color = CardBorder, thickness = 0.8.dp)
 
-                    // টেবিলের রোগুলো (Today, Yesterday, 1M, 3M, 1Y, Total)
+                    // টেবিলের রোগুলো
                     summaryList.forEach { row ->
                         val isTotalRow = row.timeframe.equals("Total", ignoreCase = true)
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 5.dp),
+                                // 🎯 রো-এর প্যাডিং ৫ থেকে কমিয়ে ২.৫ করা হয়েছে
+                                .padding(vertical = 2.5.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // কলাম ১: Timeframe
                             Text(
                                 text = row.timeframe,
                                 color = if (isTotalRow) GoldTotal else TextLight,
-                                fontSize = 13.sp,
-                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.SemiBold,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Medium,
                                 modifier = Modifier.weight(1.4f)
                             )
 
-                            // কলাম ২: Installs (সবুজ ও নিয়ন গ্রিন)
                             Text(
                                 text = row.formattedInstalls,
                                 color = if (isTotalRow) GreenText else CyanText,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Bold,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f)
                             )
 
-                            // কলাম ৩: Uninstalls (লাল রঙে)
                             Text(
                                 text = row.formattedUninstalls,
                                 color = if (isTotalRow) RedText else TextMuted,
-                                fontSize = 13.5.sp,
-                                fontWeight = if (isTotalRow) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Medium,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f)
                             )
@@ -277,8 +288,8 @@ private fun GrowthMetricBox(
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Text(
                 text = label,
@@ -295,7 +306,7 @@ private fun GrowthMetricBox(
             Text(
                 text = subLabel,
                 color = TextMuted.copy(alpha = 0.8f),
-                fontSize = 10.sp
+                fontSize = 9.5.sp
             )
         }
     }
