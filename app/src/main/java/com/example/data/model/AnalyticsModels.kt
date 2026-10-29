@@ -5,8 +5,7 @@ import com.squareup.moshi.JsonClass
 import java.util.Locale
 
 /**
- * 📊 পাবলিক লাইভ অ্যানালিটিক্স রেসপন্স মডেল
- * সার্ভারের Redis ইঞ্জিন থেকে প্রতি ২-৩ সেকেন্ড পরপর ক্যাশড লাইভ স্ন্যাপশট ধারণ করে।
+ * 📊 সম্পূর্ণ পাবলিক লাইভ ও হিস্টোরিক্যাল অ্যানালিটিক্স মডেল
  */
 @JsonClass(generateAdapter = true)
 data class PublicLiveAnalyticsResponse(
@@ -16,22 +15,91 @@ data class PublicLiveAnalyticsResponse(
     @Json(name = "live_online_count") val liveOnlineCount: Int = 1,
     @Json(name = "countries") val countries: List<LiveCountryStat> = emptyList(),
     @Json(name = "top_posts") val topPosts: List<LivePostStat> = emptyList(),
-    @Json(name = "active_screens") val activeScreens: List<LiveScreenStat> = emptyList()
+    @Json(name = "active_screens") val activeScreens: List<LiveScreenStat> = emptyList(),
+    @Json(name = "top_brands") val topBrands: List<LiveBrandStat> = emptyList(),
+    @Json(name = "growth") val growth: GrowthAnalyticsStats? = null,
+    @Json(name = "traffic") val traffic: TrafficAnalyticsStats? = null,
+    @Json(name = "engagement") val engagement: EngagementAnalyticsStats? = null
 ) {
-    /**
-     * হেডারের জন্য সুন্দর ফরম্যাটেড লাইভ কাউন্ট
-     * যেমন: 1250 হলে 1.2K, 1250000 হলে 1.2M, অন্যথায় সাধারণ সংখ্যা
-     */
     val formattedLiveCount: String
-        get() = when {
-            liveOnlineCount >= 1_000_000 -> String.format(Locale.US, "%.1fM", liveOnlineCount / 1_000_000.0)
-            liveOnlineCount >= 1_000 -> String.format(Locale.US, "%.1fK", liveOnlineCount / 1_000.0)
-            else -> liveOnlineCount.toString()
+        get() = formatMetric(liveOnlineCount.toLong())
+
+    companion object {
+        fun formatMetric(value: Long): String {
+            return when {
+                value >= 1_000_000 -> String.format(Locale.US, "%.1fM", value / 1_000_000.0)
+                value >= 1_000 -> String.format(Locale.US, "%.1fK", value / 1_000.0)
+                else -> value.toString()
+            }
         }
+    }
 }
 
 /**
- * 🌍 দেশভিত্তিক লাইভ ভিজিটর মডেল (ফ্ল্যাগ ও পারসেন্টেজ সহ)
+ * 📈 অ্যাপ গ্রোথ ও রিটেনশন মেট্রিক্স (ইন্সটল ও আনইন্সটল)
+ */
+@JsonClass(generateAdapter = true)
+data class GrowthAnalyticsStats(
+    @Json(name = "lifetime_installs") val lifetimeInstalls: Long = 0L,
+    @Json(name = "today_installs") val todayInstalls: Long = 0L,
+    @Json(name = "lifetime_uninstalls") val lifetimeUninstalls: Long = 0L,
+    @Json(name = "today_uninstalls") val todayUninstalls: Long = 0L,
+    @Json(name = "active_users_base") val activeUsersBase: Long = 0L,
+    @Json(name = "retention_rate") val retentionRate: Double = 100.0
+) {
+    val formattedLifetimeInstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeInstalls)
+    val formattedTodayInstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(todayInstalls)
+    val formattedLifetimeUninstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeUninstalls)
+    val formattedTodayUninstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(todayUninstalls)
+    val formattedActiveBase: String get() = PublicLiveAnalyticsResponse.formatMetric(activeUsersBase)
+}
+
+/**
+ * 🚦 সামগ্রিক ট্র্যাফিক মেট্রিক্স
+ */
+@JsonClass(generateAdapter = true)
+data class TrafficAnalyticsStats(
+    @Json(name = "today_unique_visitors") val todayUniqueVisitors: Long = 0L,
+    @Json(name = "today_page_views") val todayPageViews: Long = 0L,
+    @Json(name = "today_video_views") val todayVideoViews: Long = 0L,
+    @Json(name = "lifetime_visitors") val lifetimeVisitors: Long = 0L,
+    @Json(name = "lifetime_page_views") val lifetimePageViews: Long = 0L,
+    @Json(name = "lifetime_video_views") val lifetimeVideoViews: Long = 0L
+) {
+    val formattedTodayVisitors: String get() = PublicLiveAnalyticsResponse.formatMetric(todayUniqueVisitors)
+    val formattedTodayPageViews: String get() = PublicLiveAnalyticsResponse.formatMetric(todayPageViews)
+    val formattedTodayVideoViews: String get() = PublicLiveAnalyticsResponse.formatMetric(todayVideoViews)
+    val formattedLifetimeVisitors: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeVisitors)
+    val formattedLifetimeViews: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimePageViews)
+    val formattedLifetimeVideoViews: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeVideoViews)
+}
+
+/**
+ * 💬 মোট এনগেজমেন্ট মেট্রিক্স
+ */
+@JsonClass(generateAdapter = true)
+data class EngagementAnalyticsStats(
+    @Json(name = "total_likes") val totalLikes: Long = 0L,
+    @Json(name = "total_comments") val totalComments: Long = 0L,
+    @Json(name = "total_shares") val totalShares: Long = 0L
+) {
+    val formattedLikes: String get() = PublicLiveAnalyticsResponse.formatMetric(totalLikes)
+    val formattedComments: String get() = PublicLiveAnalyticsResponse.formatMetric(totalComments)
+    val formattedShares: String get() = PublicLiveAnalyticsResponse.formatMetric(totalShares)
+}
+
+/**
+ * 📱 ডিভাইস ব্র্যান্ড মডেল
+ */
+@JsonClass(generateAdapter = true)
+data class LiveBrandStat(
+    @Json(name = "name") val name: String = "Unknown",
+    @Json(name = "count") val count: Int = 0,
+    @Json(name = "percentage") val percentage: Double = 0.0
+)
+
+/**
+ * 🌍 দেশভিত্তিক লাইভ ভিজিটর
  */
 @JsonClass(generateAdapter = true)
 data class LiveCountryStat(
@@ -41,16 +109,11 @@ data class LiveCountryStat(
     @Json(name = "count") val count: Int = 0,
     @Json(name = "percentage") val percentage: Double = 0.0
 ) {
-    val formattedCount: String
-        get() = when {
-            count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
-            count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
-            else -> count.toString()
-        }
+    val formattedCount: String get() = PublicLiveAnalyticsResponse.formatMetric(count.toLong())
 }
 
 /**
- * 🔥 বর্তমানে কোন ড্রামা/পোস্টে কতজন ইউজার লাইভ দেখছেন
+ * 🔥 টপ ওয়াচিং ড্রামা
  */
 @JsonClass(generateAdapter = true)
 data class LivePostStat(
@@ -58,16 +121,11 @@ data class LivePostStat(
     @Json(name = "slug") val slug: String = "",
     @Json(name = "watching_count") val watchingCount: Int = 0
 ) {
-    val formattedWatchingCount: String
-        get() = when {
-            watchingCount >= 1_000_000 -> String.format(Locale.US, "%.1fM", watchingCount / 1_000_000.0)
-            watchingCount >= 1_000 -> String.format(Locale.US, "%.1fK", watchingCount / 1_000.0)
-            else -> watchingCount.toString()
-        }
+    val formattedWatchingCount: String get() = PublicLiveAnalyticsResponse.formatMetric(watchingCount.toLong())
 }
 
 /**
- * 📍 ইউজাররা অ্যাপের কোন স্ক্রিনে বেশি সক্রিয় (যেমন: Shorts, Home, Chat)
+ * 📍 স্ক্রিন ট্র্যাকিং
  */
 @JsonClass(generateAdapter = true)
 data class LiveScreenStat(
