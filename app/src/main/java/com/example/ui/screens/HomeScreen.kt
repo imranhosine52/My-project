@@ -57,7 +57,7 @@ fun HomeScreen(
 
     // 🟢 রিয়েল-টাইম লাইভ অ্যানালিটিক্স পর্যবেক্ষণ
     val liveAnalyticsState by viewModel.liveAnalyticsState.collectAsStateWithLifecycle()
-    var showLiveAnalyticsSheet by remember { mutableStateOf(false) }
+    var showGlobalAnalyticsScreen by remember { mutableStateOf(false) }
 
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
@@ -140,13 +140,14 @@ fun HomeScreen(
         }
     }
 
-    // 🎙️ ভয়েস সার্চ লাউঞ্চার
+    // 🎙️ ভয়েস সার্চ লাউঞ্চার (সার্চ কি-ওয়ার্ড ট্র্যাকার সহ)
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spokenText.isNullOrBlank()) {
+                AppAnalyticsTracker.trackSearch(context, spokenText) // 👈 সার্চ কি-ওয়ার্ড ট্র্যাকিং
                 viewModel.onSearchQueryChanged(spokenText)
                 onNavigateToSearch()
             }
@@ -308,8 +309,8 @@ fun HomeScreen(
                 },
                 liveOnlineFormatted = liveAnalyticsState.liveData?.formattedLiveCount ?: liveAnalyticsState.liveOnlineCount.toString(),
                 onLiveAnalyticsClick = {
-                    viewModel.fetchPublicLiveAnalytics() // ক্লিক করার সাথে সাথে রিয়েল-টাইম ফ্রেশ ডাটা ফেচ
-                    showLiveAnalyticsSheet = true
+                    viewModel.fetchPublicLiveAnalytics() // ক্লিক করার সাথে সাথে ফ্রেশ রিয়েল-টাইম ডাটা ফেচ
+                    showGlobalAnalyticsScreen = true
                 },
                 onSearchClick = onNavigateToSearch,
                 onVoiceSearchClick = { startVoiceSearch() },
@@ -320,10 +321,10 @@ fun HomeScreen(
         }
 
         // =========================================================================
-        // 📊 রিয়েল-টাইম গ্লোবাল অ্যানালিটিক্স ফুল-স্ক্রিন স্লাইড-ইন ড্যাশবোর্ড
+        // 📊 YouTube Studio স্টাইলের গ্লোবাল অ্যানালিটিক্স ফুল-স্ক্রিন স্লাইড-ইন
         // =========================================================================
         AnimatedVisibility(
-            visible = showLiveAnalyticsSheet,
+            visible = showGlobalAnalyticsScreen,
             enter = slideInVertically(
                 initialOffsetY = { fullHeight -> fullHeight },
                 animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
@@ -333,14 +334,14 @@ fun HomeScreen(
                 animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
             ) + fadeOut(animationSpec = tween(200))
         ) {
-            BackHandler { showLiveAnalyticsSheet = false }
+            BackHandler { showGlobalAnalyticsScreen = false }
 
             GlobalAnalyticsScreen(
                 analyticsData = liveAnalyticsState.liveData,
                 isLoading = liveAnalyticsState.isLoading,
-                onClose = { showLiveAnalyticsSheet = false },
+                onClose = { showGlobalAnalyticsScreen = false },
                 onPostClick = { dramaSlug ->
-                    showLiveAnalyticsSheet = false
+                    showGlobalAnalyticsScreen = false
                     onNavigateToPlayer(dramaSlug)
                 }
             )
