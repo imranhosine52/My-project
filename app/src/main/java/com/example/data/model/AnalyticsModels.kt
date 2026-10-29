@@ -5,7 +5,7 @@ import com.squareup.moshi.JsonClass
 import java.util.Locale
 
 /**
- * 📊 সম্পূর্ণ পাবলিক লাইভ ও হিস্টোরিক্যাল অ্যানালিটিক্স রেসপন্স মডেল (YouTube Studio Architecture)
+ * 📊 সম্পূর্ণ পাবলিক লাইভ ও হিস্টোরিক্যাল অ্যানালিটিক্স রেসপন্স মডেল
  */
 @JsonClass(generateAdapter = true)
 data class PublicLiveAnalyticsResponse(
@@ -13,7 +13,7 @@ data class PublicLiveAnalyticsResponse(
     @Json(name = "status") val status: Int? = 200,
     @Json(name = "timestamp") val timestamp: Long? = 0L,
     @Json(name = "live_online_count") val liveOnlineCount: Int = 1,
-    @Json(name = "active_screens") val activeScreens: List<LiveScreenStat> = emptyList(), // 👈 পূর্বের ফাইলের কম্প্যাটিবিলিটির জন্য
+    @Json(name = "active_screens") val activeScreens: List<LiveScreenStat> = emptyList(),
     @Json(name = "overview") val overview: OverviewAnalyticsDto? = null,
     @Json(name = "content_analytics") val contentAnalytics: ContentAnalyticsDto? = null,
     @Json(name = "audience_analytics") val audienceAnalytics: AudienceAnalyticsDto? = null,
@@ -22,7 +22,7 @@ data class PublicLiveAnalyticsResponse(
     val formattedLiveCount: String
         get() = formatMetric(liveOnlineCount.toLong())
 
-    // 🎯 ফলব্যাক হেল্পার প্রোপার্টিজ (যাতে সব স্ক্রিন থেকে সরাসরি রিড করা যায়)
+    // 🎯 ফলব্যাক হেল্পার প্রোপার্টিজ
     val countries: List<LiveCountryStat> get() = audienceAnalytics?.countries ?: emptyList()
     val topPosts: List<LivePostStat> get() = contentAnalytics?.topDramas ?: emptyList()
     val topBrands: List<LiveBrandStat> get() = audienceAnalytics?.topBrands ?: emptyList()
@@ -39,67 +39,67 @@ data class PublicLiveAnalyticsResponse(
 }
 
 /**
- * ⏱️ Overview Tab: Views, Watch Time (Hours) ও Realtime Bar ডেটা
+ * ⏱️ Overview Tab: Traffic Graph, Watch Time & Traffic Summary Table
  */
 @JsonClass(generateAdapter = true)
 data class OverviewAnalyticsDto(
     @Json(name = "views_count") val viewsCount: Long = 0L,
     @Json(name = "watch_time_hours") val watchTimeHours: Double = 0.0,
-    @Json(name = "lifetime_views") val lifetimeViews: Long = 0L,
-    @Json(name = "lifetime_hours") val lifetimeHours: Double = 0.0,
+    @Json(name = "last_7_days_visitors") val last7DaysVisitors: Long = 0L,
     @Json(name = "views_sparkline") val viewsSparkline: List<Float> = emptyList(),
     @Json(name = "hours_sparkline") val hoursSparkline: List<Float> = emptyList(),
-    @Json(name = "realtime_48h_bars") val realtime48hBars: List<Int> = emptyList()
+    @Json(name = "traffic_summary") val trafficSummary: List<TrafficSummaryItem> = emptyList() // 👈 ছবি ২ এর টেবিল
 ) {
     val formattedViews: String get() = PublicLiveAnalyticsResponse.formatMetric(viewsCount)
-    val formattedLifetimeViews: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeViews)
+    val formatted7DaysVisitors: String get() = PublicLiveAnalyticsResponse.formatMetric(last7DaysVisitors)
     val formattedWatchTime: String
         get() = if (watchTimeHours >= 1_000) String.format(Locale.US, "%.1fK", watchTimeHours / 1000.0)
                 else String.format(Locale.US, "%.1f", watchTimeHours)
 }
 
 /**
- * 🎬 Content Tab: শর্টস সোয়াইপ, সার্চ টার্ম ও টপ শোজ
+ * 📋 ২য় স্ক্রিনশটের হুবহু Traffic Summary টেবিল আইটেম
+ */
+@JsonClass(generateAdapter = true)
+data class TrafficSummaryItem(
+    @Json(name = "timeframe") val timeframe: String = "",
+    @Json(name = "visitors") val visitors: Long = 0L,
+    @Json(name = "views") val views: Long = 0L
+) {
+    val formattedVisitors: String get() = String.format(Locale.US, "%,d", visitors)
+    val formattedViews: String get() = String.format(Locale.US, "%,d", views)
+}
+
+/**
+ * 🎬 Content Tab: ৩য় স্ক্রিনশটের হুবহু রিয়েল-টাইম পোস্ট মডেল
  */
 @JsonClass(generateAdapter = true)
 data class ContentAnalyticsDto(
-    @Json(name = "shorts_engagement") val shortsEngagement: ShortsEngagementDto? = ShortsEngagementDto(),
-    @Json(name = "top_search_terms") val topSearchTerms: List<SearchTermStat> = emptyList(),
+    @Json(name = "realtime_posts") val realtimePosts: List<RealtimePostItem> = emptyList(), // 👈 ছবি ৩ এর পোস্ট লিস্ট
     @Json(name = "top_dramas") val topDramas: List<LivePostStat> = emptyList()
 )
 
 /**
- * 📱 শর্টস সোয়াইপ বনাম সম্পূর্ণ দেখা
+ * 🎥 ৩য় স্ক্রিনশটের একক পোস্ট আইটেম (প্রোগ্রেস বার সহ)
  */
 @JsonClass(generateAdapter = true)
-data class ShortsEngagementDto(
-    @Json(name = "stayed_percentage") val stayedPercentage: Double = 82.4,
-    @Json(name = "swiped_percentage") val swipedPercentage: Double = 17.6
-)
-
-/**
- * 🔍 সার্চ কি-ওয়ার্ড মডেল
- */
-@JsonClass(generateAdapter = true)
-data class SearchTermStat(
-    @Json(name = "term") val term: String = "",
-    @Json(name = "count") val count: Int = 0
+data class RealtimePostItem(
+    @Json(name = "id") val id: String = "",
+    @Json(name = "title") val title: String = "",
+    @Json(name = "slug") val slug: String = "",
+    @Json(name = "poster_url") val posterUrl: String? = null,
+    @Json(name = "views") val views: Long = 0L,
+    @Json(name = "progress_ratio") val progressRatio: Float = 0.5f // ০.০ থেকে ১.০ পর্যন্ত সায়ান বার অনুপাত
 ) {
-    val formattedCount: String get() = PublicLiveAnalyticsResponse.formatMetric(count.toLong())
+    val formattedViews: String get() = PublicLiveAnalyticsResponse.formatMetric(views)
 }
 
 /**
- * 👥 Audience Tab: Weekly Heatmap, ডেমোগ্রাফিক্স ও কান্ট্রি
+ * 👥 Audience Tab: ডেমোগ্রাফিক্স
  */
 @JsonClass(generateAdapter = true)
 data class AudienceAnalyticsDto(
-    @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(), // ৭টি কলাম (দিন) এবং ২৪টি সারি (ঘণ্টা)
-    @Json(name = "new_viewers_pct") val newViewersPct: Double = 91.1,
-    @Json(name = "casual_viewers_pct") val casualViewersPct: Double = 8.9,
-    @Json(name = "vip_viewers_pct") val vipViewersPct: Double = 5.2,
-    @Json(name = "device_mobile_pct") val deviceMobilePct: Double = 89.4,
-    @Json(name = "device_tv_pct") val deviceTvPct: Double = 8.6,
-    @Json(name = "device_tablet_pct") val deviceTabletPct: Double = 2.0,
+    @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(),
     @Json(name = "top_brands") val topBrands: List<LiveBrandStat> = emptyList(),
     @Json(name = "countries") val countries: List<LiveCountryStat> = emptyList()
 )
@@ -123,9 +123,6 @@ data class GrowthAnalyticsStats(
     val formattedActiveBase: String get() = PublicLiveAnalyticsResponse.formatMetric(activeUsersBase)
 }
 
-/**
- * 📱 ডিভাইস ব্র্যান্ড মডেল
- */
 @JsonClass(generateAdapter = true)
 data class LiveBrandStat(
     @Json(name = "name") val name: String = "Unknown",
@@ -133,9 +130,6 @@ data class LiveBrandStat(
     @Json(name = "percentage") val percentage: Double = 0.0
 )
 
-/**
- * 🌍 দেশভিত্তিক লাইভ ভিজিটর
- */
 @JsonClass(generateAdapter = true)
 data class LiveCountryStat(
     @Json(name = "code") val code: String = "BD",
@@ -147,9 +141,6 @@ data class LiveCountryStat(
     val formattedCount: String get() = PublicLiveAnalyticsResponse.formatMetric(count.toLong())
 }
 
-/**
- * 🔥 টপ ওয়াচিং ড্রামা
- */
 @JsonClass(generateAdapter = true)
 data class LivePostStat(
     @Json(name = "title") val title: String = "",
@@ -159,9 +150,6 @@ data class LivePostStat(
     val formattedWatchingCount: String get() = PublicLiveAnalyticsResponse.formatMetric(watchingCount.toLong())
 }
 
-/**
- * 📍 স্ক্রিন ট্র্যাকিং
- */
 @JsonClass(generateAdapter = true)
 data class LiveScreenStat(
     @Json(name = "screen") val screen: String = "",
