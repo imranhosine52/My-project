@@ -1,112 +1,473 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.example.ui.screens.analytics.tabs
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.GrowthAnalyticsStats
-import com.example.data.model.GrowthSummaryItem
-import java.util.Locale
+import com.example.data.model.AgeDemographicItem
+import com.example.data.model.AudienceAnalyticsDto
+import com.example.data.model.LiveCountryStat
+import com.example.data.model.LivePostStat
+import com.example.data.model.LiveScreenStat
+import com.example.data.model.PublicLiveAnalyticsResponse
 
-// 🎨 ইউটিউব স্টুডিও আল্ট্রা-ডার্ক প্রিমিয়াম প্যালেট
+// 🎨 ইউটিউব স্টুডিও ডার্ক থিম কালার প্যালেট
 private val CardBg = Color(0xFF10141F)
 private val CardBorder = Color(0xFF1C2436)
-private val MetricBoxBg = Color(0xFF141926)
-private val GreenText = Color(0xFF00E676)
-private val RedText = Color(0xFFFF3D57)
+private val NeonGreen = Color(0xFF00E676)
 private val CyanText = Color(0xFF00E5FF)
-private val GoldTotal = Color(0xFFFFB300)
+private val StudioPurple = Color(0xFF9333EA)
 private val TextMuted = Color(0xFF8E95A5)
 private val TextLight = Color(0xFFCBD5E1)
 
 @Composable
-fun AnalyticsGrowthTab(
-    growth: GrowthAnalyticsStats,
+fun AnalyticsAudienceTab(
+    audience: AudienceAnalyticsDto,
+    topPosts: List<LivePostStat>,
+    liveOnlineCount: Int,
+    activeScreens: List<LiveScreenStat> = emptyList(), // 👈 স্ক্রিন ট্র্যাকিং
+    onPostClick: (slug: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 🎯 সামারি টেবিলের ডাটা প্রসেসিং
-    val summaryList = if (growth.growthSummary.isNotEmpty()) {
-        growth.growthSummary
-    } else {
-        listOf(
-            GrowthSummaryItem("Today", growth.todayInstalls.coerceAtLeast(1L), growth.todayUninstalls),
-            GrowthSummaryItem("Yesterday", 0L, 0L),
-            GrowthSummaryItem("1 Month (30 Days)", growth.todayInstalls.coerceAtLeast(1L), growth.todayUninstalls),
-            GrowthSummaryItem("3 Months (90 Days)", growth.todayInstalls.coerceAtLeast(1L), growth.todayUninstalls),
-            GrowthSummaryItem("1 Year (365 Days)", growth.lifetimeInstalls.coerceAtLeast(1L), growth.lifetimeUninstalls),
-            GrowthSummaryItem("Total", growth.lifetimeInstalls.coerceAtLeast(1L), growth.lifetimeUninstalls)
-        )
-    }
+    // 🎯 সাব-ট্যাব কন্ট্রোলার (0 = Live & Activity, 1 = Country & Age)
+    var selectedSubTab by remember { mutableIntStateOf(0) }
+    val subTabs = listOf("Live & Activity", "Country & Age")
 
-    val totalItem = summaryList.find { it.timeframe.equals("Total", ignoreCase = true) }
-    val todayItem = summaryList.find { it.timeframe.equals("Today", ignoreCase = true) }
-
-    val finalTotalInstalls = totalItem?.installs ?: 1L
-    val finalTotalUninstalls = totalItem?.uninstalls ?: 0L
-    val finalTodayInstalls = todayItem?.installs ?: 0L
-    val finalTodayUninstalls = todayItem?.uninstalls ?: 0L
-
-    val finalActiveBase = (finalTotalInstalls - finalTotalUninstalls).coerceAtLeast(1L)
-    val finalRetention = if (finalTotalInstalls > 0) {
-        (finalActiveBase.toDouble() / finalTotalInstalls.toDouble()) * 100.0
-    } else 100.0
-
-    // =========================================================================
-    // ⚡ ১. রিয়েল-টাইম স্মুথ কাউন্টিং অ্যানিমেশন ইঞ্জিন (Animated Numbers)
-    // =========================================================================
-    val animDuration = 900
-    val animEasing = FastOutSlowInEasing
-
-    val animatedInstalls by animateIntAsState(
-        targetValue = finalTotalInstalls.toInt(),
-        animationSpec = tween(durationMillis = animDuration, easing = animEasing),
-        label = "anim_installs"
+    // 🟢 পালসিং লাইভ স্পন্দন অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
     )
 
-    val animatedUninstalls by animateIntAsState(
-        targetValue = finalTotalUninstalls.toInt(),
-        animationSpec = tween(durationMillis = animDuration, easing = animEasing),
-        label = "anim_uninstalls"
-    )
-
-    val animatedActiveUsers by animateIntAsState(
-        targetValue = finalActiveBase.toInt(),
-        animationSpec = tween(durationMillis = animDuration, easing = animEasing),
-        label = "anim_active_users"
-    )
-
-    val animatedRetention by animateFloatAsState(
-        targetValue = finalRetention.toFloat(),
-        animationSpec = tween(durationMillis = animDuration, easing = animEasing),
-        label = "anim_retention"
-    )
-
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp) // 🎯 কার্ডের মাঝের গ্যাপ কমানো হয়েছে
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // =========================================================================
-        // 📊 ১. উপরের বোর্ড: Total Lifetime Overview (স্মুথ এনিমেটেড কাউন্টার)
+        // 🔘 মাঝ বরাবর অত্যন্ত ছোট ও চিকন প্রিমিয়াম সাব-ট্যাব সুইচ
+        // =========================================================================
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF151926))
+                    .border(0.6.dp, CardBorder, RoundedCornerShape(20.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                subTabs.forEachIndexed { index, title ->
+                    val isSelected = (selectedSubTab == index)
+                    Box(
+                        modifier = Modifier
+                            .height(28.dp) // 🎯 চিকন ও স্লিম উচ্চতা
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isSelected) Color.White else Color.Transparent)
+                            .clickable { selectedSubTab = index }
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = title,
+                            color = if (isSelected) Color.Black else TextMuted,
+                            fontSize = 11.5.sp, // 🎯 কমপ্যাক্ট ফন্ট
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 🔄 সাব-ট্যাব কনটেন্ট সুইচিং
+        // =========================================================================
+        AnimatedContent(
+            targetState = selectedSubTab,
+            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+            label = "audience_sub_tab"
+        ) { tabIndex ->
+            when (tabIndex) {
+                0 -> LiveAndActivitySubTab(
+                    liveCount = liveOnlineCount,
+                    topPosts = topPosts,
+                    activeScreens = activeScreens,
+                    countries = audience.countries,
+                    pulseScale = pulseScale,
+                    onPostClick = onPostClick
+                )
+                1 -> CountryAndAgeSubTab(
+                    countries = audience.countries,
+                    ageDemographics = audience.ageDemographics
+                )
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 🟢 সাব-ট্যাব ১: Live & Activity (ইউজার কোন পেজে ও কোন পোস্টে আছে + পতাকা)
+// =============================================================================
+@Composable
+private fun LiveAndActivitySubTab(
+    liveCount: Int,
+    topPosts: List<LivePostStat>,
+    activeScreens: List<LiveScreenStat>,
+    countries: List<LiveCountryStat>,
+    pulseScale: Float,
+    onPostClick: (slug: String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        // =========================================================================
+        // ১. বড় লাইভ স্ট্যাটাস কার্ড + গোল কান্ট্রি ফ্ল্যাগ সারি
+        // =========================================================================
+        item {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = CardBg,
+                border = BorderStroke(1.dp, CardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(NeonGreen.copy(alpha = 0.12f), Color.Transparent)
+                            )
+                        )
+                        .padding(14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Live Users Online Right Now",
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        Text(
+                            text = PublicLiveAnalyticsResponse.formatMetric(liveCount.toLong()),
+                            color = Color.White,
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Black
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.5.dp)
+                                    .scale(pulseScale)
+                                    .clip(CircleShape)
+                                    .background(NeonGreen)
+                            )
+                            Text(
+                                text = "Active Watching Sessions",
+                                color = NeonGreen,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 🎯 কোন কোন দেশ অনলাইন আছে তাদের গোল পতাকা সারি
+                        if (countries.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(countries) { country ->
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFF161C2A),
+                                        border = BorderStroke(0.6.dp, CardBorder)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            // গোল পতাকা
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF222B3D)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(text = country.flag, fontSize = 10.5.sp)
+                                            }
+                                            Text(
+                                                text = "${country.count}",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 📱 ২. ইউজার কোন পেইজে আছে (Live Pages / Screens Tracker)
+        // =========================================================================
+        if (activeScreens.isNotEmpty()) {
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Navigation,
+                        contentDescription = null,
+                        tint = CyanText,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "Active Screen Locations",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = CardBg,
+                    border = BorderStroke(1.dp, CardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        activeScreens.forEach { scr ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "• ${scr.cleanScreenName}",
+                                    color = TextLight,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "${scr.count} users (${scr.percentage}%)",
+                                    color = CyanText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 🎬 ৩. ইউজার কোন পোস্টে আছে (Currently Watching Dramas + গোল পতাকা)
+        // =========================================================================
+        item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(NeonGreen)
+                )
+                Text(
+                    text = "Currently Watching Dramas",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        if (topPosts.isEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = CardBg,
+                    border = BorderStroke(1.dp, CardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(modifier = Modifier.padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text("Users are currently browsing the home feed", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                }
+            }
+        } else {
+            items(topPosts) { post ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = CardBg,
+                    border = BorderStroke(0.8.dp, CardBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPostClick(post.slug) }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1E283C)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = CyanText,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(
+                                    text = post.title,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Tap to open and watch",
+                                    color = TextMuted,
+                                    fontSize = 9.5.sp
+                                )
+                            }
+                        }
+
+                        // লাইভ দর্শক ব্যাজ
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = NeonGreen.copy(alpha = 0.12f),
+                            border = BorderStroke(0.6.dp, NeonGreen.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "🟢 ${post.formattedWatchingCount} online",
+                                color = NeonGreen,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 🌍 সাব-ট্যাব ২: Country & Age (দেশভিত্তিক গোল পতাকা ও বয়স বিন্যাস)
+// =============================================================================
+@Composable
+private fun CountryAndAgeSubTab(
+    countries: List<LiveCountryStat>,
+    ageDemographics: List<AgeDemographicItem>
+) {
+    val finalAgeList = remember(ageDemographics) {
+        if (ageDemographics.isNotEmpty()) {
+            ageDemographics
+        } else {
+            listOf(
+                AgeDemographicItem("18–24 years", 58.4, "58.4%"),
+                AgeDemographicItem("25–34 years", 28.2, "28.2%"),
+                AgeDemographicItem("13–17 years", 8.6,  "8.6%"),
+                AgeDemographicItem("35–44 years", 4.8,  "4.8%")
+            )
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        // =========================================================================
+        // ১. কোন ভিজিটর কোন দেশ থেকে আসতেছে (পাশে গোল পতাকা সহ তালিকা)
         // =========================================================================
         item {
             Surface(
@@ -123,75 +484,69 @@ fun AnalyticsGrowthTab(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.TrendingUp,
-                            contentDescription = null,
-                            tint = GreenText,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Text(
-                            text = "App Installs & Retention Overview",
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Icon(Icons.Default.Public, contentDescription = null, tint = CyanText, modifier = Modifier.size(15.dp))
+                        Text("Top Countries & Regions Online", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    Text(
-                        text = "Realtime hardware-verified app lifecycle stats",
-                        color = TextMuted,
-                        fontSize = 10.sp
-                    )
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                    // রো ১: টোটাল ইন্সটল ও আনইন্সটল
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        GrowthMetricBox(
-                            label = "Total Installs",
-                            value = String.format(Locale.US, "%,d", animatedInstalls),
-                            subLabel = "+${String.format(Locale.US, "%,d", finalTodayInstalls)} today",
-                            valueColor = GreenText,
-                            modifier = Modifier.weight(1f)
-                        )
+                    countries.forEach { country ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // 🎯 দেশের পতাকা গোল সার্কেল ব্যাজে প্রদর্শন
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF1E283C))
+                                            .border(0.6.dp, Color(0xFF2E3B52), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = country.flag, fontSize = 13.sp)
+                                    }
 
-                        GrowthMetricBox(
-                            label = "Total Uninstalls",
-                            value = String.format(Locale.US, "%,d", animatedUninstalls),
-                            subLabel = "-${String.format(Locale.US, "%,d", finalTodayUninstalls)} today",
-                            valueColor = RedText,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                                    Text(
+                                        text = country.name,
+                                        color = TextLight,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
 
-                    // রো ২: এক্টিভ ইউজার ও রিটেনশন রেট
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        GrowthMetricBox(
-                            label = "Active Retained Users",
-                            value = String.format(Locale.US, "%,d", animatedActiveUsers),
-                            subLabel = "Net active devices",
-                            valueColor = CyanText,
-                            modifier = Modifier.weight(1f)
-                        )
+                                Text(
+                                    text = "${country.percentage}% (${country.formattedCount} users)",
+                                    color = CyanText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
 
-                        GrowthMetricBox(
-                            label = "Retention Rate",
-                            value = "${String.format(Locale.US, "%.1f", animatedRetention)}%",
-                            subLabel = "Loyal retained ratio",
-                            valueColor = GoldTotal,
-                            modifier = Modifier.weight(1f)
-                        )
+                            // চিকন স্লিম প্রোগ্রেস বার
+                            LinearProgressIndicator(
+                                progress = { (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f) },
+                                color = CyanText,
+                                trackColor = Color(0xFF181F2E),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                            )
+                        }
                     }
                 }
             }
         }
 
         // =========================================================================
-        // 📋 ২. নিচের বোর্ড: আল্ট্রা-স্লিম সামারি টেবিল (অতিরিক্ত ফাঁকা স্পেস সম্পূর্ণ মুক্ত)
+        // ২. বয়স বিন্যাস (Age Demographics)
         // =========================================================================
         item {
             Surface(
@@ -201,153 +556,66 @@ fun AnalyticsGrowthTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp), // 🎯 একদম স্লিম প্যাডিং
-                    verticalArrangement = Arrangement.spacedBy(5.dp) // 🎯 রো গুলোর ফাঁকা গ্যাপ কমানো হয়েছে
+                    modifier = Modifier.padding(11.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            tint = CyanText,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "Installation Summary",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Icon(Icons.Default.People, contentDescription = null, tint = StudioPurple, modifier = Modifier.size(15.dp))
+                        Text("Viewer Age Demographics", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // কলাম হেডার
+                    // ইনফো নোট
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 2.dp, bottom = 1.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF161B28))
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = TextMuted, modifier = Modifier.size(12.dp))
                         Text(
-                            text = "TIMEFRAME",
+                            text = "Live distribution based on verified user analytics.",
                             color = TextMuted,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            modifier = Modifier.weight(1.3f)
-                        )
-                        Text(
-                            text = "INSTALLS",
-                            color = TextMuted,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            textAlign = TextAlign.End,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "UNINSTALLS",
-                            color = TextMuted,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            textAlign = TextAlign.End,
-                            modifier = Modifier.weight(1f)
+                            fontSize = 9.5.sp
                         )
                     }
 
-                    HorizontalDivider(color = CardBorder.copy(alpha = 0.8f), thickness = 0.6.dp)
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                    // টেবিলের চিকন স্লিম রোগুলো
-                    summaryList.forEach { row ->
-                        val isTotalRow = row.timeframe.equals("Total", ignoreCase = true)
+                    finalAgeList.forEach { ageItem ->
+                        val animatedRatio by animateFloatAsState(
+                            targetValue = ageItem.ratio,
+                            animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+                            label = "age_bar_${ageItem.group}"
+                        )
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isTotalRow) Color(0xFF141926).copy(alpha = 0.5f) else Color.Transparent)
-                                .padding(horizontal = if (isTotalRow) 4.dp else 0.dp, vertical = 2.5.dp), // 🎯 প্রতি লাইনে স্লিম হাইট
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = row.timeframe,
-                                color = if (isTotalRow) GoldTotal else TextLight,
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Medium,
-                                modifier = Modifier.weight(1.3f)
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(ageItem.group, color = TextLight, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text(ageItem.display, color = StudioPurple, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                            LinearProgressIndicator(
+                                progress = { animatedRatio },
+                                color = StudioPurple,
+                                trackColor = Color(0xFF181F2E),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .clip(RoundedCornerShape(2.dp))
                             )
-
-                            Text(
-                                text = row.formattedInstalls,
-                                color = if (isTotalRow) GreenText else CyanText,
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Bold,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            Text(
-                                text = row.formattedUninstalls,
-                                color = if (isTotalRow) RedText else TextMuted,
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Medium,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        if (!isTotalRow) {
-                            HorizontalDivider(color = CardBorder.copy(alpha = 0.35f), thickness = 0.5.dp)
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-/**
- * 📦 মিনি মেট্রিক বক্স (স্লিমার ডিজাইন)
- */
-@Composable
-private fun GrowthMetricBox(
-    label: String,
-    value: String,
-    subLabel: String,
-    valueColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MetricBoxBg,
-        border = BorderStroke(0.6.dp, CardBorder),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), // 🎯 কমপ্যাক্ট প্যাডিং
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            Text(
-                text = label,
-                color = TextMuted,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = value,
-                color = valueColor,
-                fontSize = 18.sp, // 🎯 স্লিক ফন্ট সাইজ
-                fontWeight = FontWeight.Black
-            )
-            Text(
-                text = subLabel,
-                color = TextMuted.copy(alpha = 0.75f),
-                fontSize = 9.sp
-            )
         }
     }
 }
