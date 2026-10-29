@@ -48,7 +48,7 @@ data class OverviewAnalyticsDto(
     @Json(name = "last_7_days_visitors") val last7DaysVisitors: Long = 0L,
     @Json(name = "views_sparkline") val viewsSparkline: List<Float> = emptyList(),
     @Json(name = "hours_sparkline") val hoursSparkline: List<Float> = emptyList(),
-    @Json(name = "traffic_summary") val trafficSummary: List<TrafficSummaryItem> = emptyList() // 👈 ছবি ২ এর টেবিল
+    @Json(name = "traffic_summary") val trafficSummary: List<TrafficSummaryItem> = emptyList()
 ) {
     val formattedViews: String get() = PublicLiveAnalyticsResponse.formatMetric(viewsCount)
     val formatted7DaysVisitors: String get() = PublicLiveAnalyticsResponse.formatMetric(last7DaysVisitors)
@@ -58,7 +58,7 @@ data class OverviewAnalyticsDto(
 }
 
 /**
- * 📋 ২য় স্ক্রিনশটের হুবহু Traffic Summary টেবিল আইটেম
+ * 📋 Traffic Summary টেবিল আইটেম
  */
 @JsonClass(generateAdapter = true)
 data class TrafficSummaryItem(
@@ -71,16 +71,16 @@ data class TrafficSummaryItem(
 }
 
 /**
- * 🎬 Content Tab: ৩য় স্ক্রিনশটের হুবহু রিয়েল-টাইম পোস্ট মডেল
+ * 🎬 Content Tab: রিয়েল-টাইম পোস্ট মডেল
  */
 @JsonClass(generateAdapter = true)
 data class ContentAnalyticsDto(
-    @Json(name = "realtime_posts") val realtimePosts: List<RealtimePostItem> = emptyList(), // 👈 ছবি ৩ এর পোস্ট লিস্ট
+    @Json(name = "realtime_posts") val realtimePosts: List<RealtimePostItem> = emptyList(),
     @Json(name = "top_dramas") val topDramas: List<LivePostStat> = emptyList()
 )
 
 /**
- * 🎥 ৩য় স্ক্রিনশটের একক পোস্ট আইটেম (প্রোগ্রেস বার সহ)
+ * 🎥 রিয়েল-টাইম একক পোস্ট আইটেম
  */
 @JsonClass(generateAdapter = true)
 data class RealtimePostItem(
@@ -89,7 +89,7 @@ data class RealtimePostItem(
     @Json(name = "slug") val slug: String = "",
     @Json(name = "poster_url") val posterUrl: String? = null,
     @Json(name = "views") val views: Long = 0L,
-    @Json(name = "progress_ratio") val progressRatio: Float = 0.5f // ০.০ থেকে ১.০ পর্যন্ত সায়ান বার অনুপাত
+    @Json(name = "progress_ratio") val progressRatio: Float = 0.5f
 ) {
     val formattedViews: String get() = PublicLiveAnalyticsResponse.formatMetric(views)
 }
@@ -105,7 +105,7 @@ data class AudienceAnalyticsDto(
 )
 
 /**
- * 📈 Growth Tab: অ্যাপ ইন্সটল ও রিটেনশন
+ * 📈 Growth Tab: অ্যাপ ইন্সটল, আনইন্সটল ও সামারি টেবিল
  */
 @JsonClass(generateAdapter = true)
 data class GrowthAnalyticsStats(
@@ -114,13 +114,27 @@ data class GrowthAnalyticsStats(
     @Json(name = "lifetime_uninstalls") val lifetimeUninstalls: Long = 0L,
     @Json(name = "today_uninstalls") val todayUninstalls: Long = 0L,
     @Json(name = "active_users_base") val activeUsersBase: Long = 0L,
-    @Json(name = "retention_rate") val retentionRate: Double = 100.0
+    @Json(name = "retention_rate") val retentionRate: Double = 100.0,
+    @Json(name = "growth_summary") val growthSummary: List<GrowthSummaryItem> = emptyList() // 👈 নতুন সামারি বোর্ড
 ) {
     val formattedLifetimeInstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeInstalls)
     val formattedTodayInstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(todayInstalls)
     val formattedLifetimeUninstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(lifetimeUninstalls)
     val formattedTodayUninstalls: String get() = PublicLiveAnalyticsResponse.formatMetric(todayUninstalls)
     val formattedActiveBase: String get() = PublicLiveAnalyticsResponse.formatMetric(activeUsersBase)
+}
+
+/**
+ * 📋 নতুন Growth Summary টেবিল আইটেম (Today, Yesterday, 1M, 3M, 1Y, Total)
+ */
+@JsonClass(generateAdapter = true)
+data class GrowthSummaryItem(
+    @Json(name = "timeframe") val timeframe: String = "",
+    @Json(name = "installs") val installs: Long = 0L,
+    @Json(name = "uninstalls") val uninstalls: Long = 0L
+) {
+    val formattedInstalls: String get() = String.format(Locale.US, "%,d", installs)
+    val formattedUninstalls: String get() = String.format(Locale.US, "%,d", uninstalls)
 }
 
 @JsonClass(generateAdapter = true)
