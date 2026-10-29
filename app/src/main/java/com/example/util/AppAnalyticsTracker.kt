@@ -15,7 +15,7 @@ import java.net.URL
 
 /**
  * ⚡ হাই-পারফরম্যান্স রিয়েল-টাইম অ্যানালিটিক্স ও হার্টবিট ট্র্যাকার
- * ক্লাউডফ্লেয়ার ও Redis এর সাথে সমন্বিত হয়ে মিলিয়ন ট্র্যাফিক ও ডিভাইস মডেল হ্যান্ডেল করে।
+ * স্বয়ংক্রিয় ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম ও শর্টস সোয়াইপ ট্র্যাকিং সাপোর্ট সহ
  */
 object AppAnalyticsTracker {
     private const val TAG = "ANALYTICS_TRACKER"
@@ -144,6 +144,42 @@ object AppAnalyticsTracker {
         startHeartbeatLoop(context.applicationContext)
     }
 
+    /**
+     * 🔍 ইউজার সার্চ করলে সার্চ কি-ওয়ার্ড ট্র্যাকিং
+     */
+    fun trackSearch(context: Context, query: String) {
+        if (query.trim().length < 3) return
+        trackerScope.launch {
+            sendPing(
+                context = context.applicationContext,
+                screen = "Search",
+                postTitle = "",
+                postSlug = "",
+                userId = currentUserId,
+                isFirstOpen = false,
+                searchQuery = query.trim()
+            )
+        }
+    }
+
+    /**
+     * 🎬 শর্টস সোয়াইপ বনাম সম্পূর্ণ দেখার ট্র্যাকিং (Stayed vs Swiped)
+     */
+    fun trackShortAction(context: Context, isStayed: Boolean) {
+        val action = if (isStayed) "stayed" else "swiped"
+        trackerScope.launch {
+            sendPing(
+                context = context.applicationContext,
+                screen = "Short TV",
+                postTitle = currentPostTitle,
+                postSlug = currentPostSlug,
+                userId = currentUserId,
+                isFirstOpen = false,
+                shortAction = action
+            )
+        }
+    }
+
     private fun startHeartbeatLoop(appContext: Context) {
         if (heartbeatJob?.isActive == true) return
 
@@ -171,11 +207,22 @@ object AppAnalyticsTracker {
         postTitle: String,
         postSlug: String,
         userId: Int?,
-        isFirstOpen: Boolean
+        isFirstOpen: Boolean,
+        searchQuery: String = "",
+        shortAction: String = ""
     ) {
         var conn: HttpURLConnection? = null
         try {
-            lastPingTimestamp = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+
+            // ⏱️ ওয়াচ টাইম (সেকেন্ড) হিসাব: বিগত পিং থেকে কত সেকেন্ড ইউজার অ্যাপে উপস্থিত ছিল
+            val elapsedSec = if (lastPingTimestamp > 0L) {
+                ((now - lastPingTimestamp) / 1000L).coerceIn(5L, 120L).toInt()
+            } else {
+                30 // ডিফল্ট প্রথম পিং ৩০ সেকেন্ড
+            }
+            lastPingTimestamp = now
+
             val deviceId = getDeviceId(context)
 
             val resolvedPostTitle = if (postTitle.isNotBlank()) {
@@ -189,7 +236,6 @@ object AppAnalyticsTracker {
                 ""
             }
 
-            // 📱 ব্র্যান্ড ও মডেল ফরম্যাটিং
             val brand = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
             val model = Build.MODEL
             val osVersion = "Android ${Build.VERSION.RELEASE}"
@@ -204,6 +250,13 @@ object AppAnalyticsTracker {
                 put("device_brand", brand)
                 put("device_model", model)
                 put("os_version", osVersion)
+
+                // ⏱️ ওয়াচ-টাইম সেকেন্ড
+                put("watch_seconds", elapsedSec)
+
+                // 🔍 সার্চ টার্ম ও শর্টস সোয়াইপ
+                if (searchQuery.isNotBlank()) put("search_query", searchQuery)
+                if (shortAction.isNotBlank()) put("short_action", shortAction)
             }
 
             val url = URL(PING_URL)
@@ -229,7 +282,7 @@ object AppAnalyticsTracker {
 
             val responseCode = conn.responseCode
             if (responseCode in 200..299) {
-                Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | $brand $model")
+                Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | ${elapsedSec}s watch time")
             } else {
                 val stream = conn.errorStream ?: conn.inputStream
                 val errText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
