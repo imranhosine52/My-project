@@ -3,6 +3,7 @@ package com.example.ui.screens.analytics.tabs
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.OverviewAnalyticsDto
@@ -56,14 +58,14 @@ fun AnalyticsOverviewTab(
         label = "pulse_scale"
     )
 
-    // 🎯 রিয়েল ভিজিটর হিসাব (কোনো ডামি ডেটা নেই)
+    // 🎯 রিয়েল ভিজিটর হিসাব
     val todayRow = overview.trafficSummary.firstOrNull { it.timeframe.equals("Today", true) }
     val todayVisitors = todayRow?.visitors ?: if (overview.viewsCount > 0) overview.viewsCount else 1L
 
     val sevenDaysRow = overview.trafficSummary.firstOrNull { it.timeframe.contains("7", true) }
     val last7Visitors = sevenDaysRow?.visitors ?: overview.last7DaysVisitors.coerceAtLeast(todayVisitors)
 
-    // 🎯 সম্পূর্ণ ১০০% আসল টেবিল ডেটা (কোনো ডামি ৬৩ বা ১৩৫১ সংখ্যা নেই)
+    // 🎯 সম্পূর্ণ ১০০% আসল টেবিল ডেটা
     val summaryItems = if (overview.trafficSummary.isNotEmpty()) {
         overview.trafficSummary
     } else {
@@ -72,7 +74,7 @@ fun AnalyticsOverviewTab(
             TrafficSummaryItem("Yesterday", 0L, 0L),
             TrafficSummaryItem("Last 7 Days", last7Visitors, overview.viewsCount.coerceAtLeast(1L)),
             TrafficSummaryItem("Last 30 Days", last7Visitors, overview.viewsCount.coerceAtLeast(1L)),
-            TrafficSummaryItem("Total", last7Visitors, overview.lifetimeViews.coerceAtLeast(overview.viewsCount))
+            TrafficSummaryItem("Total", last7Visitors, overview.viewsCount.coerceAtLeast(1L)) // 👈 lifetimeViews ফিক্স করা হয়েছে
         )
     }
 
@@ -109,7 +111,7 @@ fun AnalyticsOverviewTab(
                                     .size(8.dp)
                                     .scale(pulseScale)
                                     .clip(CircleShape)
-                                    .background(CyanText)
+                                    .background(CyanText) // 👈 background ইম্পোর্ট নিশ্চিত করা হয়েছে
                             )
                             Text(
                                 text = "Traffic Trend",
@@ -145,7 +147,7 @@ fun AnalyticsOverviewTab(
                         }
                     }
 
-                    // মেট্রিক্স রো (Today vs 7 Days - আসল সংখ্যা)
+                    // মেট্রিক্স রো (Today vs 7 Days)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -187,7 +189,7 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 📋 ২. আসল "Traffic summary" টেবিল কার্ড (কোনো ডামি ডেটা নেই)
+        // 📋 ২. আসল "Traffic summary" টেবিল কার্ড
         // =========================================================================
         item {
             Surface(
@@ -220,7 +222,7 @@ fun AnalyticsOverviewTab(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // কলাম হেডার্স: TIMEFRAME | VISITORS | VIEWS
+                    // কলাম হেডার্স
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -237,7 +239,7 @@ fun AnalyticsOverviewTab(
                             color = TextMuted,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            textAlign = TextAlign.End,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
@@ -245,7 +247,7 @@ fun AnalyticsOverviewTab(
                             color = TextMuted,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            textAlign = TextAlign.End,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -276,7 +278,7 @@ fun AnalyticsOverviewTab(
                                 color = if (isTotalRow) Color.White else Color(0xFFE2E8F0),
                                 fontSize = 13.5.sp,
                                 fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Bold,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f)
                             )
 
@@ -285,7 +287,7 @@ fun AnalyticsOverviewTab(
                                 color = if (isTotalRow) GreenTotal else CyanText,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f)
                             )
                         }
