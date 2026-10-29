@@ -6,8 +6,10 @@ import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -29,7 +31,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.TopNavigationBar
-import com.example.ui.screens.PublicLiveAnalyticsSheet
+import com.example.ui.screens.GlobalAnalyticsScreen
 import com.example.ui.screens.categories.*
 import com.example.ui.screens.profile.components.VersionScannerDialog
 import com.example.ui.theme.*
@@ -53,7 +55,7 @@ fun HomeScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
-    // 🟢 রিয়েল-টাইম লাইভ অ্যানালিটিক্স পর্যবেক্ষণ (কোনো ডামি সংখ্যা নেই, সরাসরি সার্ভারের Redis ডাটা)
+    // 🟢 রিয়েল-টাইম লাইভ অ্যানালিটিক্স পর্যবেক্ষণ
     val liveAnalyticsState by viewModel.liveAnalyticsState.collectAsStateWithLifecycle()
     var showLiveAnalyticsSheet by remember { mutableStateOf(false) }
 
@@ -292,7 +294,7 @@ fun HomeScreen(
                 }
             }
 
-            // 🔝 কমপ্যাক্ট আল্ট্রা-স্লিম টপ বার (আসল লাইভ কাউন্টার ও ক্লিক ইভেন্ট সহ)
+            // 🔝 কমপ্যাক্ট আল্ট্রা-স্লিম টপ বার
             TopNavigationBar(
                 categories = categories,
                 selectedCategoryIndex = categoryPagerState.currentPage,
@@ -304,10 +306,9 @@ fun HomeScreen(
                         )
                     }
                 },
-                // 🎯 সার্ভার থেকে আসা আসল ফরম্যাটেড লাইভ সংখ্যা (কোনো ফেক বা ডামি সংখ্যা নেই)
                 liveOnlineFormatted = liveAnalyticsState.liveData?.formattedLiveCount ?: liveAnalyticsState.liveOnlineCount.toString(),
                 onLiveAnalyticsClick = {
-                    viewModel.fetchPublicLiveAnalytics() // ক্লিক করার সাথে সাথে তাৎক্ষণিক ফ্রেশ ডাটা আনা
+                    viewModel.fetchPublicLiveAnalytics() // ক্লিক করার সাথে সাথে রিয়েল-টাইম ফ্রেশ ডাটা ফেচ
                     showLiveAnalyticsSheet = true
                 },
                 onSearchClick = onNavigateToSearch,
@@ -319,13 +320,25 @@ fun HomeScreen(
         }
 
         // =========================================================================
-        // 📊 রিয়েল-টাইম পাবলিক লাইভ অ্যানালিটিক্স সাইডবার ড্রয়ার
+        // 📊 রিয়েল-টাইম গ্লোবাল অ্যানালিটিক্স ফুল-স্ক্রিন স্লাইড-ইন ড্যাশবোর্ড
         // =========================================================================
-        if (showLiveAnalyticsSheet) {
-            PublicLiveAnalyticsSheet(
+        AnimatedVisibility(
+            visible = showLiveAnalyticsSheet,
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(250)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(200))
+        ) {
+            BackHandler { showLiveAnalyticsSheet = false }
+
+            GlobalAnalyticsScreen(
                 analyticsData = liveAnalyticsState.liveData,
                 isLoading = liveAnalyticsState.isLoading,
-                onDismiss = { showLiveAnalyticsSheet = false },
+                onClose = { showLiveAnalyticsSheet = false },
                 onPostClick = { dramaSlug ->
                     showLiveAnalyticsSheet = false
                     onNavigateToPlayer(dramaSlug)
