@@ -9,8 +9,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border // 👈 এরর মুক্ত করার জন্য নিশ্চিত ইমপোর্ট
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -56,7 +56,7 @@ fun AnalyticsAudienceTab(
     audience: AudienceAnalyticsDto,
     topPosts: List<LivePostStat>,
     liveOnlineCount: Int,
-    activeScreens: List<LiveScreenStat> = emptyList(), // 👈 স্ক্রিন ট্র্যাকিং
+    activeScreens: List<LiveScreenStat> = emptyList(),
     onPostClick: (slug: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -64,7 +64,7 @@ fun AnalyticsAudienceTab(
     var selectedSubTab by remember { mutableIntStateOf(0) }
     val subTabs = listOf("Live & Activity", "Country & Age")
 
-    // 🟢 পালসিং লাইভ স্পন্দন অ্যানিমেশন
+    // 🟢 লাইভ স্পন্দন অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
@@ -79,11 +79,11 @@ fun AnalyticsAudienceTab(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // =========================================================================
-        // 🔘 মাঝ বরাবর অত্যন্ত ছোট ও চিকন প্রিমিয়াম সাব-ট্যাব সুইচ
+        // 🔘 মাঝ বরাবর অত্যন্ত ছোট, চিকন ও স্লিক সাব-ট্যাব সুইচ
         // =========================================================================
         Box(
             modifier = Modifier
@@ -94,16 +94,16 @@ fun AnalyticsAudienceTab(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF151926))
+                    .background(Color(0xFF141824))
                     .border(0.6.dp, CardBorder, RoundedCornerShape(20.dp))
-                    .padding(3.dp),
+                    .padding(2.5.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 subTabs.forEachIndexed { index, title ->
                     val isSelected = (selectedSubTab == index)
                     Box(
                         modifier = Modifier
-                            .height(28.dp) // 🎯 চিকন ও স্লিম উচ্চতা
+                            .height(28.dp) // 🎯 চিকন স্লিম উচ্চতা
                             .clip(RoundedCornerShape(16.dp))
                             .background(if (isSelected) Color.White else Color.Transparent)
                             .clickable { selectedSubTab = index }
@@ -148,7 +148,7 @@ fun AnalyticsAudienceTab(
 }
 
 // =============================================================================
-// 🟢 সাব-ট্যাব ১: Live & Activity (ইউজার কোন পেজে ও কোন পোস্টে আছে + পতাকা)
+// 🟢 সাব-ট্যাব ১: Live & Activity (ইউজার কোন পেজে ও পোস্টে আছে + সময়)
 // =============================================================================
 @Composable
 private fun LiveAndActivitySubTab(
@@ -162,10 +162,10 @@ private fun LiveAndActivitySubTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(bottom = 16.dp)
+        contentPadding = PaddingValues(bottom = 20.dp)
     ) {
         // =========================================================================
-        // ১. বড় লাইভ স্ট্যাটাস কার্ড + গোল কান্ট্রি ফ্ল্যাগ সারি
+        // ১. লাইভ স্ট্যাটাস কার্ড + সক্রিয় দেশের গোল পতাকা সারি
         // =========================================================================
         item {
             Surface(
@@ -182,24 +182,24 @@ private fun LiveAndActivitySubTab(
                                 colors = listOf(NeonGreen.copy(alpha = 0.12f), Color.Transparent)
                             )
                         )
-                        .padding(14.dp),
+                        .padding(13.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Text(
                             text = "Live Users Online Right Now",
                             color = TextMuted,
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
 
                         Text(
                             text = PublicLiveAnalyticsResponse.formatMetric(liveCount.toLong()),
                             color = Color.White,
-                            fontSize = 34.sp,
+                            fontSize = 32.sp,
                             fontWeight = FontWeight.Black
                         )
 
@@ -209,7 +209,7 @@ private fun LiveAndActivitySubTab(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.5.dp)
+                                    .size(6.dp)
                                     .scale(pulseScale)
                                     .clip(CircleShape)
                                     .background(NeonGreen)
@@ -222,7 +222,7 @@ private fun LiveAndActivitySubTab(
                             )
                         }
 
-                        // 🎯 কোন কোন দেশ অনলাইন আছে তাদের গোল পতাকা সারি
+                        // 🎯 বর্তমানে অনলাইন দেশের গোল পতাকা ব্যাজ
                         if (countries.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             LazyRow(
@@ -240,7 +240,6 @@ private fun LiveAndActivitySubTab(
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
-                                            // গোল পতাকা
                                             Box(
                                                 modifier = Modifier
                                                     .size(16.dp)
@@ -248,12 +247,12 @@ private fun LiveAndActivitySubTab(
                                                     .background(Color(0xFF222B3D)),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Text(text = country.flag, fontSize = 10.5.sp)
+                                                Text(text = country.flag, fontSize = 10.sp)
                                             }
                                             Text(
                                                 text = "${country.count}",
                                                 color = Color.White,
-                                                fontSize = 10.sp,
+                                                fontSize = 9.5.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
@@ -267,7 +266,7 @@ private fun LiveAndActivitySubTab(
         }
 
         // =========================================================================
-        // 📱 ২. ইউজার কোন পেইজে আছে (Live Pages / Screens Tracker)
+        // 📱 ২. ইউজার কোন পেইজে আছে (Active Screen Locations)
         // =========================================================================
         if (activeScreens.isNotEmpty()) {
             item {
@@ -285,7 +284,7 @@ private fun LiveAndActivitySubTab(
                     Text(
                         text = "Active Screen Locations",
                         color = Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -300,7 +299,7 @@ private fun LiveAndActivitySubTab(
                 ) {
                     Column(
                         modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         activeScreens.forEach { scr ->
                             Row(
@@ -328,13 +327,13 @@ private fun LiveAndActivitySubTab(
         }
 
         // =========================================================================
-        // 🎬 ৩. ইউজার কোন পোস্টে আছে (Currently Watching Dramas + গোল পতাকা)
+        // 🎬 ৩. ইউজার কোন ড্রামা/পোস্টে আছে + কত মিনিট ধরে আছে
         // =========================================================================
         item {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 2.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -345,7 +344,7 @@ private fun LiveAndActivitySubTab(
                 Text(
                     text = "Currently Watching Dramas",
                     color = Color.White,
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -359,13 +358,26 @@ private fun LiveAndActivitySubTab(
                     border = BorderStroke(1.dp, CardBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(modifier = Modifier.padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text("Users are currently browsing the home feed", color = TextMuted, fontSize = 11.5.sp)
+                    Box(modifier = Modifier.padding(14.dp), contentAlignment = Alignment.Center) {
+                        Text("Users are currently browsing the home feed", color = TextMuted, fontSize = 11.sp)
                     }
                 }
             }
         } else {
             items(topPosts) { post ->
+                // 🎯 লম্বা SEO টাইটেল ফিল্টার করে সুন্দর সংক্ষিপ্ত Display Name বানানো
+                val cleanDisplayName = remember(post.title) {
+                    val raw = post.title.split("|")[0].split(" - Ep")[0].trim()
+                    if (raw.contains("Dubbed", ignoreCase = true)) {
+                        raw.replace("Bangla Dubbed", "", ignoreCase = true)
+                            .replace("Hindi Dubbed", "", ignoreCase = true)
+                            .replace("English Dubbed", "", ignoreCase = true)
+                            .trim()
+                    } else {
+                        raw
+                    }
+                }
+
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = CardBg,
@@ -377,7 +389,7 @@ private fun LiveAndActivitySubTab(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(10.dp),
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -392,7 +404,7 @@ private fun LiveAndActivitySubTab(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF1E283C)),
+                                    .background(Color(0xFF1A2336)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -405,7 +417,7 @@ private fun LiveAndActivitySubTab(
 
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text(
-                                    text = post.title,
+                                    text = cleanDisplayName, // 👈 সংক্ষিপ্ত পরিষ্কার ডিসপ্লে নাম
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -415,24 +427,38 @@ private fun LiveAndActivitySubTab(
                                 Text(
                                     text = "Tap to open and watch",
                                     color = TextMuted,
-                                    fontSize = 9.5.sp
+                                    fontSize = 9.sp
                                 )
                             }
                         }
 
-                        // লাইভ দর্শক ব্যাজ
+                        // 🎯 লাইভ দর্শক ব্যাজ + সে কত মিনিট ধরে দেখছে (Duration)
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = NeonGreen.copy(alpha = 0.12f),
                             border = BorderStroke(0.6.dp, NeonGreen.copy(alpha = 0.4f))
                         ) {
-                            Text(
-                                text = "🟢 ${post.formattedWatchingCount} online",
-                                color = NeonGreen,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
-                            )
+                            ) {
+                                Text(
+                                    text = "🟢 ${post.formattedWatchingCount} online",
+                                    color = NeonGreen,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                // কত মিনিট ধরে ইউজার আছে তা প্রদর্শন
+                                val durationText = post.durationText ?: "${post.durationMinutes ?: 1}m"
+                                Text(
+                                    text = "• $durationText",
+                                    color = CyanText,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
@@ -465,10 +491,10 @@ private fun CountryAndAgeSubTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(bottom = 16.dp)
+        contentPadding = PaddingValues(bottom = 20.dp)
     ) {
         // =========================================================================
-        // ১. কোন ভিজিটর কোন দেশ থেকে আসতেছে (পাশে গোল পতাকা সহ তালিকা)
+        // ১. দেশ ও অঞ্চলের তালিকা (পাশে সুন্দর গোল পতাকা ব্যাজ সহ)
         // =========================================================================
         item {
             Surface(
@@ -486,7 +512,7 @@ private fun CountryAndAgeSubTab(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.Public, contentDescription = null, tint = CyanText, modifier = Modifier.size(15.dp))
-                        Text("Top Countries & Regions Online", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Top Countries & Regions Online", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(2.dp))
@@ -502,7 +528,7 @@ private fun CountryAndAgeSubTab(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // 🎯 দেশের পতাকা গোল সার্কেল ব্যাজে প্রদর্শন
+                                    // 🎯 দেশের পতাকা গোল সার্কেল ব্যাজে
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
@@ -530,7 +556,6 @@ private fun CountryAndAgeSubTab(
                                 )
                             }
 
-                            // চিকন স্লিম প্রোগ্রেস বার
                             LinearProgressIndicator(
                                 progress = { (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f) },
                                 color = CyanText,
@@ -565,10 +590,9 @@ private fun CountryAndAgeSubTab(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.People, contentDescription = null, tint = StudioPurple, modifier = Modifier.size(15.dp))
-                        Text("Viewer Age Demographics", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Viewer Age Demographics", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // ইনফো নোট
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -601,8 +625,8 @@ private fun CountryAndAgeSubTab(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(ageItem.group, color = TextLight, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text(ageItem.display, color = StudioPurple, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                Text(ageItem.group, color = TextLight, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                Text(ageItem.display, color = StudioPurple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                             LinearProgressIndicator(
                                 progress = { animatedRatio },
