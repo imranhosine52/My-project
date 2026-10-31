@@ -525,9 +525,7 @@ object UnifiedAdManager {
     ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl)
 
     // 🎯 ডাইনামিক রুলস ও হেল্পার মেথড
-    fun isAdsGloballyEnabled(): Boolean = _adConfigState.value.adsEnabled
-    fun isStartIoEnabled(): Boolean = _adConfigState.value.adsEnabled && _adConfigState.value.startio?.enabled == true
-    fun isAdsterraEnabled(): Boolean = _adConfigState.value.adsEnabled && _adConfigState.value.adsterra?.enabled == true
+    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true) fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
 
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
