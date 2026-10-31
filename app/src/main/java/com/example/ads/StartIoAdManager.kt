@@ -7,29 +7,29 @@ import androidx.compose.ui.Modifier
 
 /**
  * StartIoAdManager (Delegates to UnifiedAdManager)
- * ব্যাকওয়ার্ড কম্প্যাটিবিলিটি ও সহজ মেথড কলিংয়ের জন্য র্যাপার অবজেক্ট।
- * এটি স্বয়ংক্রিয়ভাবে AdMob, Unity Ads, Start.io এবং Adsterra-এর সমন্বিত ইঞ্জিন পরিচালনা করে।
+ * ব্যাকওয়ার্ড কম্প্যাটিবিলিটি ও সহজ মেথড কলিংয়ের জন্য ক্লিন র্যাপার অবজেক্ট।
+ * এটি স্বয়ংক্রিয়ভাবে Start.io এবং Adsterra ডিরেক্ট লিংকের সমন্বিত ইঞ্জিন পরিচালনা করে।
  */
 object StartIoAdManager {
     const val PUBLISHER_ID = "113502454"
     const val STARTIO_APP_ID = "207238360"
 
     /**
-     * সমস্ত অ্যাড নেটওয়ার্ক (AdMob, Unity, Start.io) ইনিশিয়ালাইজেশন
+     * Start.io অ্যাড নেটওয়ার্ক ইনিশিয়ালাইজেশন
      */
     fun init(context: Context, isVip: Boolean = false) {
         UnifiedAdManager.init(context, isVip = isVip)
     }
 
     /**
-     * ইন্টারস্টিশিয়াল অ্যাড প্রি-লোডার (AdMob ও Start.io ব্যাকগ্রাউন্ডে প্রি-লোড হবে)
+     * Start.io ইন্টারস্টিশিয়াল অ্যাড প্রি-লোডার
      */
     fun preloadInterstitial(context: Context) {
         UnifiedAdManager.preloadInterstitial(context)
     }
 
     /**
-     * ইন্টারস্টিশিয়াল অ্যাড প্রদর্শন (AdMob -> Unity -> Start.io ওয়াটারফল)
+     * ইন্টারস্টিশিয়াল অ্যাড প্রদর্শন (Start.io On-Demand)
      */
     fun showInterstitial(
         context: Context,
@@ -40,7 +40,7 @@ object StartIoAdManager {
     }
 
     /**
-     * রিওয়ার্ডেড ভিডিও প্রি-লোডার (AdMob, Unity ও Start.io প্রি-লোড হবে)
+     * Start.io রিওয়ার্ডেড ভিডিও প্রি-লোডার
      */
     fun preloadRewardedVideo(
         context: Context,
@@ -54,7 +54,7 @@ object StartIoAdManager {
     fun loadRewardedVideoAd(context: Context) = preloadRewardedVideo(context)
 
     /**
-     * 🎁 সহজ রিওয়ার্ডেড অ্যাড কলিং (ভিডিও দেখে নাটক/এপিসোড আনলক)
+     * 🎁 সহজ রিওয়ার্ডেড অ্যাড কলিং (Start.io -> Adsterra Fallback)
      */
     fun showRewardedAd(
         activity: Activity,
@@ -111,8 +111,8 @@ object StartIoAdManager {
 
 /**
  * StartAppBanner backward-compatible wrapper
- * পুরোনো যেসকল স্ক্রিনে StartAppBanner কল করা আছে, সেখানে স্বয়ংক্রিয়ভাবে
- * AdMob ব্যানার এবং না পেলে ফলব্যাক হিসেবে Start.io ব্যানার রেন্ডার হবে।
+ * যেসকল স্ক্রিনে StartAppBanner কল করা আছে, সেখানে স্বয়ংক্রিয়ভাবে
+ * Start.io ব্যানার বিজ্ঞাপন রেন্ডার হবে।
  */
 @Composable
 fun StartAppBanner(
