@@ -178,7 +178,7 @@ fun PlayerScreen(
     var threadReplyText by remember { mutableStateOf("") }
 
     // =========================================================================
-    // 🔙 পারফেক্ট ব্যাক বাটন হ্যান্ডলার
+    // 🔙 ব্যাক বাটন হ্যান্ডলার
     // =========================================================================
     fun handleBackNavigation() {
         when {
@@ -259,57 +259,111 @@ fun PlayerScreen(
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
-    val requiredAdClicks = remember(adConfig) {
-        adConfig.rules?.timerSeconds?.let { (it / 5).coerceIn(1, 3) } ?: 2
-    }
-
-    var completedAdClicks by remember(slug, playerState.lockedEpisodeTarget?.episodeNumber) {
-        mutableIntStateOf(0)
-    }
-
     var showFireworksCelebration by remember { mutableStateOf(false) }
 
+    val exoPlayer = remember {
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(6000)
+            .setReadTimeoutMs(10000)
+            .setDefaultRequestProperties(
+                mapOf(
+                    "Connection" to "keep-alive",
+                    "Keep-Alive" to "timeout=60"
+                )
+            )
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix Native Player")
+
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+        val highSpeedLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(60_000, 180_000, 300, 800)
+            .setBackBuffer(60_000, true)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(highSpeedLoadControl)
+            .build().apply {
+                playWhenReady = true
+                repeatMode = Player.REPEAT_MODE_OFF
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    true
+                )
+            }
+    }
+
+    // =========================================================================
+    // ⏱️ ১ মিনিটের জন্য পর্ব আনলক রাখার রিয়েল-টাইম ইঞ্জিন
+    // =========================================================================
     fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L)
+        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // ঠিক ৬০ সেকেন্ড (১ মিনিট)
         val storageKey = "unlock_expiry_${slug}_ep${ep.episodeNumber}"
 
         prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
         viewModel.selectEpisode(ep.copy(isLocked = false))
 
+        // ঠিক ১ মিনিট পর স্বয়ংক্রিয়ভাবে পর্বটি আবার লক করা
         coroutineScope.launch {
             delay(60_000L)
             if (!isUserVip) {
                 prefs.edit().remove(storageKey).apply()
+                val currentSelected = playerState.currentEpisode
+                if (currentSelected?.episodeNumber == ep.episodeNumber) {
+                    exoPlayer.pause()
+                    viewModel.showEpisodeUnlockModal(ep.copy(isLocked = true))
+                    Toast.makeText(context, "⚠️ Episode ${ep.episodeNumber}-এর ১ মিনিটের আনলক মেয়াদ শেষ হয়েছে।", Toast.LENGTH_LONG).show()
+                }
+                viewModel.loadDramaDetails(slug, context)
             }
         }
     }
 
-    fun handleMultiClickAdUnlock(ep: EpisodeDto) {
-        UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
-        completedAdClicks++
+    // =========================================================================
+    // 🎁 রিওয়ার্ডেড অ্যাড কলিং (AdMob ➔ Unity ➔ Start.io ➔ Adsterra)
+    // =========================================================================
+    fun handleRewardedAdUnlock(ep: EpisodeDto) {
+        val act = activity ?: return
+        exoPlayer.pause()
 
-        if (completedAdClicks >= requiredAdClicks) {
-            completedAdClicks = 0
-            viewModel.dismissEpisodeUnlockModal()
-            showFireworksCelebration = true
-            unlockEpisodeForOneMinute(ep)
-        } else {
-            val remainingClicks = requiredAdClicks - completedAdClicks
-            Toast.makeText(
-                context,
-                "✓ Ad $completedAdClicks completed! Complete $remainingClicks more to unlock.",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
+        UnifiedAdManager.showRewardedVideo(
+            context = act,
+            isVip = isUserVip,
+            onRewardUnlocked = {
+                viewModel.dismissEpisodeUnlockModal()
+                showFireworksCelebration = true
+                unlockEpisodeForOneMinute(ep)
+                Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} ১ মিনিটের জন্য আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
+            },
+            onAdNotReadyOrFailed = { reason ->
+                // ভিডিও অ্যাড লোড না হলে ব্যাকআপ হিসেবে Adsterra স্পনসর ওপেন করা
+                val opened = UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
+                if (opened) {
+                    viewModel.dismissEpisodeUnlockModal()
+                    showFireworksCelebration = true
+                    unlockEpisodeForOneMinute(ep)
+                    Toast.makeText(context, "✓ স্পনসর ভিজিটের মাধ্যমে পর্বটি ১ মিনিটের জন্য আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "বিজ্ঞাপন পাওয়া যায়নি: $reason", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onAdClosed = { earnedReward ->
+                if (earnedReward) {
+                    unlockEpisodeForOneMinute(ep)
+                }
+            }
+        )
     }
 
-    // =========================================================================
-    // 🎯 ড্রামা ওপেন হলে সঠিক স্লাগ ও টাইটেল সহ লাইভ ভিউ ট্র্যাকিং
-    // =========================================================================
     LaunchedEffect(slug) {
         persistentDramaComments.clear()
-        completedAdClicks = 0
 
         val initialTitle = homeState.popularDramas.find { it.slug == slug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == slug }?.displayName
@@ -318,7 +372,6 @@ fun PlayerScreen(
 
         val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
 
-        // 🎯 ফিক্সড: postTitle এবং postSlug সরাসরি পাস করা হয়েছে
         AppAnalyticsTracker.trackScreen(
             context = context,
             screenName = "Watching: $initialTitle",
@@ -415,44 +468,6 @@ fun PlayerScreen(
         if (slug.isNotBlank() && epNum > 0) {
             lastWatchedEpPrefs.edit().putInt("last_ep_$slug", epNum).apply()
         }
-    }
-
-    val exoPlayer = remember {
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(6000)
-            .setReadTimeoutMs(10000)
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Connection" to "keep-alive",
-                    "Keep-Alive" to "timeout=60"
-                )
-            )
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix Native Player")
-
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-
-        val highSpeedLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(60_000, 180_000, 300, 800)
-            .setBackBuffer(60_000, true)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(highSpeedLoadControl)
-            .build().apply {
-                playWhenReady = true
-                repeatMode = Player.REPEAT_MODE_OFF
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .setUsage(C.USAGE_MEDIA)
-                        .build(),
-                    true
-                )
-            }
     }
 
     var isWebLoading by remember { mutableStateOf(false) }
@@ -623,7 +638,6 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            // 🎯 এপিসোড চেঞ্জ হলেও ট্র্যাকার রিফ্রেশ নিশ্চিত করা
             val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
             AppAnalyticsTracker.trackScreen(
                 context = context,
@@ -971,11 +985,7 @@ fun PlayerScreen(
                                     Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
                                 }
                             )
-                        }
-                        // =========================================================================
-                        // 💬 ১. কমেন্ট বক্স মোড
-                        // =========================================================================
-                        else if (selectedTabIndex == 1) {
+                        } else if (selectedTabIndex == 1) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -1119,11 +1129,7 @@ fun PlayerScreen(
                                         .imePadding()
                                 )
                             }
-                        }
-                        // =========================================================================
-                        // 🎬 ২. For you মোড
-                        // =========================================================================
-                        else {
+                        } else {
                             PullToRefreshBox(
                                 isRefreshing = isRefreshing,
                                 onRefresh = {
@@ -1449,18 +1455,20 @@ fun PlayerScreen(
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
+        // =====================================================================
+        // 🎯 লক পর্ব ডায়ালগ: এখানে সরাসরি রিওয়ার্ডেড ভিডিও অ্যাড কল করা হচ্ছে
+        // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
-                completedSteps = completedAdClicks,
-                totalSteps = requiredAdClicks,
+                completedSteps = 0,
+                totalSteps = 1,
                 onDismiss = {
-                    completedAdClicks = 0
                     viewModel.dismissEpisodeUnlockModal()
                 },
                 onWatchAd = {
-                    handleMultiClickAdUnlock(lockedTarget)
+                    handleRewardedAdUnlock(lockedTarget)
                 },
                 onUpgradeVip = {
                     viewModel.dismissEpisodeUnlockModal()
