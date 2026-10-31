@@ -163,7 +163,6 @@ object UnifiedAdManager {
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
         val appContext = context.applicationContext
 
-        // Start.io Consent Popup চিরতরে বন্ধ করার পারমিশন
         try {
             val now = System.currentTimeMillis()
             StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -184,18 +183,15 @@ object UnifiedAdManager {
 
         val isTestMode = config.unity?.testMode == true
 
-        // ১. Google AdMob ইনিশিয়ালাইজেশন
         if (config.admob?.enabled == true) {
             initAdMob(appContext)
         }
 
-        // ২. Unity Ads ইনিশিয়ালাইজেশন
         if (config.unity?.enabled == true) {
             val unityGameId = config.unity.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
             initUnityAds(context, unityGameId, isTestMode)
         }
 
-        // ৩. Start.io ইনিশিয়ালাইজেশন
         if (config.startio?.enabled == true) {
             val startIoAppId = config.startio.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             initializeStartIo(context, startIoAppId, isVip, isTestMode)
@@ -209,7 +205,6 @@ object UnifiedAdManager {
 
         val isTestMode = newConfig.unity?.testMode == true
 
-        // AdMob রিমোট আপডেট
         if (newConfig.admob?.enabled == true) {
             if (!isAdMobInitialized) initAdMob(context.applicationContext)
             else {
@@ -218,13 +213,11 @@ object UnifiedAdManager {
             }
         }
 
-        // Unity রিমোট আপডেট
         if (newConfig.unity?.enabled == true) {
             val unityGameId = newConfig.unity.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
             initUnityAds(context, unityGameId, isTestMode)
         }
 
-        // Start.io রিমোট আপডেট
         if (newConfig.startio?.enabled == true) {
             val newAppId = newConfig.startio.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             if (newAppId != currentStartIoAppId || !isStartIoInitialized) {
@@ -291,8 +284,6 @@ object UnifiedAdManager {
             StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
 
             StartAppSDK.init(appContext, appId, false)
-            
-            // 🎯 অ্যাডমিন প্যানেল থেকে টেস্ট মোড অন থাকলে Start.io-ও টেস্ট মোডে চলবে
             StartAppSDK.setTestAdsEnabled(testMode)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
@@ -363,7 +354,6 @@ object UnifiedAdManager {
         }
     }
 
-    // 🎯 AdMob Rewarded Video
     private fun showAdMobRewarded(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -409,7 +399,6 @@ object UnifiedAdManager {
         }
     }
 
-    // 🎮 Unity Rewarded Video
     private fun showUnityRewardedVideo(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -459,7 +448,6 @@ object UnifiedAdManager {
         }
     }
 
-    // 🚀 Start.io Rewarded Video
     private fun showStartIoRewardedWithFallback(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -844,6 +832,13 @@ object UnifiedAdManager {
         fallbackUrl: String? = null
     ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl)
 
+    // 🎯 HELPER FUNCTIONS (Restored for Missing Method Compilation Errors)
+    fun isAdsGloballyEnabled(): Boolean = _adConfigState.value.adsEnabled
+    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true)
+    fun isAdMobPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("admob", ignoreCase = true)
+    fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
+    fun isUnityPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("unity", ignoreCase = true)
+
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
         if (isVip || !config.adsEnabled) return false
@@ -851,8 +846,12 @@ object UnifiedAdManager {
         return adsterra.enabled && !adsterra.effectiveDirectLink.isNullOrBlank()
     }
 
+    fun isSmartlinkAvailable(isVip: Boolean = false): Boolean = isDirectLinkAvailable(isVip)
+    fun getEffectiveDirectLink(): String? = if (_adConfigState.value.adsEnabled) _adConfigState.value.adsterra?.effectiveDirectLink else null
+    fun getSmartlinkUrl(): String? = getEffectiveDirectLink()
     fun getVerificationTimerSeconds(): Int = _adConfigState.value.rules?.timerSeconds ?: 10
     fun getUnlockDurationHours(): Int = _adConfigState.value.rules?.rewardedUnlockHours ?: 2
+    fun getFreeUnlockedEpisodesCount(): Int = _adConfigState.value.rules?.freeUnlockedEpisodes ?: 1
 
     fun openUrlSafely(context: Context, url: String): Boolean {
         return try {
