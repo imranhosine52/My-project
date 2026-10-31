@@ -1,12 +1,10 @@
 package com.example.ui.screens
 
-import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,7 +18,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,19 +25,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.ads.StartAppBanner
 import com.example.ads.UnifiedAdBanner
 import com.example.ads.UnifiedAdManager
 import com.example.ads.findActivity
 
 private val TealAccent = Color(0xFF00C9A7)
-private val GoldVip = Color(0xFFFFB800)
 private val CyanAccent = Color(0xFF00E5FF)
 private val AlertRed = Color(0xFFFF3B30)
 
 /**
  * 🛠️ অ্যাড নেটওয়ার্ক ডায়াগনস্টিক ও লাইভ টেস্ট ডায়ালগ
- * AdMob, Unity Ads, Start.io এবং Adsterra-এর লাইভ স্ট্যাটাস ও বাটন টেস্ট
+ * Start.io এবং Adsterra-এর লাইভ স্ট্যাটাস ও বাটন টেস্ট
  */
 @Composable
 fun AdDiagnosticsDialog(
@@ -50,7 +45,7 @@ fun AdDiagnosticsDialog(
     val activity = remember(context) { context.findActivity() }
     val adConfig by UnifiedAdManager.adConfigState.collectAsState()
 
-    var statusLog by remember { mutableStateOf("Ready to test ad networks.") }
+    var statusLog by remember { mutableStateOf("Ready to test Start.io & Adsterra.") }
     var isTestingAd by remember { mutableStateOf(false) }
 
     Dialog(
@@ -116,10 +111,9 @@ fun AdDiagnosticsDialog(
                             Text("Active Network Rules:", color = CyanAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             Text("• Primary: ${adConfig.primaryNetwork.uppercase()}", color = Color.White, fontSize = 11.5.sp)
                             Text("• Fallback: ${adConfig.fallbackNetwork.uppercase()}", color = Color.White, fontSize = 11.5.sp)
-                            Text("• AdMob Enabled: ${adConfig.admob?.enabled == true}", color = if (adConfig.admob?.enabled == true) TealAccent else Color.Gray, fontSize = 11.5.sp)
-                            Text("• Unity Enabled: ${adConfig.unity?.enabled == true}", color = if (adConfig.unity?.enabled == true) TealAccent else Color.Gray, fontSize = 11.5.sp)
-                            Text("• Start.io Enabled: ${adConfig.startio?.enabled == true}", color = if (adConfig.startio?.enabled == true) TealAccent else Color.Gray, fontSize = 11.5.sp)
+                            Text("• Start.io Enabled: ${adConfig.startio?.enabled == true} (App ID: ${adConfig.startio?.appId})", color = if (adConfig.startio?.enabled == true) TealAccent else Color.Gray, fontSize = 11.5.sp)
                             Text("• Adsterra Enabled: ${adConfig.adsterra?.enabled == true}", color = if (adConfig.adsterra?.enabled == true) TealAccent else Color.Gray, fontSize = 11.5.sp)
+                            Text("• Unlocked Episodes Rule: First ${adConfig.rules?.freeUnlockedEpisodes} Episode(s) Free", color = Color(0xFFCCD0DB), fontSize = 11.5.sp)
                         }
                     }
 
@@ -147,7 +141,7 @@ fun AdDiagnosticsDialog(
                     Button(
                         onClick = {
                             isTestingAd = true
-                            statusLog = "Requesting Interstitial Ad (Waterfall)..."
+                            statusLog = "Requesting Start.io Interstitial Ad..."
                             UnifiedAdManager.showInterstitial(context, isVip = false) {
                                 isTestingAd = false
                                 statusLog = "✓ Interstitial Ad closed / completed."
@@ -159,7 +153,7 @@ fun AdDiagnosticsDialog(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Text("Test Interstitial Ad", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Test Start.io Interstitial Ad", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -168,7 +162,7 @@ fun AdDiagnosticsDialog(
                         onClick = {
                             if (activity != null) {
                                 isTestingAd = true
-                                statusLog = "Requesting Rewarded Video Ad..."
+                                statusLog = "Requesting Start.io Rewarded Video Ad..."
                                 UnifiedAdManager.showRewardedVideo(
                                     context = activity,
                                     isVip = false,
@@ -178,7 +172,7 @@ fun AdDiagnosticsDialog(
                                     },
                                     onAdNotReadyOrFailed = { reason ->
                                         isTestingAd = false
-                                        statusLog = "❌ Reward Ad Failed: $reason"
+                                        statusLog = "❌ Fallback Triggered: $reason"
                                     },
                                     onAdClosed = { earned ->
                                         isTestingAd = false
@@ -193,7 +187,7 @@ fun AdDiagnosticsDialog(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                            Text("Test Rewarded Video (Unlock)", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Test Start.io Rewarded Video", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -217,10 +211,10 @@ fun AdDiagnosticsDialog(
                     // বাটন ৪: ব্যাকগ্রাউন্ড প্রি-লোডার পুনরায় ট্রিগার করা
                     OutlinedButton(
                         onClick = {
-                            statusLog = "Triggering manual preloading for AdMob, Unity & Start.io..."
+                            statusLog = "Triggering manual preloading for Start.io..."
                             UnifiedAdManager.preloadInterstitial(context)
                             UnifiedAdManager.preloadRewardedVideo(context)
-                            statusLog = "✓ Preload requests sent to all networks."
+                            statusLog = "✓ Preload requests sent to Start.io."
                         },
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, Color(0xFF28344A)),
@@ -228,12 +222,12 @@ fun AdDiagnosticsDialog(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Text("Force Preload All Ads", color = Color.White, fontSize = 12.sp)
+                            Text("Force Preload Start.io Ads", color = Color.White, fontSize = 12.sp)
                         }
                     }
 
                     // ৫. লাইভ ব্যানার প্রিভিউ বক্স
-                    Text("Live Banner Preview (AdMob / Start.io):", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Live Banner Preview (Start.io):", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFF141A26),
