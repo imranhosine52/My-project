@@ -1,6 +1,7 @@
 @file:OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class
+    ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 
 package com.example.ui.screens.chat
@@ -121,7 +122,7 @@ fun CommunityChatScreen(
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
 
-    // 🎯 ডাবল কিবোর্ড প্যাডিং বন্ধ করতে SOFT_INPUT_ADJUST_NOTHING সেট করা
+    // ডাবল কিবোর্ড প্যাডিং রোধ করতে SOFT_INPUT_ADJUST_NOTHING
     DisposableEffect(activity) {
         val originalMode = activity?.window?.attributes?.softInputMode ?: WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
@@ -362,7 +363,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎯 কিবোর্ড ওপেন হওয়ার সাথে সাথে লাস্ট মেসেজে মসৃণ স্ক্রোল
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
@@ -606,18 +606,22 @@ fun CommunityChatScreen(
         }
     }
 
-    // =========================================================================
-    // 📱 মূল কন্টেইনার (এখানে কোনো ভুল imePadding নেই)
-    // =========================================================================
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(TelegramScreenBg)
     ) {
         if (isSelectionMode) {
-            val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
-                messagesList.find { it.id == id }?.senderId == currentUserId
-            }
+            // 🔒 শুধুমাত্র ওনার অথবা যদি নির্বাচিত সব মেসেজই নিজের হয়, তবেই ডিলিট অনুমোদন
+            val canDelete = isCurrentUserOwner || (
+                selectedMessageIds.isNotEmpty() && selectedMessageIds.all { id ->
+                    val msg = messagesList.find { it.id == id }
+                    msg != null && (
+                        msg.senderId == currentUserId ||
+                        (!currentUserEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true))
+                    )
+                }
+            )
 
             ChatSelectionTopBar(
                 selectedCount = selectedMessageIds.size,
@@ -625,13 +629,17 @@ fun CommunityChatScreen(
                 canPinSelected = isCurrentUserOwner && selectedMessageIds.size == 1,
                 onCloseSelection = { selectedMessageIds.clear() },
                 onDeleteSelected = {
-                    coroutineScope.launch {
-                        val idsToDelete = selectedMessageIds.toList()
-                        selectedMessageIds.clear()
-                        for (id in idsToDelete) {
-                            FirebaseChatManager.deleteMessage(id)
+                    if (canDelete) {
+                        coroutineScope.launch {
+                            val idsToDelete = selectedMessageIds.toList()
+                            selectedMessageIds.clear()
+                            for (id in idsToDelete) {
+                                FirebaseChatManager.deleteMessage(id)
+                            }
+                            Toast.makeText(context, "Messages deleted", Toast.LENGTH_SHORT).show()
                         }
-                        Toast.makeText(context, "Messages deleted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "You can only delete your own messages", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onPinSelected = {
@@ -659,7 +667,7 @@ fun CommunityChatScreen(
             )
         } else {
             // =========================================================================
-            // 🔝 টেলিগ্রাম স্টাইল স্লিম ফ্রস্টেড হেডার
+            // 🔝 টেলিগ্রাম ফ্রস্টেড হেডার (সবুজ অনলাইন ডট ও রিয়েল-টাইম মেম্বার কাউন্ট)
             // =========================================================================
             Surface(
                 color = TelegramHeaderBg,
@@ -714,11 +722,24 @@ fun CommunityChatScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Text(
-                                text = "${liveStats.totalMembers} members, ${liveStats.onlineMembers} online",
-                                color = Color(0xFF7E8D9F),
-                                fontSize = 11.5.sp
-                            )
+
+                            // 🟢 উজ্জ্বল সবুজ ডট ও লাইভ অনলাইন ইন্ডিকেটর
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E676))
+                                )
+                                Text(
+                                    text = "${liveStats.totalMembers} members, ${liveStats.onlineMembers} online",
+                                    color = Color(0xFF7E8D9F),
+                                    fontSize = 11.5.sp
+                                )
+                            }
                         }
                     }
 
@@ -906,7 +927,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // লাইভ টাইপিং/অ্যাকশন স্ট্যাটাস
+        // লাইভ টাইপিং ও অ্যাকশন স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -932,7 +953,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // রিপ্লাই প্রিভিউ ব্যানার
+        // রিপ্লাই ব্যানার
         AnimatedVisibility(
             visible = replyingToMessage != null,
             enter = expandVertically(tween(200)) + fadeIn(tween(180)),
@@ -974,7 +995,7 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // ⌨️ ৩. বটম ইনপুট কন্টেইনার (🎯 সরাসরি কিবোর্ডের সাথে লেগে থাকবে, নো গ্যাপ)
+        // ⌨️ ইনপুট বার কন্টেইনার
         // =========================================================================
         Box(
             modifier = Modifier
@@ -1188,9 +1209,19 @@ fun CommunityChatScreen(
         }
     }
 
+    // =========================================================================
+    // ⚙️ মেসেজে লং-প্রেস বটম শীট (কঠোর ডিলিট পারমিশন ফিল্টার)
+    // =========================================================================
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
-        val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
+
+        // 🔒 ইউজার কি এই মেসেজের প্রেরক?
+        val isMyMessage = (msg.senderId == currentUserId) ||
+                (!currentUserEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true))
+
+        // 🛡️ শুধুমাত্র ওনার অথবা মেসেজের মূল প্রেরক ডিলিট করতে পারবে
+        val canDelete = isCurrentUserOwner || isMyMessage
+
         val isSenderNotOwner = msg.senderEmail != FirebaseChatManager.ROOT_ADMIN_EMAIL && msg.senderId != currentUserId
         val candidateStickerUrl = msg.imageUrl ?: msg.imageUrls.firstOrNull()
 
@@ -1198,15 +1229,23 @@ fun CommunityChatScreen(
             onDismissRequest = { selectedActionMessage = null },
             containerColor = Color(0xFF1F2C34)
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text("Message Options", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        replyingToMessage = msg
-                        selectedActionMessage = null
-                    }.padding(vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            replyingToMessage = msg
+                            selectedActionMessage = null
+                        }
+                        .padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -1216,13 +1255,16 @@ fun CommunityChatScreen(
 
                 if (!candidateStickerUrl.isNullOrBlank()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            val currentSet = favPrefs.getStringSet("fav_items", emptySet())?.toMutableSet() ?: mutableSetOf()
-                            currentSet.add(candidateStickerUrl)
-                            favPrefs.edit().putStringSet("fav_items", currentSet).apply()
-                            Toast.makeText(context, "⭐ Added to Favorites!", Toast.LENGTH_SHORT).show()
-                            selectedActionMessage = null
-                        }.padding(vertical = 10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val currentSet = favPrefs.getStringSet("fav_items", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                currentSet.add(candidateStickerUrl)
+                                favPrefs.edit().putStringSet("fav_items", currentSet).apply()
+                                Toast.makeText(context, "⭐ Added to Favorites!", Toast.LENGTH_SHORT).show()
+                                selectedActionMessage = null
+                            }
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1233,13 +1275,16 @@ fun CommunityChatScreen(
 
                 if (isCurrentUserOwner) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            coroutineScope.launch {
-                                FirebaseChatManager.pinMessage(msg, currentUserName)
-                                Toast.makeText(context, "Message pinned to top!", Toast.LENGTH_SHORT).show()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                coroutineScope.launch {
+                                    FirebaseChatManager.pinMessage(msg, currentUserName)
+                                    Toast.makeText(context, "Message pinned to top!", Toast.LENGTH_SHORT).show()
+                                }
+                                selectedActionMessage = null
                             }
-                            selectedActionMessage = null
-                        }.padding(vertical = 10.dp),
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1249,10 +1294,13 @@ fun CommunityChatScreen(
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        selectedMessageIds.add(msg.id)
-                        selectedActionMessage = null
-                    }.padding(vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            selectedMessageIds.add(msg.id)
+                            selectedActionMessage = null
+                        }
+                        .padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -1262,12 +1310,15 @@ fun CommunityChatScreen(
 
                 if (msg.text.isNotBlank()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Message", msg.text))
-                            Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
-                            selectedActionMessage = null
-                        }.padding(vertical = 10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Message", msg.text))
+                                Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
+                                selectedActionMessage = null
+                            }
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1278,13 +1329,16 @@ fun CommunityChatScreen(
 
                 if (isCurrentUserOwner && isSenderNotOwner) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            coroutineScope.launch {
-                                FirebaseChatManager.kickUser(msg.senderId)
-                                Toast.makeText(context, "${msg.senderName} kicked from group", Toast.LENGTH_SHORT).show()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                coroutineScope.launch {
+                                    FirebaseChatManager.kickUser(msg.senderId)
+                                    Toast.makeText(context, "${msg.senderName} kicked from group", Toast.LENGTH_SHORT).show()
+                                }
+                                selectedActionMessage = null
                             }
-                            selectedActionMessage = null
-                        }.padding(vertical = 10.dp),
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1293,13 +1347,16 @@ fun CommunityChatScreen(
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            coroutineScope.launch {
-                                FirebaseChatManager.blockUser(msg.senderId, msg.senderName, msg.senderEmail)
-                                Toast.makeText(context, "${msg.senderName} has been blocked!", Toast.LENGTH_SHORT).show()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                coroutineScope.launch {
+                                    FirebaseChatManager.blockUser(msg.senderId, msg.senderName, msg.senderEmail)
+                                    Toast.makeText(context, "${msg.senderName} has been blocked!", Toast.LENGTH_SHORT).show()
+                                }
+                                selectedActionMessage = null
                             }
-                            selectedActionMessage = null
-                        }.padding(vertical = 10.dp),
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1308,17 +1365,26 @@ fun CommunityChatScreen(
                     }
                 }
 
+                // 🚫 সাধারণ ইউজার যদি অন্যের মেসেজে লং-প্রেস করে, এই ডিলিট অপশনটি দেখানোই হবে না!
                 if (canDelete) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            coroutineScope.launch { FirebaseChatManager.deleteMessage(msg.id) }
-                            selectedActionMessage = null
-                        }.padding(vertical = 10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                coroutineScope.launch { FirebaseChatManager.deleteMessage(msg.id) }
+                                selectedActionMessage = null
+                            }
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252))
-                        Text(if (isCurrentUserOwner && msg.senderId != currentUserId) "Delete as Owner" else "Delete Message", color = Color(0xFFFF5252), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (isCurrentUserOwner && !isMyMessage) "Delete as Owner" else "Delete Message",
+                            color = Color(0xFFFF5252),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
