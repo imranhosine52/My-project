@@ -128,7 +128,10 @@ class AppConfigRepository(
         val adsterraSocialBarScript = adConfigPrefs.getString("adsterra_social_bar_script", null)
         val adsterraSocialBarUrl = adConfigPrefs.getString("adsterra_social_bar_url", null)
 
-        val timerSeconds = adConfigPrefs.getInt("timer_seconds", 10)
+        // 🎯 ডায়নামিক টাইমার ও কয়টি ক্লিক দেখতে হবে
+        val timerSeconds = adConfigPrefs.getInt("timer_seconds", 5)
+        val adWaitSeconds = adConfigPrefs.getInt("ad_wait_seconds", timerSeconds)
+        val unlockClicksRequired = adConfigPrefs.getInt("unlock_clicks_required", 1)
         val unlockHours = adConfigPrefs.getInt("rewarded_unlock_hours", 2)
         val freeEpisodes = adConfigPrefs.getInt("free_unlocked_episodes", 1)
 
@@ -158,6 +161,8 @@ class AppConfigRepository(
             ),
             rules = AdRulesConfig(
                 timerSeconds = timerSeconds,
+                adWaitSeconds = adWaitSeconds,
+                unlockClicksRequired = unlockClicksRequired,
                 rewardedUnlockHours = unlockHours,
                 freeUnlockedEpisodes = freeEpisodes
             )
@@ -194,7 +199,10 @@ class AppConfigRepository(
                     putString("adsterra_social_bar_script", body.adsterra?.socialBarScript)
                     putString("adsterra_social_bar_url", body.adsterra?.socialBarUrl)
 
-                    putInt("timer_seconds", body.rules?.timerSeconds ?: 10)
+                    // 🎯 ডায়নামিক ক্লিক সংখ্যা ও টাইমার সেভ
+                    putInt("timer_seconds", body.rules?.timerSeconds ?: 5)
+                    putInt("ad_wait_seconds", body.rules?.adWaitSeconds ?: body.rules?.timerSeconds ?: 5)
+                    putInt("unlock_clicks_required", body.rules?.unlockClicksRequired ?: 1)
                     putInt("rewarded_unlock_hours", body.rules?.rewardedUnlockHours ?: 2)
                     putInt("free_unlocked_episodes", body.rules?.freeUnlockedEpisodes ?: 1)
                     apply()
