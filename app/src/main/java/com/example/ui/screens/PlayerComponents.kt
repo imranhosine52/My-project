@@ -31,7 +31,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +57,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -131,7 +129,7 @@ fun SleekSkipIconOnline(
 }
 
 // -------------------------------------------------------------
-// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার (🎯 টেনে ছেড়ে দিলে ব্যাকে যাওয়া ফিক্সড)
+// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার
 // -------------------------------------------------------------
 @Composable
 fun SleekOnlineTimeline(
@@ -155,7 +153,6 @@ fun SleekOnlineTimeline(
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    // 🎯 ড্র্যাগ করার সময় লাইভ ড্র্যাগ পজিশন দেখাবে, নয়তো সাধারণ প্লে পজিশন
     val effectiveProgress = if (isDragging && dragFraction in 0f..1f) dragFraction else currentFraction
 
     val bufferedProgress = if (totalDurationMs > 0) {
@@ -188,7 +185,6 @@ fun SleekOnlineTimeline(
                         }
                     },
                     onDragEnd = {
-                        // 🎯 ফিক্স: আঙুল তোলার সাথে সাথে ড্র্যাগ করা সুনির্দিষ্ট পজিশনে প্লেব্যাক জাম্প করবে
                         if (isDragging && dragFraction in 0f..1f && totalDurationMs > 0) {
                             val finalTarget = (dragFraction * totalDurationMs).toLong()
                             onSeeking(finalTarget)
@@ -224,7 +220,6 @@ fun SleekOnlineTimeline(
             val adDotRadius = 2.0.dp.toPx()
             val trackWidth = size.width
 
-            // ১. ব্যাকগ্রাউন্ড ইনঅ্যাক্টিভ ট্র্যাক
             drawLine(
                 color = inactiveColor,
                 start = Offset(0f, centerY),
@@ -233,7 +228,6 @@ fun SleekOnlineTimeline(
                 cap = StrokeCap.Round
             )
 
-            // ২. সিডিএন প্রি-ডাউনলোড বাফার ট্র্যাক
             val bufferedEnd = trackWidth * bufferedProgress
             if (bufferedEnd > 0) {
                 drawLine(
@@ -245,7 +239,6 @@ fun SleekOnlineTimeline(
                 )
             }
 
-            // ৩. কারেন্ট প্লেড অংশ (লাইভ ড্র্যাগ বা প্লেহেড)
             val activeEnd = trackWidth * effectiveProgress
             if (activeEnd > 0) {
                 drawLine(
@@ -257,7 +250,6 @@ fun SleekOnlineTimeline(
                 )
             }
 
-            // ৪. ৮ মিনিট পর পর স্পনসর অ্যাড মার্কার ডট
             for (fraction in adCueFractions) {
                 if (fraction in 0.01f..0.99f) {
                     val dotCenterX = trackWidth * fraction
@@ -274,7 +266,6 @@ fun SleekOnlineTimeline(
                 }
             }
 
-            // ৫. প্লেহেড থাম্ব
             drawCircle(
                 color = activeColor,
                 radius = thumbRadius,
@@ -322,13 +313,15 @@ fun EqualizerBarsIcon(
 }
 
 // =============================================================================
-// 🔒 ৪. ফিক্সড আনলক এপিসোড ডায়ালগ (০% ➔ ৫০% ➔ ১০০% লাইভ প্রোগ্রেস সহ)
+// 🔒 ৪. ফিক্সড ডায়নামিক আনলক এপিসোড ডায়ালগ (ক্লিক সংখ্যা ও টাইমার সহ)
 // =============================================================================
 @Composable
 fun CompactUnlockEpisodeDialog(
     episodeNumber: Int,
     completedSteps: Int = 0,
-    totalSteps: Int = 2,
+    totalSteps: Int = 1,
+    isTimerRunning: Boolean = false,
+    remainingTimerSeconds: Int = 0,
     onDismiss: () -> Unit,
     onWatchAd: () -> Unit,
     onUpgradeVip: () -> Unit
@@ -343,10 +336,12 @@ fun CompactUnlockEpisodeDialog(
     )
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isTimerRunning) onDismiss()
+        },
         properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
+            dismissOnBackPress = !isTimerRunning,
+            dismissOnClickOutside = !isTimerRunning,
             usePlatformDefaultWidth = false
         )
     ) {
@@ -362,10 +357,11 @@ fun CompactUnlockEpisodeDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // টপ বার: ব্যাজ ও ক্লোজ
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -407,17 +403,20 @@ fun CompactUnlockEpisodeDialog(
                         }
                     }
 
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .clickable { onDismiss() }
-                    )
+                    if (!isTimerRunning) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .clickable { onDismiss() }
+                        )
+                    }
                 }
 
+                // লক আইকন ও টাইটেল
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -427,17 +426,17 @@ fun CompactUnlockEpisodeDialog(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF292004))
                             .border(1.2.dp, GoldVip, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
+                            imageVector = if (isTimerRunning) Icons.Default.Timer else Icons.Default.Lock,
                             contentDescription = null,
-                            tint = GoldVip,
-                            modifier = Modifier.size(17.dp)
+                            tint = if (isTimerRunning) Color(0xFF00E5FF) else GoldVip,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
@@ -449,18 +448,21 @@ fun CompactUnlockEpisodeDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (safeTotalSteps > 1) {
+                            text = if (isTimerRunning) {
+                                "Verifying sponsor visit: ${remainingTimerSeconds}s..."
+                            } else if (safeTotalSteps > 1) {
                                 "Complete $safeTotalSteps sponsor visits to unlock!"
                             } else {
                                 "Visit sponsor ad to unlock episode!"
                             },
-                            color = Color(0xFF00E676),
+                            color = if (isTimerRunning) Color(0xFF00E5FF) else Color(0xFF00E676),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
                 }
 
+                // প্রোগ্রেস বার (মাল্টিপল স্টেপের জন্য)
                 if (safeTotalSteps > 1) {
                     Box(
                         modifier = Modifier
@@ -479,14 +481,14 @@ fun CompactUnlockEpisodeDialog(
                     }
                 }
 
-                val descriptionText = if (safeTotalSteps > 1) {
-                    "Complete all $safeTotalSteps sponsor visits to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
-                } else {
-                    "Visit sponsor ad to unlock Episode $episodeNumber, or upgrade to VIP for permanent ad-free streaming."
-                }
-
                 Text(
-                    text = descriptionText,
+                    text = if (isTimerRunning) {
+                        "Please wait $remainingTimerSeconds seconds while the sponsor page loads in the background."
+                    } else if (safeTotalSteps > 1) {
+                        "Visit $safeTotalSteps sponsor ad(s) to unlock Episode $episodeNumber. Only Episode $episodeNumber will be unlocked."
+                    } else {
+                        "Visit sponsor ad to unlock Episode $episodeNumber. Only this episode will be unlocked."
+                    },
                     color = Color(0xFF94A3B8),
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -496,46 +498,61 @@ fun CompactUnlockEpisodeDialog(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
+                // বোতামের লেখা নির্ধারণ
                 val buttonLabel = when {
-                    safeTotalSteps > 1 && completedSteps == 0 -> "Visit Sponsor Ad (1/$safeTotalSteps)"
-                    safeTotalSteps > 1 && currentStepNumber < safeTotalSteps -> "Visit Next Sponsor ($currentStepNumber/$safeTotalSteps)"
+                    isTimerRunning -> "Please wait (${remainingTimerSeconds}s)..."
+                    safeTotalSteps > 1 && completedSteps == 0 -> "Visit Sponsor (Step 1 of $safeTotalSteps)"
+                    safeTotalSteps > 1 && currentStepNumber < safeTotalSteps -> "Visit Next Sponsor ($currentStepNumber of $safeTotalSteps)"
                     safeTotalSteps > 1 && currentStepNumber == safeTotalSteps -> "Final Step to Unlock Episode"
                     else -> "Visit Sponsor Ad to Unlock"
                 }
 
+                // ১. বিজ্ঞাপন বাটন (০ সেকেন্ডে দ্রুত অ্যাকশন)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(40.dp)
+                        .height(42.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(BlueGreenGradientBrush)
-                        .clickable { onWatchAd() },
+                        .background(
+                            if (isTimerRunning) Color(0xFF162330)
+                            else BlueGreenGradientBrush
+                        )
+                        .clickable(enabled = !isTimerRunning) { onWatchAd() },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayCircle,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        if (isTimerRunning) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF00E5FF),
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                         Text(
                             text = buttonLabel,
-                            color = Color.White,
+                            color = if (isTimerRunning) Color(0xFF00E5FF) else Color.White,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
+                // ২. ভিআইপি আপগ্রেড বাটন
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(38.dp)
-                        .clickable { onUpgradeVip() },
+                        .clickable(enabled = !isTimerRunning) { onUpgradeVip() },
                     shape = RoundedCornerShape(10.dp),
                     color = Color(0xFF181C26),
                     border = BorderStroke(1.dp, GoldVip.copy(alpha = 0.7f))
@@ -578,12 +595,12 @@ fun CelebrationFireworksOverlay(
 ) {
     val particles = remember {
         val colors = listOf(
-            Color(0xFFFFD700), // Gold
-            Color(0xFF00E5FF), // Cyan
-            Color(0xFF00E676), // Green
-            Color(0xFFFF2A55), // Red / Pink
-            Color(0xFFA855F7), // Purple
-            Color(0xFFFF9100)  // Orange
+            Color(0xFFFFD700),
+            Color(0xFF00E5FF),
+            Color(0xFF00E676),
+            Color(0xFFFF2A55),
+            Color(0xFFA855F7),
+            Color(0xFFFF9100)
         )
         List(75) {
             val angle = Random.nextDouble(0.0, Math.PI * 2)
