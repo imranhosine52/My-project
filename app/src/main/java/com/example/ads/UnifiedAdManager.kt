@@ -523,9 +523,14 @@ object UnifiedAdManager {
         isVip: Boolean,
         fallbackUrl: String? = null
     ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl)
-
+// ============================================================
     // 🎯 ডাইনামিক রুলস ও হেল্পার মেথড
-    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true) fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
+    // ============================================================
+    fun isAdsGloballyEnabled(): Boolean = _adConfigState.value.adsEnabled
+    fun isStartIoEnabled(): Boolean = _adConfigState.value.adsEnabled && _adConfigState.value.startio?.enabled == true
+    fun isAdsterraEnabled(): Boolean = _adConfigState.value.adsEnabled && _adConfigState.value.adsterra?.enabled == true
+    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true)
+    fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
 
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
@@ -538,7 +543,6 @@ object UnifiedAdManager {
     fun getEffectiveDirectLink(): String? = if (_adConfigState.value.adsEnabled) _adConfigState.value.adsterra?.effectiveDirectLink else null
     fun getSmartlinkUrl(): String? = getEffectiveDirectLink()
 
-    // ⏱️ ডায়নামিক সেটিংস (সার্ভার থেকে আসে)
     fun getUnlockClicksRequired(): Int = _adConfigState.value.rules?.unlockClicksRequired?.coerceAtLeast(1) ?: 1
     fun getVerificationTimerSeconds(): Int = (_adConfigState.value.rules?.adWaitSeconds ?: _adConfigState.value.rules?.timerSeconds ?: 5).coerceAtLeast(1)
     fun getUnlockDurationHours(): Int = _adConfigState.value.rules?.rewardedUnlockHours?.coerceAtLeast(1) ?: 2
