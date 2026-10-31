@@ -4,6 +4,7 @@ package com.example.ui.screens.profile.components
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.screens.AdDiagnosticsDialog
 import com.example.util.WelcomeNotificationHelper
 import java.io.File
 import java.util.Locale
@@ -33,7 +35,7 @@ private val TelegramBlue = Color(0xFF2AABEE)
 private val GoldVip = Color(0xFFFFB300)
 
 /**
- * ⚙️ সেটিংস, পুশ নোটিফিকেশন ও ক্যাশ ক্লিয়ার বটম শীট
+ * ⚙️ সেটিংস, পুশ নোটিফিকেশন, সিক্রেট ডেভেলপার মোড ও ক্যাশ ক্লিয়ার বটম শীট
  */
 @Composable
 fun ProfileSettingsSheet(
@@ -48,6 +50,11 @@ fun ProfileSettingsSheet(
     var notificationsEnabled by remember {
         mutableStateOf(notifPrefs.getBoolean("push_notifications_enabled", true))
     }
+
+    // 🕵️‍♂️ সিক্রেট ডেভেলপার মোড স্টেট (পরপর ৭ বার ট্যাপ ট্র্যাকার)
+    var devTapCount by remember { mutableIntStateOf(0) }
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+    var showAdDiagnosticsDialog by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -99,14 +106,41 @@ fun ProfileSettingsSheet(
                 }
             }
 
-            // ১. অ্যাপ ভার্সন ও আপডেট স্ক্যানার কার্ড
+            // ১. অ্যাপ ভার্সন ও আপডেট স্ক্যানার কার্ড (যেখানে গোপন ৭-বার ট্যাপ ট্রিকার আছে)
             ModernMenuGroupCard {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                // 🎯 পরপর দ্রুত ৭ বার ট্যাপ লজিক
+                                val currentTime = System.currentTimeMillis()
+                                if (currentTime - lastTapTime < 800) {
+                                    devTapCount++
+                                } else {
+                                    devTapCount = 1
+                                }
+                                lastTapTime = currentTime
+
+                                if (devTapCount in 3..6) {
+                                    Toast.makeText(
+                                        context,
+                                        "You are ${7 - devTapCount} steps away from Developer Ad Mode",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else if (devTapCount >= 7) {
+                                    devTapCount = 0
+                                    showAdDiagnosticsDialog = true
+                                    Toast.makeText(
+                                        context,
+                                        "🛠️ Developer Ad Diagnostics Activated!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -221,7 +255,7 @@ fun ProfileSettingsSheet(
 
                 HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
 
-                // 🎯 আসল ক্যাশ ক্লিয়ার ইঞ্জিন (রিয়েল মেমোরি রিলিজ)
+                // আসল ক্যাশ ক্লিয়ার ইঞ্জিন (রিয়েল মেমোরি রিলিজ)
                 ModernMenuRowItem(
                     icon = Icons.Default.CleaningServices,
                     title = "Clear Cache & Media",
@@ -242,6 +276,13 @@ fun ProfileSettingsSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
         }
+    }
+
+    // 🛠️ সিক্রেট ৭-ট্যাপ ডায়ালগ খোলা
+    if (showAdDiagnosticsDialog) {
+        AdDiagnosticsDialog(
+            onDismiss = { showAdDiagnosticsDialog = false }
+        )
     }
 }
 
