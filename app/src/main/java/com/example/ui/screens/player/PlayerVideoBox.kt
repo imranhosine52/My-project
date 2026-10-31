@@ -646,6 +646,7 @@ fun PlayerVideoBox(
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
+    // 🔒 ডাউনলোড কোয়ালিটি অপশনসমূহ (শুধুমাত্র VIP ইউজারদের জন্য আনলকড)
     val downloadQualityOptions = remember(episodes) {
         val detected = mutableListOf<SideDrawerQualityItem>()
         val seen = mutableSetOf<String>()
@@ -653,23 +654,23 @@ fun PlayerVideoBox(
         episodes.forEach { ep ->
             ep.downloadOptions?.forEach { opt ->
                 val qLower = opt.quality.lowercase()
-                val (key, label, isVipTag) = when {
-                    qLower.contains("1080") -> Triple("1080p", "1080P", true)
-                    qLower.contains("720")  -> Triple("720p", "720P", true)
-                    qLower.contains("480")  -> Triple("480p", "480P", false)
-                    qLower.contains("360")  -> Triple("360p", "360P", false)
-                    else                   -> Triple("single", "HD", false)
+                val (key, label) = when {
+                    qLower.contains("1080") -> Pair("1080p", "1080P")
+                    qLower.contains("720")  -> Pair("720p", "720P")
+                    qLower.contains("480")  -> Pair("480p", "480P")
+                    qLower.contains("360")  -> Pair("360p", "360P")
+                    else                   -> Pair("single", "HD")
                 }
-                if (seen.add(key)) detected.add(SideDrawerQualityItem(key, label, isVipTag))
+                if (seen.add(key)) detected.add(SideDrawerQualityItem(key, label, isVipOnly = true))
             }
         }
 
         if (detected.isEmpty()) {
             listOf(
-                SideDrawerQualityItem("1080p", "1080P", true),
-                SideDrawerQualityItem("720p", "720P", true),
-                SideDrawerQualityItem("480p", "480P", false),
-                SideDrawerQualityItem("360p", "360P", false)
+                SideDrawerQualityItem("1080p", "1080P", isVipOnly = true),
+                SideDrawerQualityItem("720p", "720P", isVipOnly = true),
+                SideDrawerQualityItem("480p", "480P", isVipOnly = true),
+                SideDrawerQualityItem("360p", "360P", isVipOnly = true)
             )
         } else {
             detected.sortedByDescending { it.key }
@@ -677,13 +678,13 @@ fun PlayerVideoBox(
     }
 
     var selectedDownloadQualityKey by remember(downloadQualityOptions) {
-        mutableStateOf(downloadQualityOptions.firstOrNull { !it.isVipOnly }?.key ?: downloadQualityOptions.first().key)
+        mutableStateOf(downloadQualityOptions.first().key)
     }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
-var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
+    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     val speedOptions = remember { listOf(2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
     var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
@@ -864,13 +865,11 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
             }
         }
 
-        // 🎯 মাল্টিপল কোয়ালিটি রুল: যদি ২ বা ততোধিক কোয়ালিটি ট্র্যাক পাওয়া যায়
         if (foundVideoTracks.size > 1) {
             hasMultipleQualities = true
             foundVideoTracks.sortByDescending { it.height }
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
 
-            // 👑 ফ্রি ইউজারদের জন্য অটোমেটিক সর্বোচ্চ 480p ক্যাপ (Auto মোডেও 720p/1080p প্লে হবে না)
             if (!isVip && currentSelectedHeight == 0) {
                 exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                     .buildUpon()
@@ -878,11 +877,8 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                     .build()
             }
         } else if (foundVideoTracks.size == 1) {
-            // 🎯 সিঙ্গেল ডিরেক্ট স্ট্রিম (যেমন নন-এনকোডেড 1080p বা 720p)
             hasMultipleQualities = false
             availableVideoTracks = foundVideoTracks
-            
-            // সিঙ্গেল কোয়ালিটি থাকলে সব ইউজারের জন্য ক্যাপ মুক্ত রাখা হবে যাতে প্লেয়ার খালি না থাকে
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
@@ -920,7 +916,6 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
 
-            // ফ্রি ইউজারদের জন্য মাল্টিপল কোয়ালিটিতে সর্বোচ্চ 480p সীমা লক থাকবে
             if (!isVip && hasMultipleQualities) {
                 builder.setMaxVideoSize(854, 480)
             } else {
@@ -943,9 +938,7 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                 .buildUpon()
                                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
 
-                            // নির্দিষ্ট কোয়ালিটি সেট করার সময় রেজোলিউশন কনস্ট্রেইন্ট রিমুভ রাখা
                             builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
-
                             exoPlayer.trackSelectionParameters = builder.build()
                             overrideApplied = true
                             break
@@ -2141,23 +2134,43 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                     }
                                 }
 
+                                // 👑 ডাউনলোড বাটন: শুধুমাত্র VIP ইউজারদের জন্য
                                 IconButton(
                                     onClick = {
-                                        if (isDeviceLandscape) {
-                                            sideDrawerType = "download"
-                                            showSideDrawer = !showSideDrawer
+                                        if (!isVip) {
+                                            Toast.makeText(
+                                                context,
+                                                "👑 Downloading is exclusive to VIP members! Upgrade now to download.",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            onNavigateToVip()
                                         } else {
-                                            onDownloadClick?.invoke()
+                                            if (isDeviceLandscape) {
+                                                sideDrawerType = "download"
+                                                showSideDrawer = !showSideDrawer
+                                            } else {
+                                                onDownloadClick?.invoke()
+                                            }
                                         }
                                     },
                                     modifier = Modifier.size(24.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.FileDownload,
-                                        contentDescription = "Download",
-                                        tint = if (isDeviceLandscape && showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
-                                        modifier = Modifier.size(17.dp)
-                                    )
+                                    Box(contentAlignment = Alignment.TopEnd) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.FileDownload,
+                                            contentDescription = "Download",
+                                            tint = if (isDeviceLandscape && showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                        if (!isVip) {
+                                            MiniCrownVector(
+                                                tint = Color(0xFFFFB300),
+                                                modifier = Modifier
+                                                    .offset(x = 3.dp, y = (-3).dp)
+                                                    .size(8.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 Box(
@@ -2245,9 +2258,6 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                             }
                         }
                     } else if (sideDrawerType == "quality") {
-                        // =============================================================
-                        // 🎯 কোয়ালিটি সিলেকশন (360p, 480p ফ্রি • 720p+ VIP লকড)
-                        // =============================================================
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2272,8 +2282,6 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
 
                             items(availableVideoTracks) { track ->
                                 val isSelected = if (track.isAuto) currentSelectedHeight == 0 else currentSelectedHeight == track.height
-                                
-                                // 🎯 রুল: মাল্টিপল কোয়ালিটি থাকলে এবং height >= 720 হলে VIP লকড
                                 val isTrackVipLocked = hasMultipleQualities && !isVip && (track.height >= 720)
 
                                 Row(
@@ -2458,9 +2466,7 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                                             ) {
-                                                if (qItem.isVipOnly) {
-                                                    MiniCrownVector(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
-                                                }
+                                                MiniCrownVector(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
                                                 Text(
                                                     text = qItem.label,
                                                     color = if (isSelected) Color(0xFFF6D38B) else Color(0xFF94A3B8),
@@ -2545,16 +2551,19 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                 }
                             }
 
+                            // 👑 সাইড ড্রয়ারের ডাউনলোড বোতাম: VIP না হলে সরাসরি লকড
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(5.dp))
                                 val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
-                                val selectedQualityObj = downloadQualityOptions.firstOrNull { it.key == selectedDownloadQualityKey }
-                                val isVipLocked = (selectedQualityObj?.isVipOnly == true) && !isVip
 
                                 Button(
                                     onClick = {
-                                        if (isVipLocked) {
-                                            Toast.makeText(context, "${selectedQualityObj?.label} is exclusive for VIP members! Upgrade now.", Toast.LENGTH_SHORT).show()
+                                        if (!isVip) {
+                                            Toast.makeText(
+                                                context,
+                                                "👑 Downloading is exclusive to VIP members! Upgrade now to download.",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
                                             onNavigateToVip()
                                             return@Button
                                         }
@@ -2563,14 +2572,10 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                             val checkResult = DownloadQuotaManager.checkCanDownload(
                                                 context = context,
                                                 bytesToDownload = totalSelectedBytes,
-                                                isVip = isVip
+                                                isVip = true
                                             )
 
                                             if (checkResult.canDownload) {
-                                                if (!isVip) {
-                                                    DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
-                                                    todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
-                                                }
                                                 selectedDownloadEpisodes.forEach { ep ->
                                                     val matchingOpt = ep.downloadOptions?.firstOrNull {
                                                         it.quality.contains(selectedDownloadQualityKey, true) || it.url.contains(selectedDownloadQualityKey, true)
@@ -2580,7 +2585,7 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                                     R2DownloadManager.startDownload(
                                                         context = context,
                                                         downloadUrl = targetUrl,
-                                                        title = "$title (${selectedQualityObj?.label ?: "HD"})",
+                                                        title = "$title (${selectedDownloadQualityKey.uppercase()})",
                                                         episodeNumber = ep.episodeNumber,
                                                         isMovie = false
                                                     )
@@ -2589,20 +2594,19 @@ var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getToda
                                                 showSideDrawer = false
                                             } else {
                                                 Toast.makeText(context, checkResult.message, Toast.LENGTH_LONG).show()
-                                                onNavigateToVip()
                                             }
                                         }
                                     },
-                                    enabled = selectedDownloadEpisodes.isNotEmpty() || isVipLocked,
+                                    enabled = selectedDownloadEpisodes.isNotEmpty() || !isVip,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isVipLocked) Color(0xFFE5B567) else Color(0xFF00D26A)
+                                        containerColor = if (!isVip) Color(0xFFE5B567) else Color(0xFF00D26A)
                                     ),
                                     shape = RoundedCornerShape(7.dp),
                                     modifier = Modifier.fillMaxWidth().height(34.dp)
                                 ) {
                                     Text(
-                                        text = if (isVipLocked) "VIP 👑" else "Download · $displaySize",
-                                        color = if (isVipLocked) Color(0xFF2B210E) else Color.Black,
+                                        text = if (!isVip) "VIP 👑 Upgrade to Download" else "Download · $displaySize",
+                                        color = if (!isVip) Color(0xFF2B210E) else Color.Black,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
