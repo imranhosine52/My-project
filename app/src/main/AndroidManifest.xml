@@ -43,6 +43,11 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
+        <!-- 🎯 Google AdMob App ID (গুগলের অফিসিয়াল টেস্ট আইডি দেওয়া হয়েছে যাতে অ্যাপ ক্র্যাশ না করে। প্লে স্টোরে দেওয়ার সময় আসল আইডি বসাতে পারবেন) [1] -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+
         <!-- 📢 ফায়ারবেস ডিফল্ট নোটিফিকেশন চ্যানেল -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
