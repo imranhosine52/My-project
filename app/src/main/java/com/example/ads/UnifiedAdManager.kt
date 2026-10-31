@@ -17,6 +17,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.model.*
+import com.google.android.gms.ads.AdError
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.FullScreenContentCallback
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 import com.startapp.sdk.ads.banner.Banner
 import com.startapp.sdk.ads.banner.BannerListener
 import com.startapp.sdk.adsbase.Ad
@@ -47,6 +58,7 @@ fun Context.findActivity(): Activity? {
 /**
  * ============================================================
  * 📡 REMOTE DYNAMIC MULTI-NETWORK AD & CHROME CUSTOM TABS ENGINE
+ * Networks: Google AdMob, Unity Ads, Start.io, Adsterra Direct Link
  * ============================================================
  */
 object UnifiedAdManager {
@@ -57,7 +69,12 @@ object UnifiedAdManager {
     private const val DEFAULT_STARTIO_APP_ID = "207238360"
     private const val DEFAULT_STARTIO_PUB_ID = "113502454"
 
-    // 🎯 ৩ পেজ পর পর অ্যাড দেখানোর কনফিগারেশন
+    // 🎯 Google AdMob Official Test Unit IDs (প্লে স্টোরে দেওয়ার আগ পর্যন্ত সেফ টেস্টিং)
+    private const val DEFAULT_ADMOB_BANNER_ID = "ca-app-pub-3940256099942544/6300978111"
+    private const val DEFAULT_ADMOB_INTERSTITIAL_ID = "ca-app-pub-3940256099942544/1033173712"
+    private const val DEFAULT_ADMOB_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
+
+    // ৩ পেজ পর পর ইন্টারস্টিশিয়াল অ্যাড দেখানোর কনফিগারেশন
     private const val INTERSTITIAL_PAGE_INTERVAL = 3
     private var interstitialNavCount = 0
 
@@ -69,6 +86,13 @@ object UnifiedAdManager {
             adsEnabled = true,
             primaryNetwork = "unity",
             fallbackNetwork = "startio",
+            admob = AdMobConfig(
+                enabled = false, // প্লে স্টোরে দেওয়ার পর ব্যাকএন্ড থেকে true করা যাবে
+                appId = "ca-app-pub-3940256099942544~3347511713",
+                bannerId = DEFAULT_ADMOB_BANNER_ID,
+                interstitialId = DEFAULT_ADMOB_INTERSTITIAL_ID,
+                rewardedId = DEFAULT_ADMOB_REWARDED_ID
+            ),
             unity = UnityAdsConfig(
                 enabled = true,
                 gameId = DEFAULT_UNITY_GAME_ID,
@@ -83,17 +107,25 @@ object UnifiedAdManager {
                 publisherId = DEFAULT_STARTIO_PUB_ID
             ),
             adsterra = AdsterraConfig(enabled = true),
-            admob = AdMobConfig(enabled = false),
             rules = AdRulesConfig(timerSeconds = 10, rewardedUnlockHours = 2, freeUnlockedEpisodes = 1)
         )
     )
     val adConfigState: StateFlow<AdsConfigResponse> = _adConfigState.asStateFlow()
 
+    // Status Flags
+    private var isAdMobInitialized = false
     private var isStartIoInitialized = false
     private var isUnityInitialized = false
     private var isUnityAdLoaded = false
     private var currentStartIoAppId: String = DEFAULT_STARTIO_APP_ID
 
+    // AdMob Preloaded Ads
+    private var adMobInterstitialAd: InterstitialAd? = null
+    private var isAdMobInterstitialLoading = false
+    private var adMobRewardedAd: RewardedAd? = null
+    private var isAdMobRewardedLoading = false
+
+    // Start.io Preloaded Ads
     private var startIoInterstitialAd: StartAppAd? = null
     private var startIoRewardedAd: StartAppAd? = null
     private var isStartIoInterstitialLoading = false
@@ -103,12 +135,8 @@ object UnifiedAdManager {
     private var lastPopunderTimestamp = 0L
 
     // ============================================================
-    // 🌐 CHROME CUSTOM TABS LAUNCHER (Max CPM Engine)
+    // 🌐 CHROME CUSTOM TABS LAUNCHER (Adsterra & High CPM Smartlink)
     // ============================================================
-    /**
-     * অ্যাপের ভেতরেই প্রিমিয়াম ডার্ক স্টাইলে Google Chrome ব্রাউজার ওপেন করে।
-     * Adsterra এবং অন্যান্য অ্যাড নেটওয়ার্ক ট্র্যাফিকটিকে জেনুইন Chrome ট্র্যাফিক হিসেবে রিড করবে।
-     */
     fun openChromeCustomTab(context: Context, url: String): Boolean {
         return try {
             val cleanUrl = url.trim()
@@ -117,7 +145,6 @@ object UnifiedAdManager {
             }
             val uri = Uri.parse(cleanUrl)
 
-            // ডার্ক সিনেমাটিক থিম কালার কনফিগারেশন
             val defaultColors = CustomTabColorSchemeParams.Builder()
                 .setToolbarColor(android.graphics.Color.parseColor("#06080E"))
                 .setSecondaryToolbarColor(android.graphics.Color.parseColor("#10141E"))
@@ -131,14 +158,12 @@ object UnifiedAdManager {
                 .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
                 .build()
 
-            // 🎯 সরাসরি Chrome প্যাকেজ টার্গেট করে শতভাগ Chrome ট্র্যাফিক নিশ্চিত করা
             customTabsIntent.intent.setPackage("com.android.chrome")
             customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
             try {
                 customTabsIntent.launchUrl(context, uri)
             } catch (e: Exception) {
-                // ফোনে Chrome না থাকলে অন্য যেকোনো ব্রাউজার দিয়ে Custom Tab ওপেন হবে
                 customTabsIntent.intent.setPackage(null)
                 customTabsIntent.launchUrl(context, uri)
             }
@@ -149,10 +174,13 @@ object UnifiedAdManager {
         }
     }
 
+    // ============================================================
+    // 🚀 INITIALIZATION ENGINE
+    // ============================================================
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
         val appContext = context.applicationContext
 
-        // 🚫 Start.io Consent Popup চিরতরে বন্ধ করার জন্য গ্লোবাল পারমিশন বাইপাস
+        // Start.io Consent Popup চিরতরে বন্ধ করার পারমিশন
         try {
             val now = System.currentTimeMillis()
             StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -171,12 +199,20 @@ object UnifiedAdManager {
             return
         }
 
+        // ১. Google AdMob ইনিশিয়ালাইজেশন
+        val admobConfig = config.admob
+        if (admobConfig?.enabled == true) {
+            initAdMob(appContext)
+        }
+
+        // ২. Unity Ads ইনিশিয়ালাইজেশন
         val unityConfig = config.unity
         if (unityConfig?.enabled == true) {
             val unityGameId = unityConfig.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
             initUnityAds(context, unityGameId, unityConfig.testMode)
         }
 
+        // ৩. Start.io ইনিশিয়ালাইজেশন
         val startIoConfig = config.startio
         if (startIoConfig?.enabled == true) {
             val startIoAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
@@ -191,12 +227,25 @@ object UnifiedAdManager {
             return
         }
 
+        // AdMob রিমোট আপডেট
+        val admobConfig = newConfig.admob
+        if (admobConfig?.enabled == true) {
+            if (!isAdMobInitialized) {
+                initAdMob(context.applicationContext)
+            } else {
+                preloadAdMobInterstitial(context)
+                preloadAdMobRewarded(context)
+            }
+        }
+
+        // Unity রিমোট আপডেট
         val unityConfig = newConfig.unity
         if (unityConfig?.enabled == true) {
             val unityGameId = unityConfig.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
             initUnityAds(context, unityGameId, unityConfig.testMode)
         }
 
+        // Start.io রিমোট আপডেট
         val startIoConfig = newConfig.startio
         if (startIoConfig?.enabled == true) {
             val newAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
@@ -206,6 +255,25 @@ object UnifiedAdManager {
                 preloadInterstitial(context)
                 preloadStartIoRewarded(context)
             }
+        }
+    }
+
+    private fun initAdMob(context: Context) {
+        try {
+            if (!isAdMobInitialized) {
+                Log.d(TAG, "Initializing Google Mobile Ads (AdMob) SDK...")
+                MobileAds.initialize(context) { status ->
+                    isAdMobInitialized = true
+                    Log.i(TAG, "✓ AdMob SDK Initialized. Preloading Ads...")
+                    preloadAdMobInterstitial(context)
+                    preloadAdMobRewarded(context)
+                }
+            } else {
+                preloadAdMobInterstitial(context)
+                preloadAdMobRewarded(context)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to init AdMob SDK: ${t.message}")
         }
     }
 
@@ -238,15 +306,11 @@ object UnifiedAdManager {
         }
     }
 
-    // ============================================================
-    // 🚫 START.IO INITIALIZER (Consent Popup সম্পূর্ণ ব্লক করা হয়েছে)
-    // ============================================================
     private fun initializeStartIo(context: Context, appId: String, isVip: Boolean) {
         try {
             currentStartIoAppId = appId
             val appContext = context.applicationContext
 
-            // ১. ইনিশিয়ালাইজেশনের আগেই কনসেন্ট ফ্ল্যাগ true করা
             val now = System.currentTimeMillis()
             try {
                 StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -254,16 +318,7 @@ object UnifiedAdManager {
                 StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
             } catch (_: Throwable) {}
 
-            // ২. ৩য় প্যারামিটার false দিলে স্প্ল্যাশ এবং রিটার্ন অ্যাড বন্ধ থাকে
             StartAppSDK.init(appContext, appId, false)
-
-            // ৩. ইনিশিয়ালাইজেশনের পরও আরেকবার কনসেন্ট রেজিস্টার করা
-            try {
-                StartAppSDK.setUserConsent(appContext, "pas", now, true)
-                StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
-                StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
-            } catch (_: Throwable) {}
-
             StartAppSDK.setTestAdsEnabled(false)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
@@ -280,9 +335,8 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🎁 REWARDED VIDEO ADS (SMART MULTI-TIER REWARD ENGINE)
+    // 🎁 REWARDED VIDEO ADS (AdMob -> Unity -> Start.io -> Adsterra)
     // ============================================================
-
     fun showRewardedAd(
         activity: Activity,
         onRewardEarned: (Boolean) -> Unit
@@ -319,11 +373,15 @@ object UnifiedAdManager {
         }
 
         val primary = config.primaryNetwork.lowercase()
+        val isAdMobOn = config.admob?.enabled == true
         val isUnityOn = config.unity?.enabled == true
         val isStartIoOn = config.startio?.enabled == true
         val isAdsterraOn = config.adsterra?.enabled == true
 
         when {
+            (primary.contains("admob") && isAdMobOn) -> {
+                showAdMobRewarded(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+            }
             (primary.contains("unity") && isUnityOn) -> {
                 showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
             }
@@ -341,7 +399,10 @@ object UnifiedAdManager {
                 }
             }
             else -> {
-                if (isUnityOn) {
+                // ডিফল্ট প্রায়োরিটি ওয়াটারফল
+                if (isAdMobOn) {
+                    showAdMobRewarded(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                } else if (isUnityOn) {
                     showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 } else if (isStartIoOn) {
                     showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
@@ -362,6 +423,85 @@ object UnifiedAdManager {
         }
     }
 
+    // 🎯 AdMob Rewarded Video
+    private fun showAdMobRewarded(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val preloaded = adMobRewardedAd
+        if (preloaded != null) {
+            var earnedReward = false
+            preloaded.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdDismissedFullScreenContent() {
+                    adMobRewardedAd = null
+                    preloadAdMobRewarded(activity)
+                    if (earnedReward) {
+                        onRewardUnlocked()
+                    }
+                    onAdClosed?.invoke(earnedReward)
+                }
+
+                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                    adMobRewardedAd = null
+                    preloadAdMobRewarded(activity)
+                    fallbackFromAdMobReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                }
+            }
+
+            preloaded.show(activity) {
+                earnedReward = true
+            }
+        } else {
+            // প্রি-লোড না থাকলে সরাসরি লোড ও শো করার চেষ্টা
+            val adUnitId = _adConfigState.value.admob?.rewardedId?.takeIf { it.isNotBlank() } ?: DEFAULT_ADMOB_REWARDED_ID
+            val adRequest = AdRequest.Builder().build()
+            RewardedAd.load(activity, adUnitId, adRequest, object : RewardedAdLoadCallback() {
+                override fun onAdLoaded(rewardedAd: RewardedAd) {
+                    var earnedReward = false
+                    rewardedAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                        override fun onAdDismissedFullScreenContent() {
+                            preloadAdMobRewarded(activity)
+                            if (earnedReward) {
+                                onRewardUnlocked()
+                            }
+                            onAdClosed?.invoke(earnedReward)
+                        }
+
+                        override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                            fallbackFromAdMobReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                        }
+                    }
+                    rewardedAd.show(activity) {
+                        earnedReward = true
+                    }
+                }
+
+                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                    fallbackFromAdMobReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                }
+            })
+        }
+    }
+
+    private fun fallbackFromAdMobReward(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val config = _adConfigState.value
+        if (config.unity?.enabled == true) {
+            showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        } else if (config.startio?.enabled == true) {
+            showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        } else {
+            fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        }
+    }
+
+    // 🎮 Unity Rewarded Video
     private fun showUnityRewardedVideo(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -425,7 +565,6 @@ object UnifiedAdManager {
         }
 
         if (isUnityAdLoaded) {
-            Log.i(TAG, "Showing preloaded Unity Rewarded Ad...")
             UnityAds.show(activity, placementId, UnityAdsShowOptions(), showListener)
         } else {
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
@@ -452,20 +591,14 @@ object UnifiedAdManager {
         if (config.startio?.enabled == true) {
             showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else if (config.adsterra?.enabled == true) {
-            val opened = openAdsterraDirectLink(activity, isVip = false)
-            if (opened) {
-                onRewardUnlocked()
-                onAdClosed?.invoke(true)
-            } else {
-                onAdNotReadyOrFailed?.invoke("No ads available right now.")
-                onAdClosed?.invoke(false)
-            }
+            fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else {
             onAdNotReadyOrFailed?.invoke("Ad load failed. Please try again.")
             onAdClosed?.invoke(false)
         }
     }
 
+    // 🚀 Start.io Rewarded Video
     private fun showStartIoRewardedWithInterstitialFallback(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -621,7 +754,55 @@ object UnifiedAdManager {
         }
     }
 
-    // 🚀 প্রি-লোডার মেথডসমূহ
+    // ============================================================
+    // ⚡ PRELOADERS
+    // ============================================================
+    private fun preloadAdMobInterstitial(context: Context) {
+        val config = _adConfigState.value
+        if (!config.adsEnabled || config.admob?.enabled != true) return
+        if (isAdMobInterstitialLoading || adMobInterstitialAd != null) return
+
+        isAdMobInterstitialLoading = true
+        val adUnitId = config.admob.interstitialId?.takeIf { it.isNotBlank() } ?: DEFAULT_ADMOB_INTERSTITIAL_ID
+        val adRequest = AdRequest.Builder().build()
+
+        InterstitialAd.load(context, adUnitId, adRequest, object : InterstitialAdLoadCallback() {
+            override fun onAdLoaded(ad: InterstitialAd) {
+                isAdMobInterstitialLoading = false
+                adMobInterstitialAd = ad
+                Log.d(TAG, "✓ AdMob Interstitial Preloaded.")
+            }
+
+            override fun onAdFailedToLoad(error: LoadAdError) {
+                isAdMobInterstitialLoading = false
+                adMobInterstitialAd = null
+            }
+        })
+    }
+
+    private fun preloadAdMobRewarded(context: Context) {
+        val config = _adConfigState.value
+        if (!config.adsEnabled || config.admob?.enabled != true) return
+        if (isAdMobRewardedLoading || adMobRewardedAd != null) return
+
+        isAdMobRewardedLoading = true
+        val adUnitId = config.admob.rewardedId?.takeIf { it.isNotBlank() } ?: DEFAULT_ADMOB_REWARDED_ID
+        val adRequest = AdRequest.Builder().build()
+
+        RewardedAd.load(context, adUnitId, adRequest, object : RewardedAdLoadCallback() {
+            override fun onAdLoaded(ad: RewardedAd) {
+                isAdMobRewardedLoading = false
+                adMobRewardedAd = ad
+                Log.d(TAG, "✓ AdMob Rewarded Video Preloaded.")
+            }
+
+            override fun onAdFailedToLoad(error: LoadAdError) {
+                isAdMobRewardedLoading = false
+                adMobRewardedAd = null
+            }
+        })
+    }
+
     private fun preloadUnityRewarded(context: Context) {
         val config = _adConfigState.value
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
@@ -664,6 +845,8 @@ object UnifiedAdManager {
     }
 
     fun preloadInterstitial(context: Context) {
+        preloadAdMobInterstitial(context)
+
         val config = _adConfigState.value
         if (!config.adsEnabled || config.startio?.enabled != true) return
         if (isStartIoInterstitialLoading && startIoInterstitialAd != null) return
@@ -689,14 +872,14 @@ object UnifiedAdManager {
     }
 
     fun preloadRewardedVideo(context: Context, onLoaded: (() -> Unit)? = null, onFailed: ((String) -> Unit)? = null) {
+        preloadAdMobRewarded(context)
         preloadUnityRewarded(context)
         preloadStartIoRewarded(context)
     }
 
     // ============================================================
-    // 🌐 ADSTERRA POPUNDER & DIRECT LINK (Via Chrome Custom Tabs)
+    // 🌐 ADSTERRA POPUNDER & DIRECT LINK
     // ============================================================
-
     fun showPopunderIfEligible(context: Context, isVip: Boolean) {
         val config = _adConfigState.value
         if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) return
@@ -740,6 +923,7 @@ object UnifiedAdManager {
     fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true)
     fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
     fun isUnityPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("unity", ignoreCase = true)
+    fun isAdMobPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("admob", ignoreCase = true)
 
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
@@ -768,9 +952,8 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🎬 INTERSTITIAL ADS MEDIATION (3-PAGE INTERVAL ENGINE)
+    // 🎬 INTERSTITIAL ADS MEDIATION (AdMob -> Unity -> Start.io)
     // ============================================================
-
     fun showInterstitial(
         context: Context,
         isVip: Boolean,
@@ -796,10 +979,14 @@ object UnifiedAdManager {
         }
 
         val primary = config.primaryNetwork.lowercase()
+        val isAdMobOn = config.admob?.enabled == true
         val isUnityOn = config.unity?.enabled == true
         val isStartIoOn = config.startio?.enabled == true
 
         when {
+            (primary.contains("admob") && isAdMobOn) -> {
+                showAdMobInterstitial(activity, context, onComplete)
+            }
             (primary.contains("unity") && isUnityOn) -> {
                 showUnityInterstitial(activity, context, onComplete)
             }
@@ -807,7 +994,9 @@ object UnifiedAdManager {
                 showStartIoInterstitial(context, onComplete)
             }
             else -> {
-                if (isUnityOn) {
+                if (isAdMobOn) {
+                    showAdMobInterstitial(activity, context, onComplete)
+                } else if (isUnityOn) {
                     showUnityInterstitial(activity, context, onComplete)
                 } else if (isStartIoOn) {
                     showStartIoInterstitial(context, onComplete)
@@ -815,6 +1004,39 @@ object UnifiedAdManager {
                     onComplete()
                 }
             }
+        }
+    }
+
+    private fun showAdMobInterstitial(activity: Activity, context: Context, onComplete: () -> Unit) {
+        val ad = adMobInterstitialAd
+        if (ad != null) {
+            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdDismissedFullScreenContent() {
+                    adMobInterstitialAd = null
+                    preloadAdMobInterstitial(activity)
+                    onComplete()
+                }
+
+                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                    adMobInterstitialAd = null
+                    preloadAdMobInterstitial(activity)
+                    fallbackFromAdMobInterstitial(activity, context, onComplete)
+                }
+            }
+            ad.show(activity)
+        } else {
+            fallbackFromAdMobInterstitial(activity, context, onComplete)
+        }
+    }
+
+    private fun fallbackFromAdMobInterstitial(activity: Activity, context: Context, onComplete: () -> Unit) {
+        val config = _adConfigState.value
+        if (config.unity?.enabled == true) {
+            showUnityInterstitial(activity, context, onComplete)
+        } else if (config.startio?.enabled == true) {
+            showStartIoInterstitial(context, onComplete)
+        } else {
+            onComplete()
         }
     }
 
@@ -875,7 +1097,7 @@ object UnifiedAdManager {
 
 /**
  * ============================================================
- * 📱 UNIFIED AD BANNER COMPOSABLE
+ * 📱 UNIFIED AD BANNER COMPOSABLE (AdMob Banner -> Start.io Banner)
  * ============================================================
  */
 @Composable
@@ -885,7 +1107,15 @@ fun UnifiedAdBanner(
 ) {
     val adConfig by UnifiedAdManager.adConfigState.collectAsState()
 
-    if (isVip || !adConfig.adsEnabled || adConfig.startio?.enabled != true) {
+    if (isVip || !adConfig.adsEnabled) {
+        Spacer(modifier = Modifier.size(0.dp))
+        return
+    }
+
+    val isAdMobOn = adConfig.admob?.enabled == true
+    val isStartIoOn = adConfig.startio?.enabled == true
+
+    if (!isAdMobOn && !isStartIoOn) {
         Spacer(modifier = Modifier.size(0.dp))
         return
     }
@@ -897,36 +1127,58 @@ fun UnifiedAdBanner(
             .padding(vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(),
-            factory = { ctx ->
-                try {
-                    val activity = ctx.findActivity() ?: ctx
-                    Banner(activity).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                        setBannerListener(object : BannerListener {
-                            override fun onReceiveAd(banner: View) {}
-                            override fun onFailedToReceiveAd(banner: View) {}
-                            override fun onClick(banner: View) {}
-                            override fun onImpression(banner: View) {}
-                        })
+        if (isAdMobOn) {
+            // 🎯 Google AdMob Banner
+            val bannerId = adConfig.admob?.bannerId?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/6300978111"
+
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                factory = { ctx ->
+                    AdView(ctx).apply {
+                        setAdSize(AdSize.BANNER)
+                        adUnitId = bannerId
+                        loadAd(AdRequest.Builder().build())
                     }
-                } catch (t: Throwable) {
-                    View(ctx)
+                },
+                onRelease = { adView ->
+                    adView.destroy()
                 }
-            },
-            onRelease = { bannerView ->
-                try {
-                    if (bannerView is Banner) {
-                        bannerView.hideBanner()
+            )
+        } else if (isStartIoOn) {
+            // 🎯 Start.io Banner (Fallback)
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                factory = { ctx ->
+                    try {
+                        val activity = ctx.findActivity() ?: ctx
+                        Banner(activity).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            )
+                            setBannerListener(object : BannerListener {
+                                override fun onReceiveAd(banner: View) {}
+                                override fun onFailedToReceiveAd(banner: View) {}
+                                override fun onClick(banner: View) {}
+                                override fun onImpression(banner: View) {}
+                            })
+                        }
+                    } catch (t: Throwable) {
+                        View(ctx)
                     }
-                } catch (_: Throwable) {}
-            }
-        )
+                },
+                onRelease = { bannerView ->
+                    try {
+                        if (bannerView is Banner) {
+                            bannerView.hideBanner()
+                        }
+                    } catch (_: Throwable) {}
+                }
+            )
+        }
     }
 }
