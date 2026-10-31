@@ -104,30 +104,18 @@ class AppConfigRepository(
     }
 
     // =========================================================================
-    // 📡 REMOTE & CACHED ADS MEDIATION CONFIGURATION
+    // 📡 REMOTE & CACHED ADS CONFIGURATION (Start.io + Adsterra Clean Engine)
     // =========================================================================
 
     fun getCachedAdsConfig(): AdsConfigResponse {
         val enabled = adConfigPrefs.getBoolean("ads_enabled", true)
-        val primary = adConfigPrefs.getString("primary_network", "unity") ?: "unity"
-        val fallback = adConfigPrefs.getString("fallback_network", "startio") ?: "startio"
-
-        val unityEnabled = adConfigPrefs.getBoolean("unity_enabled", true)
-        val unityGameId = adConfigPrefs.getString("unity_game_id", "800364838") ?: "800364838"
-        val unityRewarded = adConfigPrefs.getString("unity_rewarded_id", "Rewarded_Android") ?: "Rewarded_Android"
-        val unityInterstitial = adConfigPrefs.getString("unity_interstitial_id", "Interstitial_Android") ?: "Interstitial_Android"
-        val unityBanner = adConfigPrefs.getString("unity_banner_id", "Banner_Android") ?: "Banner_Android"
-        val unityTestMode = adConfigPrefs.getBoolean("unity_test_mode", true)
+        val primary = adConfigPrefs.getString("primary_network", "startio") ?: "startio"
+        val fallback = adConfigPrefs.getString("fallback_network", "adsterra") ?: "adsterra"
 
         val startioEnabled = adConfigPrefs.getBoolean("startio_enabled", true)
         val startioAppId = adConfigPrefs.getString("startio_app_id", "207238360") ?: "207238360"
         val startioPubId = adConfigPrefs.getString("startio_pub_id", "113502454") ?: "113502454"
-
-        val admobEnabled = adConfigPrefs.getBoolean("admob_enabled", false)
-        val admobAppId = adConfigPrefs.getString("admob_app_id", null)
-        val admobBanner = adConfigPrefs.getString("admob_banner_id", null)
-        val admobInter = adConfigPrefs.getString("admob_interstitial_id", null)
-        val admobReward = adConfigPrefs.getString("admob_rewarded_id", null)
+        val startioTestMode = adConfigPrefs.getBoolean("startio_test_mode", false)
 
         val adsterraEnabled = adConfigPrefs.getBoolean("adsterra_enabled", true)
         val adsterraDirectLink = adConfigPrefs.getString("adsterra_direct_link", null)
@@ -150,25 +138,11 @@ class AppConfigRepository(
             adsEnabled = enabled,
             primaryNetwork = primary,
             fallbackNetwork = fallback,
-            unity = UnityAdsConfig(
-                enabled = unityEnabled,
-                gameId = unityGameId,
-                rewardedId = unityRewarded,
-                interstitialId = unityInterstitial,
-                bannerId = unityBanner,
-                testMode = unityTestMode
-            ),
             startio = StartIoConfig(
                 enabled = startioEnabled,
                 appId = startioAppId,
-                publisherId = startioPubId
-            ),
-            admob = AdMobConfig(
-                enabled = admobEnabled,
-                appId = admobAppId,
-                bannerId = admobBanner,
-                interstitialId = admobInter,
-                rewardedId = admobReward
+                publisherId = startioPubId,
+                testMode = startioTestMode
             ),
             adsterra = AdsterraConfig(
                 enabled = adsterraEnabled,
@@ -204,22 +178,10 @@ class AppConfigRepository(
                     putString("primary_network", body.primaryNetwork)
                     putString("fallback_network", body.fallbackNetwork)
 
-                    putBoolean("unity_enabled", body.unity?.enabled ?: true)
-                    putString("unity_game_id", body.unity?.gameId ?: "800364838")
-                    putString("unity_rewarded_id", body.unity?.rewardedId ?: "Rewarded_Android")
-                    putString("unity_interstitial_id", body.unity?.interstitialId ?: "Interstitial_Android")
-                    putString("unity_banner_id", body.unity?.bannerId ?: "Banner_Android")
-                    putBoolean("unity_test_mode", body.unity?.testMode ?: true)
-
                     putBoolean("startio_enabled", body.startio?.enabled ?: true)
                     putString("startio_app_id", body.startio?.appId ?: "207238360")
                     putString("startio_pub_id", body.startio?.publisherId ?: "113502454")
-
-                    putBoolean("admob_enabled", body.admob?.enabled ?: false)
-                    putString("admob_app_id", body.admob?.appId)
-                    putString("admob_banner_id", body.admob?.bannerId)
-                    putString("admob_interstitial_id", body.admob?.interstitialId)
-                    putString("admob_rewarded_id", body.admob?.rewardedId)
+                    putBoolean("startio_test_mode", body.startio?.testMode ?: false)
 
                     putBoolean("adsterra_enabled", body.adsterra?.enabled ?: true)
                     putString("adsterra_direct_link", body.adsterra?.directLink)
