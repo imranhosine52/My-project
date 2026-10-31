@@ -101,7 +101,9 @@ import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -174,6 +176,14 @@ fun PlayerScreen(
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
+
+    // =========================================================================
+    // 🎯 আনলক স্টেপ ও লাইভ টাইমার স্টেট (ডায়নামিক অ্যাডমিন রুলস)
+    // =========================================================================
+    var unlockCurrentStep by remember { mutableIntStateOf(0) }
+    var isUnlockTimerRunning by remember { mutableStateOf(false) }
+    var unlockRemainingSeconds by remember { mutableIntStateOf(0) }
+    var unlockTimerJob by remember { mutableStateOf<Job?>(null) }
 
     // =========================================================================
     // 🔙 ব্যাক বাটন হ্যান্ডলার
@@ -298,63 +308,114 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // ⏱️ ১ মিনিটের জন্য পর্ব আনলক রাখার রিয়েল-টাইম ইঞ্জিন
+    // 🔒 ৩. শুধুমাত্র নির্দিষ্ট একটি পর্ব একা আনলক করার নিশ্চিত ইঞ্জিন
     // =========================================================================
-    fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
+    fun unlockOnlyThisEpisode(ep: EpisodeDto) {
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // ৬০ সেকেন্ড
+        val unlockHours = UnifiedAdManager.getUnlockDurationHours()
+        val durationMs = if (unlockHours > 0) unlockHours.toLong() * 60 * 60 * 1000L else 2 * 60 * 60 * 1000L
+        val expiryTime = System.currentTimeMillis() + durationMs
+
+        // 🎯 প্রতিটি পর্বের জন্য আলাদা ইউনিক কি (যাতে অন্য পর্ব লকই থাকে)
         val storageKey = "unlock_expiry_${slug}_ep${ep.episodeNumber}"
+        prefs.edit().putLong(storageKey, expiryTime).apply()
 
-        prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
+        // শুধুমাত্র এই পর্বটির লক স্ট্যাটাস ফলস করা
         viewModel.selectEpisode(ep.copy(isLocked = false))
+        viewModel.loadDramaDetails(slug, context)
+    }
 
-        coroutineScope.launch {
-            delay(60_000L)
-            if (!isUserVip) {
-                prefs.edit().remove(storageKey).apply()
-                val currentSelected = playerState.currentEpisode
-                if (currentSelected?.episodeNumber == ep.episodeNumber) {
-                    exoPlayer.pause()
-                    viewModel.showEpisodeUnlockModal(ep.copy(isLocked = true))
-                    Toast.makeText(context, "⚠️ Episode ${ep.episodeNumber}-এর ১ মিনিটের আনলক মেয়াদ শেষ হয়েছে।", Toast.LENGTH_LONG).show()
-                }
-                viewModel.loadDramaDetails(slug, context)
+    // =========================================================================
+    // 🎯 আনলক স্টেপ সমাপ্তি ও পরবর্তী স্টেপ নিয়ন্ত্রণ
+    // =========================================================================
+    fun advanceUnlockStep(ep: EpisodeDto) {
+        val totalRequiredClicks = UnifiedAdManager.getUnlockClicksRequired()
+        unlockCurrentStep++
+
+        if (unlockCurrentStep >= totalRequiredClicks) {
+            // সমস্ত স্টেপ সফল! ডায়ালগ ক্লোজ ও শুধুই এই পর্বটি আনলক
+            unlockCurrentStep = 0
+            isUnlockTimerRunning = false
+            unlockRemainingSeconds = 0
+            unlockTimerJob?.cancel()
+
+            viewModel.dismissEpisodeUnlockModal()
+            showFireworksCelebration = true
+            unlockOnlyThisEpisode(ep)
+            Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
+        } else {
+            // পরবর্তী স্টেপ বাকি আছে
+            isUnlockTimerRunning = false
+            unlockRemainingSeconds = 0
+            Toast.makeText(context, "✓ Step $unlockCurrentStep সফল! পর্বটি আনলক করতে পরবর্তী বিজ্ঞাপন ভিজিট করুন।", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // =========================================================================
+    // ⏱️ লাইভ টাইমার কাউন্টডাউন শুরু (সার্ভার নির্ধারিত সেকেন্ড অনুযায়ী)
+    // =========================================================================
+    fun startAdsterraCountdown(ep: EpisodeDto, seconds: Int) {
+        unlockTimerJob?.cancel()
+        isUnlockTimerRunning = true
+        unlockRemainingSeconds = seconds
+
+        unlockTimerJob = coroutineScope.launch {
+            while (isActive && unlockRemainingSeconds > 0) {
+                delay(1000L)
+                unlockRemainingSeconds--
+            }
+            if (isActive) {
+                advanceUnlockStep(ep)
             }
         }
     }
 
     // =========================================================================
-    // 🎁 ১০০% নির্ভরযোগ্য রিওয়ার্ডেড অ্যাড আনলক ইঞ্জিন (Start.io -> Adsterra Fallback)
+    // 🎁 ০ সেকেন্ডে দ্রুত আনলক অ্যাকশন (Start.io ও Adsterra সার্ভার সুইচ সহ)
     // =========================================================================
     fun handleRewardedAdUnlock(ep: EpisodeDto) {
         val act = activity ?: return
         exoPlayer.pause()
 
-        UnifiedAdManager.showRewardedVideo(
-            context = act,
-            isVip = isUserVip,
-            onRewardUnlocked = {
-                viewModel.dismissEpisodeUnlockModal()
-                showFireworksCelebration = true
-                unlockEpisodeForOneMinute(ep)
-                Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
-            },
-            onAdNotReadyOrFailed = { _ ->
-                // 🎯 কোনো কারণে Start.io ভিডিও না পেলে সাথে সাথে Adsterra ডিরেক্ট স্পনসর লিংক ওপেন করা
-                UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
-                viewModel.dismissEpisodeUnlockModal()
-                showFireworksCelebration = true
-                unlockEpisodeForOneMinute(ep)
-                Toast.makeText(context, "✓ স্পনসর ভিজিটের মাধ্যমে পর্বটি আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
-            },
-            onAdClosed = { earnedReward ->
-                if (earnedReward) {
-                    viewModel.dismissEpisodeUnlockModal()
-                    showFireworksCelebration = true
-                    unlockEpisodeForOneMinute(ep)
+        val isStartIoOn = UnifiedAdManager.isStartIoEnabled()
+        val isAdsterraOn = UnifiedAdManager.isAdsterraEnabled()
+        val waitSeconds = UnifiedAdManager.getVerificationTimerSeconds()
+
+        // ১. সার্ভার থেকে দুটিই বন্ধ বা ইউজার VIP হলে সরাসরি আনলক
+        if (!isStartIoOn && !isAdsterraOn) {
+            advanceUnlockStep(ep)
+            return
+        }
+
+        // ২. Start.io অন থাকলে প্রথমে Start.io কল করা
+        if (isStartIoOn) {
+            UnifiedAdManager.showRewardedVideo(
+                context = act,
+                isVip = isUserVip,
+                onRewardUnlocked = {
+                    advanceUnlockStep(ep)
+                },
+                onAdNotReadyOrFailed = { _ ->
+                    // Start.io ফেইল করলে যদি Adsterra অন থাকে, সাথে সাথে ০ সেকেন্ডে Adsterra ওপেন
+                    if (isAdsterraOn) {
+                        UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
+                        startAdsterraCountdown(ep, waitSeconds)
+                    } else {
+                        advanceUnlockStep(ep)
+                    }
+                },
+                onAdClosed = { earnedReward ->
+                    if (earnedReward) {
+                        advanceUnlockStep(ep)
+                    }
                 }
-            }
-        )
+            )
+        } 
+        // ৩. Start.io অফ থাকলে এবং Adsterra অন থাকলে ০ সেকেন্ডে সরাসরি Adsterra ওপেন
+        else if (isAdsterraOn) {
+            UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
+            startAdsterraCountdown(ep, waitSeconds)
+        }
     }
 
     LaunchedEffect(slug) {
@@ -886,6 +947,10 @@ fun PlayerScreen(
                             shouldLockEpisodes = shouldLockEpisodes,
                             onSelectEpisode = { ep ->
                                 if (shouldLockEpisodes && ep.isLocked) {
+                                    unlockCurrentStep = 0
+                                    isUnlockTimerRunning = false
+                                    unlockRemainingSeconds = 0
+                                    unlockTimerJob?.cancel()
                                     viewModel.showEpisodeUnlockModal(ep)
                                 } else {
                                     viewModel.selectEpisode(ep)
@@ -1229,8 +1294,15 @@ fun PlayerScreen(
                                             shouldLockEpisodes = shouldLockEpisodes,
                                             onAllClick = { showAllEpisodesSheet = true },
                                             onEpisodeSelect = { ep ->
-                                                if (shouldLockEpisodes && ep.isLocked) viewModel.showEpisodeUnlockModal(ep)
-                                                else viewModel.selectEpisode(ep)
+                                                if (shouldLockEpisodes && ep.isLocked) {
+                                                    unlockCurrentStep = 0
+                                                    isUnlockTimerRunning = false
+                                                    unlockRemainingSeconds = 0
+                                                    unlockTimerJob?.cancel()
+                                                    viewModel.showEpisodeUnlockModal(ep)
+                                                } else {
+                                                    viewModel.selectEpisode(ep)
+                                                }
                                             }
                                         )
                                     }
@@ -1291,8 +1363,15 @@ fun PlayerScreen(
                                 onClose = { showAllEpisodesSheet = false },
                                 onSelectEpisode = { ep ->
                                     showAllEpisodesSheet = false
-                                    if (shouldLockEpisodes && ep.isLocked) viewModel.showEpisodeUnlockModal(ep)
-                                    else viewModel.selectEpisode(ep)
+                                    if (shouldLockEpisodes && ep.isLocked) {
+                                        unlockCurrentStep = 0
+                                        isUnlockTimerRunning = false
+                                        unlockRemainingSeconds = 0
+                                        unlockTimerJob?.cancel()
+                                        viewModel.showEpisodeUnlockModal(ep)
+                                    } else {
+                                        viewModel.selectEpisode(ep)
+                                    }
                                 }
                             )
                         }
@@ -1451,21 +1530,30 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🎯 লক পর্ব ডায়ালগ: এখানে সরাসরি Start.io ও Adsterra ফলব্যাক যুক্ত
+        // 🔒 ডায়নামিক স্টেপ ও লাইভ টাইমার সহ লক পর্ব ডায়ালগ
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
+            val totalClicks = UnifiedAdManager.getUnlockClicksRequired()
+
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
-                completedSteps = 0,
-                totalSteps = 1,
+                completedSteps = unlockCurrentStep,
+                totalSteps = totalClicks,
+                isTimerRunning = isUnlockTimerRunning,
+                remainingTimerSeconds = unlockRemainingSeconds,
                 onDismiss = {
+                    unlockTimerJob?.cancel()
+                    unlockCurrentStep = 0
+                    isUnlockTimerRunning = false
+                    unlockRemainingSeconds = 0
                     viewModel.dismissEpisodeUnlockModal()
                 },
                 onWatchAd = {
                     handleRewardedAdUnlock(lockedTarget)
                 },
                 onUpgradeVip = {
+                    unlockTimerJob?.cancel()
                     viewModel.dismissEpisodeUnlockModal()
                     onNavigateToVip()
                 }
