@@ -56,7 +56,14 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-// 🎨 টেলিগ্রাম অফিসিয়াল ডার্ক কালারস
+// 🔗 শেয়ার্ড লিংক ডেটা মডেল
+data class SharedLinkItem(
+    val url: String,
+    val senderName: String,
+    val timeFormatted: String
+)
+
+// 🎨 টেলিগ্রাম অফিসিয়াল ডার্ক কালার প্যালেট
 private val TgBgDark = Color(0xFF0E1621)
 private val TgHeaderBg = Color(0xFF17212B)
 private val TgAccentBlue = Color(0xFF2AABEE)
@@ -152,7 +159,7 @@ fun GroupDetailsScreen(
 
     val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() }.reversed() }
 
-    val sharedLinks = remember(messages) {
+    val sharedLinks: List<SharedLinkItem> = remember(messages) {
         val linkList = mutableListOf<SharedLinkItem>()
         val urlPattern = Regex("""(https?://[^\s]+|www\.[^\s]+)""")
         for (msg in messages) {
@@ -170,13 +177,17 @@ fun GroupDetailsScreen(
         linkList.reversed()
     }
 
-    val groupMembers by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
-        FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
+    val groupMembers by produceState<List<GroupMemberInfo>>(initialValue = emptyList<GroupMemberInfo>()) {
+        FirebaseChatManager.getLiveGroupMembersFlow().collect { members ->
+            value = members
+        }
     }
 
-    val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList()) {
+    val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList<BlockedUserInfo>()) {
         if (isCurrentUserOwner) {
-            FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
+            FirebaseChatManager.getLiveBlockedUsersFlow().collect { users ->
+                value = users
+            }
         } else {
             value = emptyList()
         }
@@ -219,14 +230,14 @@ fun GroupDetailsScreen(
             .background(TgBgDark)
     ) {
         // =========================================================================
-        // 📜 মূল স্ক্রোলযোগ্য কন্টেন্ট (যা হেডারসহ মসৃণভাবে উপরে উঠে যাবে)
+        // 📜 মূল স্ক্রোলযোগ্য কন্টেন্ট
         // =========================================================================
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            // ১. উপরে স্ট্যাটাস বারের নিচে পর্যাপ্ত স্পেস যেন হেডার সুন্দর দেখায়
+            // ১. স্ট্যাটাস বারের নিচে পর্যাপ্ত স্পেস
             item {
                 Spacer(modifier = Modifier.statusBarsPadding().height(48.dp))
             }
@@ -371,7 +382,7 @@ fun GroupDetailsScreen(
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            // ৫. স্টিকি ট্যাব বার (টেলিগ্রাম স্টাইল আধুনিক পিল বাটন)
+            // ৫. স্টিকি ট্যাব বার (টেলিগ্রাম স্টাইল পিল বাটন)
             stickyHeader {
                 Surface(
                     color = TgBgDark.copy(alpha = 0.96f),
@@ -425,7 +436,6 @@ fun GroupDetailsScreen(
                             }
                         }
                     } else {
-                        // টেলিগ্রামের মতো ক্লিন ইউনিফায়েড কার্ডের ভেতর মেম্বারদের লিস্ট
                         item {
                             Surface(
                                 color = TgCardBg,
@@ -720,7 +730,7 @@ fun GroupDetailsScreen(
                             EmptyTabPlaceholder("No shared links in this group")
                         }
                     } else {
-                        items(sharedLinks) { item ->
+                        items(sharedLinks) { item: SharedLinkItem ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -948,10 +958,10 @@ private fun TelegramActionButton(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(19.dp))
+            Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.height(4.dp))
             Text(text = text, color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
         }
