@@ -8,19 +8,29 @@ import androidx.compose.ui.Modifier
 /**
  * StartIoAdManager (Delegates to UnifiedAdManager)
  * ব্যাকওয়ার্ড কম্প্যাটিবিলিটি ও সহজ মেথড কলিংয়ের জন্য র্যাপার অবজেক্ট।
+ * এটি স্বয়ংক্রিয়ভাবে AdMob, Unity Ads, Start.io এবং Adsterra-এর সমন্বিত ইঞ্জিন পরিচালনা করে।
  */
 object StartIoAdManager {
     const val PUBLISHER_ID = "113502454"
     const val STARTIO_APP_ID = "207238360"
 
+    /**
+     * সমস্ত অ্যাড নেটওয়ার্ক (AdMob, Unity, Start.io) ইনিশিয়ালাইজেশন
+     */
     fun init(context: Context, isVip: Boolean = false) {
         UnifiedAdManager.init(context, isVip = isVip)
     }
 
+    /**
+     * ইন্টারস্টিশিয়াল অ্যাড প্রি-লোডার (AdMob ও Start.io ব্যাকগ্রাউন্ডে প্রি-লোড হবে)
+     */
     fun preloadInterstitial(context: Context) {
         UnifiedAdManager.preloadInterstitial(context)
     }
 
+    /**
+     * ইন্টারস্টিশিয়াল অ্যাড প্রদর্শন (AdMob -> Unity -> Start.io ওয়াটারফল)
+     */
     fun showInterstitial(
         context: Context,
         isVip: Boolean,
@@ -29,6 +39,9 @@ object StartIoAdManager {
         UnifiedAdManager.showInterstitial(context, isVip, onAdClosed)
     }
 
+    /**
+     * রিওয়ার্ডেড ভিডিও প্রি-লোডার (AdMob, Unity ও Start.io প্রি-লোড হবে)
+     */
     fun preloadRewardedVideo(
         context: Context,
         onLoaded: (() -> Unit)? = null,
@@ -40,7 +53,9 @@ object StartIoAdManager {
     fun preloadRewarded(context: Context) = preloadRewardedVideo(context)
     fun loadRewardedVideoAd(context: Context) = preloadRewardedVideo(context)
 
-    // 👈 সহজ রিওয়ার্ডেড অ্যাড কলিং
+    /**
+     * 🎁 সহজ রিওয়ার্ডেড অ্যাড কলিং (ভিডিও দেখে নাটক/এপিসোড আনলক)
+     */
     fun showRewardedAd(
         activity: Activity,
         onRewardEarned: (Boolean) -> Unit
@@ -78,10 +93,26 @@ object StartIoAdManager {
             onAdClosed = { onAdClosed() }
         )
     }
+
+    /**
+     * Adsterra পপ-আন্ডার প্রদর্শন
+     */
+    fun showPopunderIfEligible(context: Context, isVip: Boolean) {
+        UnifiedAdManager.showPopunderIfEligible(context, isVip)
+    }
+
+    /**
+     * Adsterra / স্মার্টলিংক ডিরেক্ট লিঙ্ক ওপেনার
+     */
+    fun openSmartlink(context: Context, isVip: Boolean): Boolean {
+        return UnifiedAdManager.openSmartlink(context, isVip)
+    }
 }
 
 /**
  * StartAppBanner backward-compatible wrapper
+ * পুরোনো যেসকল স্ক্রিনে StartAppBanner কল করা আছে, সেখানে স্বয়ংক্রিয়ভাবে
+ * AdMob ব্যানার এবং না পেলে ফলব্যাক হিসেবে Start.io ব্যানার রেন্ডার হবে।
  */
 @Composable
 fun StartAppBanner(
