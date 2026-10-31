@@ -178,16 +178,14 @@ fun PlayerScreen(
     var threadReplyText by remember { mutableStateOf("") }
 
     // =========================================================================
-    // 🎯 আনলক স্টেপ ও লাইভ টাইমার স্টেট (ডায়নামিক অ্যাডমিন রুলস)
+    // 🎯 Dynamic Step, Timer & Single-Episode Session Lock States
     // =========================================================================
+    var activeUnlockedEpisodeNumber by rememberSaveable(slug) { mutableStateOf<Int?>(null) }
     var unlockCurrentStep by remember { mutableIntStateOf(0) }
     var isUnlockTimerRunning by remember { mutableStateOf(false) }
     var unlockRemainingSeconds by remember { mutableIntStateOf(0) }
     var unlockTimerJob by remember { mutableStateOf<Job?>(null) }
 
-    // =========================================================================
-    // 🔙 ব্যাক বাটন হ্যান্ডলার
-    // =========================================================================
     fun handleBackNavigation() {
         when {
             isAnyFullscreen || isDeviceLandscape -> {
@@ -212,7 +210,7 @@ fun PlayerScreen(
             onNavigateHome = { onBackClick() },
             onNavigateSearch = { onBackClick() },
             onBackClick = { handleBackNavigation() },
-            customMessage = "আপনি যে ড্রামা বা ভিডিওটি দেখতে চেয়েছেন তা সার্ভারে পাওয়া যায়নি অথবা মুছে ফেলা হয়েছে।"
+            customMessage = "The requested drama or video could not be found or has been removed."
         )
         return
     }
@@ -269,6 +267,43 @@ fun PlayerScreen(
 
     var showFireworksCelebration by remember { mutableStateOf(false) }
 
+    val lastWatchedEpPrefs = remember {
+        context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
+    }
+
+    val savedEpisodeNumber = remember(slug) {
+        lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
+    }
+
+    // 🎯 Dynamic Episode List: Only default free or currently unlocked episode remains open
+    val freeEpisodesCount = remember(adConfig.rules) {
+        UnifiedAdManager.getFreeUnlockedEpisodesCount()
+    }
+
+    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes, activeUnlockedEpisodeNumber, isUserVip, freeEpisodesCount) {
+        val baseList = if (playerState.episodes.isNotEmpty()) playerState.episodes else {
+            (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
+                EpisodeDto(episodeNumber = num, isLocked = num > freeEpisodesCount)
+            }
+        }
+
+        if (isUserVip) {
+            baseList.map { it.copy(isLocked = false) }
+        } else {
+            baseList.map { ep ->
+                val isDefaultFree = ep.episodeNumber <= freeEpisodesCount
+                val isCurrentlyActiveUnlocked = (ep.episodeNumber == activeUnlockedEpisodeNumber)
+                val locked = !isDefaultFree && !isCurrentlyActiveUnlocked
+                ep.copy(isLocked = locked)
+            }
+        }
+    }
+
+    val currentEp = remember(playerState.currentEpisode, effectiveEpisodes, savedEpisodeNumber) {
+        val targetNum = playerState.currentEpisode?.episodeNumber?.takeIf { it > 0 } ?: savedEpisodeNumber
+        effectiveEpisodes.find { it.episodeNumber == targetNum } ?: effectiveEpisodes.firstOrNull()
+    }
+
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -308,32 +343,31 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🔒 ৩. শুধুমাত্র নির্দিষ্ট একটি পর্ব একা আনলক করার নিশ্চিত ইঞ্জিন
+    // 🔒 Unlock Specific Episode Directly Without Resetting to Ep 1
     // =========================================================================
     fun unlockOnlyThisEpisode(ep: EpisodeDto) {
+        // Clear any old legacy cache
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        val unlockHours = UnifiedAdManager.getUnlockDurationHours()
-        val durationMs = if (unlockHours > 0) unlockHours.toLong() * 60 * 60 * 1000L else 2 * 60 * 60 * 1000L
-        val expiryTime = System.currentTimeMillis() + durationMs
+        prefs.edit().clear().apply()
 
-        // 🎯 প্রতিটি পর্বের জন্য আলাদা ইউনিক কি (যাতে অন্য পর্ব লকই থাকে)
-        val storageKey = "unlock_expiry_${slug}_ep${ep.episodeNumber}"
-        prefs.edit().putLong(storageKey, expiryTime).apply()
+        // 🎯 1. Mark this exact episode as currently unlocked
+        activeUnlockedEpisodeNumber = ep.episodeNumber
 
-        // শুধুমাত্র এই পর্বটির লক স্ট্যাটাস ফলস করা
-        viewModel.selectEpisode(ep.copy(isLocked = false))
-        viewModel.loadDramaDetails(slug, context)
+        // 🎯 2. Save current episode as last watched
+        if (ep.episodeNumber > 0) {
+            lastWatchedEpPrefs.edit().putInt("last_ep_$slug", ep.episodeNumber).apply()
+        }
+
+        // 🎯 3. Directly select the unlocked episode in viewModel without reloading details from network
+        val unlockedEpisode = ep.copy(isLocked = false)
+        viewModel.selectEpisode(unlockedEpisode)
     }
 
-    // =========================================================================
-    // 🎯 আনলক স্টেপ সমাপ্তি ও পরবর্তী স্টেপ নিয়ন্ত্রণ
-    // =========================================================================
     fun advanceUnlockStep(ep: EpisodeDto) {
         val totalRequiredClicks = UnifiedAdManager.getUnlockClicksRequired()
         unlockCurrentStep++
 
         if (unlockCurrentStep >= totalRequiredClicks) {
-            // সমস্ত স্টেপ সফল! ডায়ালগ ক্লোজ ও শুধুই এই পর্বটি আনলক
             unlockCurrentStep = 0
             isUnlockTimerRunning = false
             unlockRemainingSeconds = 0
@@ -342,18 +376,18 @@ fun PlayerScreen(
             viewModel.dismissEpisodeUnlockModal()
             showFireworksCelebration = true
             unlockOnlyThisEpisode(ep)
-            Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Episode ${ep.episodeNumber} unlocked!", Toast.LENGTH_SHORT).show()
         } else {
-            // পরবর্তী স্টেপ বাকি আছে
             isUnlockTimerRunning = false
             unlockRemainingSeconds = 0
-            Toast.makeText(context, "✓ Step $unlockCurrentStep সফল! পর্বটি আনলক করতে পরবর্তী বিজ্ঞাপন ভিজিট করুন।", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                "Step $unlockCurrentStep of $totalRequiredClicks completed. Visit the next sponsor to unlock.",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
-    // =========================================================================
-    // ⏱️ লাইভ টাইমার কাউন্টডাউন শুরু (সার্ভার নির্ধারিত সেকেন্ড অনুযায়ী)
-    // =========================================================================
     fun startAdsterraCountdown(ep: EpisodeDto, seconds: Int) {
         unlockTimerJob?.cancel()
         isUnlockTimerRunning = true
@@ -370,9 +404,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎁 ০ সেকেন্ডে দ্রুত আনলক অ্যাকশন (Start.io ও Adsterra সার্ভার সুইচ সহ)
-    // =========================================================================
     fun handleRewardedAdUnlock(ep: EpisodeDto) {
         val act = activity ?: return
         exoPlayer.pause()
@@ -381,13 +412,11 @@ fun PlayerScreen(
         val isAdsterraOn = UnifiedAdManager.isAdsterraEnabled()
         val waitSeconds = UnifiedAdManager.getVerificationTimerSeconds()
 
-        // ১. সার্ভার থেকে দুটিই বন্ধ বা ইউজার VIP হলে সরাসরি আনলক
         if (!isStartIoOn && !isAdsterraOn) {
             advanceUnlockStep(ep)
             return
         }
 
-        // ২. Start.io অন থাকলে প্রথমে Start.io কল করা
         if (isStartIoOn) {
             UnifiedAdManager.showRewardedVideo(
                 context = act,
@@ -396,7 +425,6 @@ fun PlayerScreen(
                     advanceUnlockStep(ep)
                 },
                 onAdNotReadyOrFailed = { _ ->
-                    // Start.io ফেইল করলে যদি Adsterra অন থাকে, সাথে সাথে ০ সেকেন্ডে Adsterra ওপেন
                     if (isAdsterraOn) {
                         UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
                         startAdsterraCountdown(ep, waitSeconds)
@@ -410,11 +438,33 @@ fun PlayerScreen(
                     }
                 }
             )
-        } 
-        // ৩. Start.io অফ থাকলে এবং Adsterra অন থাকলে ০ সেকেন্ডে সরাসরি Adsterra ওপেন
-        else if (isAdsterraOn) {
+        } else if (isAdsterraOn) {
             UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
             startAdsterraCountdown(ep, waitSeconds)
+        }
+    }
+
+    // =========================================================================
+    // 🎯 Switch Episode Engine: Auto Relock Previous Episode
+    // =========================================================================
+    fun switchEpisodeWithRelock(targetEp: EpisodeDto) {
+        // If moving to another episode, immediately revoke unlock of previous episode
+        if (activeUnlockedEpisodeNumber != targetEp.episodeNumber) {
+            activeUnlockedEpisodeNumber = null
+        }
+
+        val isDefaultFree = targetEp.episodeNumber <= freeEpisodesCount
+        if (shouldLockEpisodes && !isDefaultFree && activeUnlockedEpisodeNumber != targetEp.episodeNumber) {
+            unlockCurrentStep = 0
+            isUnlockTimerRunning = false
+            unlockRemainingSeconds = 0
+            unlockTimerJob?.cancel()
+            viewModel.showEpisodeUnlockModal(targetEp.copy(isLocked = true))
+        } else {
+            if (targetEp.episodeNumber > 0) {
+                lastWatchedEpPrefs.edit().putInt("last_ep_$slug", targetEp.episodeNumber).apply()
+            }
+            viewModel.selectEpisode(targetEp)
         }
     }
 
@@ -447,8 +497,8 @@ fun PlayerScreen(
         val serverTexts = serverComments.map { it.commentText.trim() }.toSet()
         val uniquePendingOptimistic = persistentDramaComments.filter {
             (it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_") || it.id.startsWith("temp_text_")) &&
-            it.id !in deletedCommentIds &&
-            it.commentText.trim() !in serverTexts
+                    it.id !in deletedCommentIds &&
+                    it.commentText.trim() !in serverTexts
         }
 
         persistentDramaComments.clear()
@@ -498,26 +548,6 @@ fun PlayerScreen(
 
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
-
-    val lastWatchedEpPrefs = remember {
-        context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
-    }
-
-    val savedEpisodeNumber = remember(slug) {
-        lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
-    }
-
-    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
-        if (playerState.episodes.isNotEmpty()) playerState.episodes else {
-            (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
-                EpisodeDto(episodeNumber = num, isLocked = num > 1)
-            }
-        }
-    }
-
-    val currentEp = playerState.currentEpisode?.takeIf { it.episodeNumber > 0 }
-        ?: effectiveEpisodes.find { it.episodeNumber == savedEpisodeNumber }
-        ?: effectiveEpisodes.firstOrNull()
 
     LaunchedEffect(slug, currentEp?.episodeNumber) {
         val epNum = currentEp?.episodeNumber ?: 1
@@ -650,9 +680,7 @@ fun PlayerScreen(
                     val currentNum = currentEp?.episodeNumber ?: 1
                     val nextEpisode = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
                     if (nextEpisode != null) {
-                        viewModel.selectEpisode(nextEpisode)
-                    } else {
-                        viewModel.playNextEpisode()
+                        switchEpisodeWithRelock(nextEpisode)
                     }
                 }
             }
@@ -785,18 +813,18 @@ fun PlayerScreen(
         val currentDub = content.dubBadge.lowercase()
 
         val allPool = (
-            playerState.recommendations +
-            homeState.popularDramas +
-            homeState.recentlyAdded +
-            homeState.dramaSeriesContent +
-            homeState.trendingDramas +
-            homeState.banglaDubbed +
-            homeState.hindiDubbed
-        ).distinctBy { it.slug }
+                playerState.recommendations +
+                        homeState.popularDramas +
+                        homeState.recentlyAdded +
+                        homeState.dramaSeriesContent +
+                        homeState.trendingDramas +
+                        homeState.banglaDubbed +
+                        homeState.hindiDubbed
+                ).distinctBy { it.slug }
             .filter { drama ->
                 drama.slug != slug &&
-                !drama.isShorts &&
-                !drama.slug.contains("shorts", ignoreCase = true)
+                        !drama.isShorts &&
+                        !drama.slug.contains("shorts", ignoreCase = true)
             }
 
         val sortedSimilar = allPool.sortedByDescending { drama ->
@@ -872,7 +900,7 @@ fun PlayerScreen(
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =============================================================
-                // 📺 ১. ভিডিও প্লেয়ার ফ্রেম
+                // 📺 Video Player Frame
                 // =============================================================
                 Box(
                     modifier = if (isAnyFullscreen) {
@@ -946,23 +974,13 @@ fun PlayerScreen(
                             episodes = effectiveEpisodes,
                             shouldLockEpisodes = shouldLockEpisodes,
                             onSelectEpisode = { ep ->
-                                if (shouldLockEpisodes && ep.isLocked) {
-                                    unlockCurrentStep = 0
-                                    isUnlockTimerRunning = false
-                                    unlockRemainingSeconds = 0
-                                    unlockTimerJob?.cancel()
-                                    viewModel.showEpisodeUnlockModal(ep)
-                                } else {
-                                    viewModel.selectEpisode(ep)
-                                }
+                                switchEpisodeWithRelock(ep)
                             },
                             onNextEpisode = {
                                 val currentNum = currentEp?.episodeNumber ?: 1
                                 val nextEp = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
                                 if (nextEp != null) {
-                                    viewModel.selectEpisode(nextEp)
-                                } else {
-                                    viewModel.playNextEpisode()
+                                    switchEpisodeWithRelock(nextEp)
                                 }
                             },
                             onSendComment = { text ->
@@ -1003,7 +1021,7 @@ fun PlayerScreen(
                 }
 
                 // =============================================================
-                // 🔄 ২. ভিডিও ফ্রেমের নিচের অংশ (পোর্ট্রেট মোড)
+                // 🔄 Portrait Details & Comments Section
                 // =============================================================
                 if (!isAnyFullscreen) {
                     Box(
@@ -1199,7 +1217,7 @@ fun PlayerScreen(
                                         viewModel.refreshComments()
                                         delay(600)
                                         isRefreshing = false
-                                        Toast.makeText(context, "✓ Updated to latest episodes & links!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Updated to latest episodes and links!", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 state = pullRefreshState,
@@ -1261,8 +1279,16 @@ fun PlayerScreen(
                                                 isDescriptionExpanded = isDescriptionExpanded,
                                                 myReaction = playerState.myReaction,
                                                 reactions = playerState.reactions,
-                                                onPreviousClick = { viewModel.playPreviousEpisode() },
-                                                onNextClick = { viewModel.playNextEpisode() },
+                                                onPreviousClick = {
+                                                    val currentNum = currentEp?.episodeNumber ?: 1
+                                                    val prevEp = effectiveEpisodes.find { it.episodeNumber == currentNum - 1 }
+                                                    if (prevEp != null) switchEpisodeWithRelock(prevEp)
+                                                },
+                                                onNextClick = {
+                                                    val currentNum = currentEp?.episodeNumber ?: 1
+                                                    val nextEp = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
+                                                    if (nextEp != null) switchEpisodeWithRelock(nextEp)
+                                                },
                                                 onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
                                                 onLikeClick = {
                                                     if (!isUserLoggedIn) showAuthSheet = true
@@ -1294,15 +1320,7 @@ fun PlayerScreen(
                                             shouldLockEpisodes = shouldLockEpisodes,
                                             onAllClick = { showAllEpisodesSheet = true },
                                             onEpisodeSelect = { ep ->
-                                                if (shouldLockEpisodes && ep.isLocked) {
-                                                    unlockCurrentStep = 0
-                                                    isUnlockTimerRunning = false
-                                                    unlockRemainingSeconds = 0
-                                                    unlockTimerJob?.cancel()
-                                                    viewModel.showEpisodeUnlockModal(ep)
-                                                } else {
-                                                    viewModel.selectEpisode(ep)
-                                                }
+                                                switchEpisodeWithRelock(ep)
                                             }
                                         )
                                     }
@@ -1363,15 +1381,7 @@ fun PlayerScreen(
                                 onClose = { showAllEpisodesSheet = false },
                                 onSelectEpisode = { ep ->
                                     showAllEpisodesSheet = false
-                                    if (shouldLockEpisodes && ep.isLocked) {
-                                        unlockCurrentStep = 0
-                                        isUnlockTimerRunning = false
-                                        unlockRemainingSeconds = 0
-                                        unlockTimerJob?.cancel()
-                                        viewModel.showEpisodeUnlockModal(ep)
-                                    } else {
-                                        viewModel.selectEpisode(ep)
-                                    }
+                                    switchEpisodeWithRelock(ep)
                                 }
                             )
                         }
@@ -1397,7 +1407,7 @@ fun PlayerScreen(
                                     }
                                     Toast.makeText(
                                         context,
-                                        "📥 Download started for ${selectedList.size} episodes!",
+                                        "Download started for ${selectedList.size} episodes!",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -1530,7 +1540,7 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🔒 ডায়নামিক স্টেপ ও লাইভ টাইমার সহ লক পর্ব ডায়ালগ
+        // 🔒 Locked Episode Modal with Dynamic Steps and Live Countdown
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
