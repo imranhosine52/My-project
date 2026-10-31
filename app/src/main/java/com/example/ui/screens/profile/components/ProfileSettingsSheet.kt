@@ -25,7 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.screens.AdDiagnosticsDialog
+import com.example.ads.UnifiedAdManager
 import com.example.util.WelcomeNotificationHelper
 import java.io.File
 import java.util.Locale
@@ -35,7 +35,7 @@ private val TelegramBlue = Color(0xFF2AABEE)
 private val GoldVip = Color(0xFFFFB300)
 
 /**
- * ⚙️ সেটিংস, পুশ নোটিফিকেশন, সিক্রেট ডেভেলপার মোড ও ক্যাশ ক্লিয়ার বটম শীট
+ * ⚙️ সেটিংস, পুশ নোটিফিকেশন ও ক্যাশ ক্লিয়ার বটম শীট
  */
 @Composable
 fun ProfileSettingsSheet(
@@ -51,10 +51,9 @@ fun ProfileSettingsSheet(
         mutableStateOf(notifPrefs.getBoolean("push_notifications_enabled", true))
     }
 
-    // 🕵️‍♂️ সিক্রেট ডেভেলপার মোড স্টেট (পরপর ৭ বার ট্যাপ ট্র্যাকার)
+    // 🕵️‍♂️ কোনো অতিরিক্ত ফাইল ছাড়া সরাসরি টেস্ট করার ৭-ট্যাপ ট্র্যাকার
     var devTapCount by remember { mutableIntStateOf(0) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
-    var showAdDiagnosticsDialog by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -106,7 +105,7 @@ fun ProfileSettingsSheet(
                 }
             }
 
-            // ১. অ্যাপ ভার্সন ও আপডেট স্ক্যানার কার্ড (যেখানে গোপন ৭-বার ট্যাপ ট্রিকার আছে)
+            // ১. অ্যাপ ভার্সন ও আপডেট স্ক্যানার কার্ড (এখানেই ৭ বার ট্যাপ করলে সরাসরি অ্যাড টেস্ট হবে)
             ModernMenuGroupCard {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -116,7 +115,6 @@ fun ProfileSettingsSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                // 🎯 পরপর দ্রুত ৭ বার ট্যাপ লজিক
                                 val currentTime = System.currentTimeMillis()
                                 if (currentTime - lastTapTime < 800) {
                                     devTapCount++
@@ -128,17 +126,20 @@ fun ProfileSettingsSheet(
                                 if (devTapCount in 3..6) {
                                     Toast.makeText(
                                         context,
-                                        "You are ${7 - devTapCount} steps away from Developer Ad Mode",
+                                        "Ad test in ${7 - devTapCount} taps...",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 } else if (devTapCount >= 7) {
                                     devTapCount = 0
-                                    showAdDiagnosticsDialog = true
                                     Toast.makeText(
                                         context,
-                                        "🛠️ Developer Ad Diagnostics Activated!",
+                                        "Testing Live Ad (AdMob / Unity / Start.io)...",
                                         Toast.LENGTH_SHORT
                                     ).show()
+                                    // 🎯 কোনো বাড়তি ফাইল ছাড়াই সরাসরি লাইভ অ্যাড প্রদর্শন
+                                    UnifiedAdManager.showInterstitial(context, isVip = false) {
+                                        Toast.makeText(context, "✓ Ad completed / closed", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             },
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -255,7 +256,6 @@ fun ProfileSettingsSheet(
 
                 HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
 
-                // আসল ক্যাশ ক্লিয়ার ইঞ্জিন (রিয়েল মেমোরি রিলিজ)
                 ModernMenuRowItem(
                     icon = Icons.Default.CleaningServices,
                     title = "Clear Cache & Media",
@@ -276,13 +276,6 @@ fun ProfileSettingsSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
         }
-    }
-
-    // 🛠️ সিক্রেট ৭-ট্যাপ ডায়ালগ খোলা
-    if (showAdDiagnosticsDialog) {
-        AdDiagnosticsDialog(
-            onDismiss = { showAdDiagnosticsDialog = false }
-        )
     }
 }
 
