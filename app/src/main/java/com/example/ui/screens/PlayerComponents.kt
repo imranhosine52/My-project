@@ -507,14 +507,14 @@ fun CompactUnlockEpisodeDialog(
                     else -> "Visit Sponsor Ad to Unlock"
                 }
 
-                // ১. বিজ্ঞাপন বাটন (০ সেকেন্ডে দ্রুত অ্যাকশন)
+                // ১. বিজ্ঞাপন বাটন (সংশোধিত SolidColor ব্রাশ সহ)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(42.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(
-                            if (isTimerRunning) Color(0xFF162330)
+                            if (isTimerRunning) SolidColor(Color(0xFF162330))
                             else BlueGreenGradientBrush
                         )
                         .clickable(enabled = !isTimerRunning) { onWatchAd() },
@@ -825,7 +825,7 @@ fun ModernCommentRowItem(
         val myUid = currentUserId?.trim()
 
         (!myUid.isNullOrBlank() && !cUserId.isNullOrBlank() && cUserId == myUid) ||
-        (!currentUserName.isNullOrBlank() && name.trim().equals(currentUserName.trim(), ignoreCase = true))
+                (!currentUserName.isNullOrBlank() && name.trim().equals(currentUserName.trim(), ignoreCase = true))
     }
 
     val resolvedAvatar = remember(comment.avatarUrl, comment.userAvatar, currentUserAvatar, isMe) {
@@ -893,7 +893,7 @@ fun ModernCommentRowItem(
                         Box(
                             modifier = Modifier
                                 .size(130.dp)
-                                .clip(RoundedCornerShape(8.dp)
+                                .clip(RoundedCornerShape(8.dp)) // ✅ ফিক্সড ব্র্যাকেট
                         ) {
                             CommentVideoStickerPlayer(
                                 videoUrl = text,
@@ -1230,7 +1230,7 @@ fun CommentRepliesThreadView(
                                 tint = if (parentComment.isLiked) Color(0xFFFF4B72) else Color(0xFF94A3B8),
                                 modifier = Modifier.size(16.dp)
                             )
-                            Text("${parentComment.likesCount.coerceAtLeast(1)}", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                            Text("${parentComment.likesCount.coerceAtLeast(0)}", color = Color(0xFF94A3B8), fontSize = 12.sp)
                         }
 
                         Row(
