@@ -113,7 +113,7 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   
-  // 🌐 Chrome Custom Tabs (High CPM Ads & Links Engine)
+  // 🌐 Chrome Custom Tabs (High CPM Adsterra Links Engine)
   implementation("androidx.browser:browser:1.8.0")
 
   // 🚀 WorkManager (Background Video & Reel Uploads)
@@ -144,12 +144,6 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.retrofit)
-
-  // 🎯 Google Mobile Ads (AdMob) SDK
-  implementation("com.google.android.gms:play-services-ads:23.6.0")
-
-  // 🎮 Unity Ads SDK
-  implementation("com.unity3d.ads:unity-ads:4.12.5")
 
   // 🧪 Testing
   testImplementation(libs.androidx.compose.ui.test.junit4)
