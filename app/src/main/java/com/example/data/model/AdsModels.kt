@@ -31,7 +31,9 @@ data class AdsterraConfig(
 
 @JsonClass(generateAdapter = true)
 data class AdRulesConfig(
-    @Json(name = "timer_seconds") val timerSeconds: Int = 10,
+    @Json(name = "timer_seconds") val timerSeconds: Int = 5,
+    @Json(name = "ad_wait_seconds") val adWaitSeconds: Int = 5,
+    @Json(name = "unlock_clicks_required") val unlockClicksRequired: Int = 1,
     @Json(name = "rewarded_unlock_hours") val rewardedUnlockHours: Int = 2,
     @Json(name = "free_unlocked_episodes") val freeUnlockedEpisodes: Int = 1
 )
