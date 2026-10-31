@@ -40,7 +40,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,7 +61,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -304,13 +302,12 @@ fun PlayerScreen(
     // =========================================================================
     fun unlockEpisodeForOneMinute(ep: EpisodeDto) {
         val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // ঠিক ৬০ সেকেন্ড (১ মিনিট)
+        val oneMinuteExpiry = System.currentTimeMillis() + (60 * 1000L) // ৬০ সেকেন্ড
         val storageKey = "unlock_expiry_${slug}_ep${ep.episodeNumber}"
 
         prefs.edit().putLong(storageKey, oneMinuteExpiry).apply()
         viewModel.selectEpisode(ep.copy(isLocked = false))
 
-        // ঠিক ১ মিনিট পর স্বয়ংক্রিয়ভাবে পর্বটি আবার লক করা
         coroutineScope.launch {
             delay(60_000L)
             if (!isUserVip) {
@@ -327,7 +324,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎁 রিওয়ার্ডেড অ্যাড কলিং (AdMob ➔ Unity ➔ Start.io ➔ Adsterra)
+    // 🎁 ১০০% নির্ভরযোগ্য রিওয়ার্ডেড অ্যাড আনলক ইঞ্জিন (Start.io -> Adsterra Fallback)
     // =========================================================================
     fun handleRewardedAdUnlock(ep: EpisodeDto) {
         val act = activity ?: return
@@ -340,22 +337,20 @@ fun PlayerScreen(
                 viewModel.dismissEpisodeUnlockModal()
                 showFireworksCelebration = true
                 unlockEpisodeForOneMinute(ep)
-                Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} ১ মিনিটের জন্য আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "🎉 Episode ${ep.episodeNumber} আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
             },
-            onAdNotReadyOrFailed = { reason ->
-                // ভিডিও অ্যাড লোড না হলে ব্যাকআপ হিসেবে Adsterra স্পনসর ওপেন করা
-                val opened = UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
-                if (opened) {
-                    viewModel.dismissEpisodeUnlockModal()
-                    showFireworksCelebration = true
-                    unlockEpisodeForOneMinute(ep)
-                    Toast.makeText(context, "✓ স্পনসর ভিজিটের মাধ্যমে পর্বটি ১ মিনিটের জন্য আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "বিজ্ঞাপন পাওয়া যায়নি: $reason", Toast.LENGTH_SHORT).show()
-                }
+            onAdNotReadyOrFailed = { _ ->
+                // 🎯 কোনো কারণে Start.io ভিডিও না পেলে সাথে সাথে Adsterra ডিরেক্ট স্পনসর লিংক ওপেন করা
+                UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
+                viewModel.dismissEpisodeUnlockModal()
+                showFireworksCelebration = true
+                unlockEpisodeForOneMinute(ep)
+                Toast.makeText(context, "✓ স্পনসর ভিজিটের মাধ্যমে পর্বটি আনলক হয়েছে!", Toast.LENGTH_SHORT).show()
             },
             onAdClosed = { earnedReward ->
                 if (earnedReward) {
+                    viewModel.dismissEpisodeUnlockModal()
+                    showFireworksCelebration = true
                     unlockEpisodeForOneMinute(ep)
                 }
             }
@@ -1456,7 +1451,7 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🎯 লক পর্ব ডায়ালগ: এখানে সরাসরি রিওয়ার্ডেড ভিডিও অ্যাড কল করা হচ্ছে
+        // 🎯 লক পর্ব ডায়ালগ: এখানে সরাসরি Start.io ও Adsterra ফলব্যাক যুক্ত
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
