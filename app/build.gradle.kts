@@ -1,4 +1,4 @@
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import com.google.gms.googServices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
   alias(libs.plugins.android.application)
@@ -144,6 +144,9 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.retrofit)
+
+  // 🎯 Google Mobile Ads (AdMob) SDK (লেটেস্ট ও সুরক্ষিত সংস্করণ)
+  implementation("com.google.android.gms:play-services-ads:23.6.0")
 
   // 🎮 Unity Ads SDK
   implementation("com.unity3d.ads:unity-ads:4.12.5")
