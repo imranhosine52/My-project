@@ -11,7 +11,6 @@ import android.net.Uri
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,8 +61,8 @@ import com.example.util.FirebaseChatManager
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-// 🎨 টেলিগ্রাম ডার্ক থিম কালারসমূহ
-private val TelegramBubbleReceived = Color(0xFF18222D)
+// 🎨 টেলিগ্রাম অফিসিয়াল বাবল কালারস
+private val TelegramBubbleReceived = Color(0xFF182533)
 private val TelegramBubbleSent = Color(0xFF2B5278)
 private val TelegramSenderNameColor = Color(0xFF5288C1)
 private val TimestampMuted = Color(0xFF8E9BA8)
@@ -287,7 +286,7 @@ fun WhatsAppMessageBubble(
             Spacer(modifier = Modifier.width(6.dp))
         }
 
-        // 🧸 ২. মেসেজ বাবল
+        // 🧸 ২. স্টিকার বা GIF বাবল
         if (isPureStickerOrGif && !singleStickerUrl.isNullOrBlank()) {
             Box(
                 modifier = Modifier
@@ -345,17 +344,17 @@ fun WhatsAppMessageBubble(
                 }
             }
         } else {
-            // 💬 সাধারণ টেক্সট বা মিডিয়া বাবল
+            // 💬 টেলিগ্রাম স্টাইল মডার্ন মেসেজ বাবল
             Surface(
                 shape = RoundedCornerShape(
-                    topStart = 14.dp,
-                    topEnd = 14.dp,
-                    bottomStart = if (isMe) 14.dp else 3.dp,
-                    bottomEnd = if (isMe) 3.dp else 14.dp
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (isMe) 16.dp else 4.dp,
+                    bottomEnd = if (isMe) 4.dp else 16.dp
                 ),
                 color = if (isMe) TelegramBubbleSent else TelegramBubbleReceived,
                 modifier = Modifier
-                    .widthIn(min = 50.dp, max = 285.dp)
+                    .widthIn(min = 60.dp, max = 295.dp)
                     .combinedClickable(
                         onClick = { if (isSelectionMode) onClick() },
                         onLongClick = onLongClick
@@ -364,21 +363,21 @@ fun WhatsAppMessageBubble(
                 Column(
                     modifier = Modifier
                         .wrapContentSize()
-                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
                 ) {
 
                     if (message.isPinned) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(bottom = 2.dp)
+                            modifier = Modifier.padding(bottom = 3.dp)
                         ) {
                             Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = Color(0xFFFFB300), modifier = Modifier.size(11.dp))
                             Text("Pinned Message", color = Color(0xFFFFB300), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    // 👑 ৩. ওনারের মেসেজের ওপর ব্যাকগ্রাউন্ড/আইকন ছাড়া শুধু ছোট করে 'owner' লেখা
+                    // 👑 ওনার ব্যাজ
                     if (isMessageOwner) {
                         Text(
                             text = "owner",
@@ -389,17 +388,17 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // 👤 অন্য ইউজারের নাম ও ভিআইপি ক্রাউন
+                    // 👤 নাম ও ভিআইপি ব্যাজ
                     if (!isMe) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(bottom = 2.dp)
+                            modifier = Modifier.padding(bottom = 3.dp)
                         ) {
                             Text(
                                 text = message.senderName,
                                 color = if (isMessageOwner) GoldenOwnerText else TelegramSenderNameColor,
-                                fontSize = 12.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
 
@@ -443,13 +442,20 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(3.dp))
                     }
 
-                    // 🖼️ ইমেজ কোলাজ
+                    // 🖼️ স্মার্ট ইমেজ ডিসপ্লে (একক ছবিতে অটো TikTok 9:16 বা YouTube 16:9 রেশিও)
                     if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
-                        ChatImageCollage(images = allImages, onImageClick = onImageClick)
+                        if (allImages.size == 1) {
+                            TelegramSmartRatioImage(
+                                imageUrl = allImages.first(),
+                                onImageClick = { onImageClick(allImages.first()) }
+                            )
+                        } else {
+                            ChatImageCollage(images = allImages, onImageClick = onImageClick)
+                        }
                         Spacer(modifier = Modifier.height(3.dp))
                     }
 
-                    // 🎬 ভিডিও মেসেজ
+                    // 🎬 ভিডিও মেসেজ বাবল
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -459,7 +465,7 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(3.dp))
                     }
 
-                    // 🎙️ ভয়েস প্লেয়ার
+                    // 🎙️ ভয়েস মেসেজ প্লেয়ার
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isAudioPlaying = (activeAudioUrl == message.audioUrl)
                         WhatsAppVoicePlayer(
@@ -475,7 +481,7 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // 💬 টেক্সট মেসেজ ও টাইম/টিক
+                    // 💬 টেক্সট ও টাইমস্ট্যাম্প/টিক
                     if (message.text.isNotBlank()) {
                         Row(
                             verticalAlignment = Alignment.Bottom,
@@ -486,8 +492,8 @@ fun WhatsAppMessageBubble(
                                 text = annotatedMessageText,
                                 style = TextStyle(
                                     color = Color.White,
-                                    fontSize = 14.sp,
-                                    lineHeight = 18.5.sp
+                                    fontSize = 14.5.sp,
+                                    lineHeight = 19.sp
                                 ),
                                 onClick = { offset ->
                                     val urlAnnotation = annotatedMessageText.getStringAnnotations(tag = "URL", start = offset, end = offset).firstOrNull()
@@ -521,7 +527,7 @@ fun WhatsAppMessageBubble(
                                     Text(
                                         text = if (isSeen) "✓✓" else "✓",
                                         color = if (isSeen) WhatsAppBlueTick else TimestampMuted,
-                                        fontSize = 10.5.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -532,7 +538,7 @@ fun WhatsAppMessageBubble(
             }
         }
 
-        // 👤 ৪. নিজের প্রোফাইল পিকচার (ডানে)
+        // 👤 ৩. নিজের প্রোফাইল পিকচার (ডানে)
         if (isMe) {
             Spacer(modifier = Modifier.width(6.dp))
             ChatUserAvatarCircle(
@@ -547,8 +553,46 @@ fun WhatsAppMessageBubble(
 }
 
 /**
- * 🎥 টেলিগ্রাম স্টাইলের অটো-লুপিং মিউটেড ভিডিও স্টিকার প্লেয়ার
+ * 🎯 স্মার্ট ইমেজ লোডার: ছবির আসল সাইজ মেপে স্বয়ংক্রিয়ভাবে
+ * TikTok (9:16) অথবা YouTube (16:9) রেশিওতে সুন্দরভাবে সেট করবে।
  */
+@Composable
+fun TelegramSmartRatioImage(
+    imageUrl: String,
+    onImageClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var calculatedRatio by remember { mutableFloatStateOf(1.2f) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(calculatedRatio.coerceIn(0.60f, 1.85f)) // TikTok 9:16 (0.56) থেকে YouTube 16:9 (1.77)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF151E28))
+            .clickable { onImageClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(imageUrl)
+                .crossfade(true)
+                .build(),
+            contentDescription = "Image",
+            onSuccess = { state ->
+                val w = state.result.drawable.intrinsicWidth
+                val h = state.result.drawable.intrinsicHeight
+                if (w > 0 && h > 0) {
+                    calculatedRatio = w.toFloat() / h.toFloat()
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
 @Composable
 private fun SeamlessVideoStickerPlayer(
     videoUrl: String,
@@ -588,9 +632,6 @@ private fun SeamlessVideoStickerPlayer(
     )
 }
 
-/**
- * 🌟 VIP গোল্ডেন শিমার বর্ডার ও অ্যানিমেটেড ক্রাউন ব্যাজসহ অবতার সার্কেল
- */
 @Composable
 fun ChatUserAvatarCircle(
     avatarUrl: String?,
@@ -634,21 +675,21 @@ fun ChatUserAvatarCircle(
     )
 
     Box(
-        modifier = modifier.size(42.dp),
+        modifier = modifier.size(38.dp),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(34.dp)
                 .then(
                     if (isVip || isOwner) {
                         Modifier
-                            .border(width = 2.dp, brush = goldenShineBorder, shape = CircleShape)
-                            .padding(2.5.dp)
+                            .border(width = 1.8.dp, brush = goldenShineBorder, shape = CircleShape)
+                            .padding(2.dp)
                     } else {
                         Modifier
-                            .border(0.8.dp, Color(0x33FFFFFF), CircleShape)
-                            .padding(1.dp)
+                            .border(0.6.dp, Color(0x33FFFFFF), CircleShape)
+                            .padding(0.8.dp)
                     }
                 )
                 .clip(CircleShape)
@@ -677,7 +718,7 @@ fun ChatUserAvatarCircle(
                 Text(
                     text = initial,
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -687,20 +728,17 @@ fun ChatUserAvatarCircle(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .offset(x = 3.dp, y = 3.dp)
+                    .offset(x = 2.dp, y = 2.dp)
                     .scale(vipPulseScale)
             ) {
                 VipCrown3DIcon(
-                    modifier = Modifier.size(width = 16.dp, height = 13.dp)
+                    modifier = Modifier.size(width = 15.dp, height = 12.dp)
                 )
             }
         }
     }
 }
 
-/**
- * 🖼️ ১ থেকে ৪+ ছবির স্মার্ট গ্রিড কোলাজ
- */
 @Composable
 fun ChatImageCollage(
     images: List<String>,
@@ -710,24 +748,14 @@ fun ChatImageCollage(
 
     when (count) {
         1 -> {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(190.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onImageClick(images[0]) }
-            ) {
-                AsyncImage(
-                    model = images[0],
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
+            TelegramSmartRatioImage(
+                imageUrl = images[0],
+                onImageClick = { onImageClick(images[0]) }
+            )
         }
         2 -> {
             Row(
-                modifier = Modifier.fillMaxWidth().height(145.dp),
+                modifier = Modifier.fillMaxWidth().height(150.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 images.forEach { imgUrl ->
@@ -735,7 +763,7 @@ fun ChatImageCollage(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onImageClick(imgUrl) }
                     ) {
                         AsyncImage(
@@ -750,14 +778,14 @@ fun ChatImageCollage(
         }
         3 -> {
             Row(
-                modifier = Modifier.fillMaxWidth().height(165.dp),
+                modifier = Modifier.fillMaxWidth().height(170.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1.2f)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { onImageClick(images[0]) }
                 ) {
                     AsyncImage(
@@ -778,7 +806,7 @@ fun ChatImageCollage(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable { onImageClick(imgUrl) }
                         ) {
                             AsyncImage(
@@ -796,7 +824,7 @@ fun ChatImageCollage(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(195.dp),
+                    .height(200.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
@@ -809,7 +837,7 @@ fun ChatImageCollage(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onImageClick(images[0]) }
                     ) {
                         AsyncImage(
@@ -823,7 +851,7 @@ fun ChatImageCollage(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onImageClick(images[1]) }
                     ) {
                         AsyncImage(
@@ -844,7 +872,7 @@ fun ChatImageCollage(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onImageClick(images[2]) }
                     ) {
                         AsyncImage(
@@ -858,7 +886,7 @@ fun ChatImageCollage(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onImageClick(images[3]) }
                     ) {
                         AsyncImage(
@@ -871,7 +899,7 @@ fun ChatImageCollage(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.6f)),
+                                    .background(Color.Black.copy(alpha = 0.65f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
