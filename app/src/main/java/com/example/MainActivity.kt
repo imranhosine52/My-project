@@ -496,10 +496,6 @@ private fun MainAppContent(
             navigationBackStack.add(currentScreen)
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
-            // =========================================================================
-            // 🎯 ফিক্সড: শুধুমাত্র অফলাইন লোকাল প্লেয়ার ছাড়া বাকি সব পেজ ট্রানজিশনে
-            // ইন্টারস্টিশিয়াল অ্যাড কাউন্টার (প্রতি ৩ পেজ পরপর) সঠিকভাবে কাজ করবে [3]।
-            // =========================================================================
             val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer
 
             if (isExempted) {
@@ -788,7 +784,12 @@ private fun MainAppContent(
             }
         }
 
-        val shouldHideFloatingChat = currentScreen is Screen.Player ||
+        // =========================================================================
+        // 💬 ফ্লোটিং চ্যাট উইজেট (প্লেয়ার পেজেও দৃশ্যমান, ল্যান্ডস্কেপে অটো-হাইড)
+        // =========================================================================
+        val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+        val shouldHideFloatingChat = (currentScreen is Screen.Player && isLandscape) ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
                 currentScreen is Screen.NotFound
@@ -800,6 +801,7 @@ private fun MainAppContent(
                 currentUserEmail = authState.userProfile?.email,
                 currentUserAvatar = authState.userProfile?.avatar,
                 isVip = isVip,
+                hasBottomNav = !shouldHideBottomNav, // 👈 প্লেয়ার স্ক্রিনের সঠিক মার্জিনের জন্য
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
                 modifier = Modifier.align(Alignment.BottomEnd)
             )
