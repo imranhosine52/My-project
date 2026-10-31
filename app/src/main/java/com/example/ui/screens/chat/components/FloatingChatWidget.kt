@@ -24,6 +24,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -113,6 +114,7 @@ fun FloatingCommunityChatWidget(
     currentUserEmail: String?,
     currentUserAvatar: String?,
     isVip: Boolean,
+    hasBottomNav: Boolean = true, // 👈 বটম বার অনুযায়ী পারফেক্ট প্যাডিং নিয়ন্ত্রণ
     onOpenFullScreenChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -127,7 +129,7 @@ fun FloatingCommunityChatWidget(
 
     val isImeVisible = WindowInsets.isImeVisible
 
-    // উইন্ডো ডাবল জাম্প বন্ধ রাখতে SOFT_INPUT_ADJUST_NOTHING
+    // উইন্ডো জাম্প বন্ধ রাখতে SOFT_INPUT_ADJUST_NOTHING
     DisposableEffect(isExpanded, activity) {
         if (isExpanded) {
             val originalMode = activity?.window?.attributes?.softInputMode ?: WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -286,6 +288,38 @@ fun FloatingCommunityChatWidget(
         FirebaseChatManager.getLiveMessagesFlow().collect { value = it }
     }
 
+    // =========================================================================
+    // 🔴 লাইভ আনরিড (Unread) মেসেজ কাউন্টার ট্র্যাকার
+    // =========================================================================
+    var lastReadTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var unreadCount by remember { mutableIntStateOf(0) }
+    var isInitialLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(messages) {
+        if (messages.isNotEmpty()) {
+            if (!isInitialLoaded) {
+                // অ্যাপ প্রথম চালুর সময় শেষ মেসেজের টাইমস্ট্যাম্প দিয়ে শুরু
+                lastReadTimestamp = messages.lastOrNull()?.timestamp?.time ?: System.currentTimeMillis()
+                isInitialLoaded = true
+            } else if (!isExpanded) {
+                // চ্যাট উইন্ডো বন্ধ থাকলে কেবল অন্যের পাঠানো নতুন মেসেজগুলো কাউন্ট হবে
+                val newIncomingCount = messages.count { msg ->
+                    val msgTime = msg.timestamp?.time ?: 0L
+                    msgTime > lastReadTimestamp && msg.senderId != currentUserId
+                }
+                unreadCount = newIncomingCount
+            }
+        }
+    }
+
+    // চ্যাট ওপেন করলেই আনরিড কাউন্ট শুন্য হয়ে যাবে
+    LaunchedEffect(isExpanded) {
+        if (isExpanded) {
+            unreadCount = 0
+            lastReadTimestamp = System.currentTimeMillis()
+        }
+    }
+
     val displayMessages = remember(messages) { messages.takeLast(70) }
 
     LaunchedEffect(isExpanded) {
@@ -413,21 +447,24 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // =========================================================================
-    // 🎯 চ্যাট বক্সের সাইজ সর্বদা ১০০% ফিক্সড (কিবোর্ড ওপেন হলেও ছোট হবে না)
-    // =========================================================================
     val fixedChatBoxHeight = 480.dp
+
+    // বটম প্যাডিং হিসাব: হোমস্ক্রিনে বটম বারের উপরে (52dp), প্লেয়ার স্ক্রিনে প্রান্তের কাছে (16dp)
+    val bottomOffsetPadding = if (isImeVisible) 4.dp else if (hasBottomNav) 54.dp else 18.dp
 
     Column(
         modifier = modifier
             .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
             .padding(
-                bottom = if (isImeVisible) 4.dp else 52.dp,
-                end = 10.dp
+                bottom = bottomOffsetPadding,
+                end = 12.dp
             ),
         horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        // =========================================================================
+        // 💬 এক্সপ্যান্ডেড চ্যাটবক্স উইন্ডো
+        // =========================================================================
         AnimatedVisibility(
             visible = isExpanded,
             enter = scaleIn(initialScale = 0.85f, animationSpec = tween(220)) + fadeIn(),
@@ -436,8 +473,8 @@ fun FloatingCommunityChatWidget(
             Surface(
                 modifier = Modifier
                     .width(330.dp)
-                    .height(fixedChatBoxHeight) // 👈 সাইজ সম্পূর্ণ অপরিবর্তিত ও ফিক্সড
-                    .shadow(elevation = 18.dp, shape = RoundedCornerShape(16.dp)),
+                    .height(fixedChatBoxHeight)
+                    .shadow(elevation = 20.dp, shape = RoundedCornerShape(16.dp)),
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0xFF10141D),
                 border = BorderStroke(1.dp, Color(0xFF232D3F))
@@ -447,7 +484,7 @@ fun FloatingCommunityChatWidget(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(38.dp)
+                            .height(40.dp)
                             .background(Color(0xFF161E2C))
                             .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -491,7 +528,7 @@ fun FloatingCommunityChatWidget(
 
                     HorizontalDivider(color = Color(0xFF202A3C), thickness = 0.6.dp)
 
-                    // 💬 মেসেজ স্ক্রোলিং লিস্ট
+                    // মেসেজ স্ক্রোলিং লিস্ট
                     LazyColumn(
                         state = miniListState,
                         modifier = Modifier
@@ -824,7 +861,7 @@ fun FloatingCommunityChatWidget(
                         )
                     }
 
-                    // ⌨️ টাইপিং ইনপুট বার
+                    // টাইপিং ইনপুট বার
                     Surface(
                         color = Color(0xFF141A24),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)
@@ -938,53 +975,84 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // কলাপ্সড ফ্লোটিং বাটন (Help? Button)
+        // =========================================================================
+        // 🔴 কলাপ্সড ফ্লোটিং বাটন (টেলিগ্রাম/হোয়াটসঅ্যাপ লাল ব্যাজ কাউন্টারসহ)
+        // =========================================================================
         if (!isImeVisible) {
-            Box(
+            Surface(
                 modifier = Modifier
+                    .clip(RoundedCornerShape(22.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) { isExpanded = !isExpanded }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center
+                    ) { isExpanded = !isExpanded },
+                shape = RoundedCornerShape(22.dp),
+                color = Color(0xEB16202E),
+                border = BorderStroke(1.dp, if (unreadCount > 0) Color(0xFFFF2A4B).copy(alpha = 0.6f) else Color(0x3300E5FF)),
+                shadowElevation = 8.dp
             ) {
                 Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     if (isExpanded) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(24.dp)
                                 .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.65f)),
+                                .background(Color.Black.copy(alpha = 0.5f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = Color.White,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                         Text(
                             text = "Close",
                             color = Color.White,
-                            fontSize = 12.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     } else {
-                        Icon(
-                            imageVector = Icons.Default.ChatBubble,
-                            contentDescription = "Help",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(20.dp)
-                        )
+                        // 🔴 আইকন ও লাল নোটিফিকেশন ব্যাজ
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.ChatBubble,
+                                contentDescription = "Help",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(20.dp)
+                            )
+
+                            // লাল আনরিড ব্যাজ (WhatsApp/Telegram Style)
+                            if (unreadCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 8.dp, y = (-7).dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFF2A4B))
+                                        .border(1.2.dp, Color(0xFF16202E), CircleShape)
+                                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (unreadCount > 99) "99+" else "$unreadCount",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                        }
+
                         Text(
                             text = "Help?",
                             color = Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
