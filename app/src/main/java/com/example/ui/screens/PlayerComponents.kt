@@ -661,7 +661,7 @@ fun CommentVideoStickerPlayer(
     val context = LocalContext.current
     val exoPlayer = remember(videoUrl) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUrl))
+            setMediaItem(MediaItem.fromUri(android.net.Uri.parse(videoUrl)))
             repeatMode = Player.REPEAT_MODE_ALL
             volume = 0f
             prepare()
