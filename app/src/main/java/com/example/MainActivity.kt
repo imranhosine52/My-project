@@ -103,10 +103,8 @@ class MainActivity : ComponentActivity() {
     private val pendingOpenVipScreen = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // ১. উইন্ডোর ব্যাকগ্রাউন্ড সাথে সাথে ব্ল্যাক করা (আইকন ফ্লিকার বন্ধে)
         window.setBackgroundDrawableResource(android.R.color.black)
 
-        // ২. Android 12+ সিস্টেম স্প্ল্যাশ লোগো অপসারণ
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashScreenView ->
                 splashScreenView.remove()
@@ -121,10 +119,13 @@ class MainActivity : ComponentActivity() {
             FirebaseMessaging.getInstance().subscribeToTopic("all")
         } catch (_: Exception) {}
 
-        UnifiedAdManager.init(this)
+        // 🎯 সঠিক ক্যাশড কনফিগারেশন ও ভিআইপি স্ট্যাটাস সহ AdManager চালু করা
+        val initialConfig = viewModel.repository.getCachedAdsConfig()
+        val isVip = viewModel.repository.isUserVip()
+        UnifiedAdManager.init(this, initialConfig = initialConfig, isVip = isVip)
+
         handleIncomingIntents(intent)
 
-        // ব্যাকগ্রাউন্ড থ্রেডে হোম ফিড ক্যাশ লোড করা
         viewModel.loadHomeContent(forceRefresh = false)
         viewModel.refreshVipStatusAndProfile()
 
@@ -495,13 +496,11 @@ private fun MainAppContent(
             navigationBackStack.add(currentScreen)
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
-            val isExempted = newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
-                    newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
-                    newScreen is Screen.Player || currentScreen is Screen.Player ||
-                    newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
-                    newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
-                    newScreen is Screen.Vip || currentScreen is Screen.Vip ||
-                    newScreen is Screen.NotFound || currentScreen is Screen.NotFound
+            // =========================================================================
+            // 🎯 ফিক্সড: শুধুমাত্র অফলাইন লোকাল প্লেয়ার ছাড়া বাকি সব পেজ ট্রানজিশনে
+            // ইন্টারস্টিশিয়াল অ্যাড কাউন্টার (প্রতি ৩ পেজ পরপর) সঠিকভাবে কাজ করবে [3]।
+            // =========================================================================
+            val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer
 
             if (isExempted) {
                 currentScreen = newScreen
@@ -593,12 +592,8 @@ private fun MainAppContent(
         authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
     }
 
-    // =========================================================================
-    // 📊 রিয়েল-টাইম স্ক্রিন ও পোস্ট অ্যানালিটিক্স ট্র্যাকার (১০০% ফিক্সড)
-    // =========================================================================
     LaunchedEffect(currentScreen) {
         when (val screen = currentScreen) {
-            // 🎬 ১. লং ভিডিও প্লেয়ার স্ক্রিন (সরাসরি স্লাগ ও টাইটেল সহ পিং)
             is Screen.Player -> {
                 AppAnalyticsTracker.trackScreen(
                     context = context,
@@ -608,7 +603,6 @@ private fun MainAppContent(
                     postSlug = screen.slug
                 )
             }
-            // 📱 ২. শর্টস প্লেয়ার স্ক্রিন (সরাসরি স্লাগ ও শর্টস ফরম্যাট সহ পিং)
             is Screen.ShortsPlayer -> {
                 AppAnalyticsTracker.trackScreen(
                     context = context,
@@ -618,7 +612,6 @@ private fun MainAppContent(
                     postSlug = screen.slug
                 )
             }
-            // 🌐 ৩. অন্যান্য সাধারণ স্ক্রিনসমূহ
             else -> {
                 val screenLabel = when (screen) {
                     is Screen.Home -> "Home: ${screen.category}"
