@@ -41,18 +41,17 @@ fun Context.findActivity(): Activity? {
 /**
  * ============================================================
  * 📡 CLEAN AD MEDIATION ENGINE: Start.io + Adsterra Smartlink
- * (Google AdMob এবং Unity Ads চিরতরে অপসারিত)
+ * (Strict Server Switch • 0s Instant Launch • Dynamic Rules)
  * ============================================================
  */
 object UnifiedAdManager {
     private const val TAG = "UnifiedAdManager"
 
-    // ডিফল্ট কনফিগারেশন
     private const val DEFAULT_STARTIO_APP_ID = "207238360"
     private const val INTERSTITIAL_PAGE_INTERVAL = 3
     private var interstitialNavCount = 0
 
-    // লাইভ অ্যাড স্টেট
+    // লাইভ অ্যাড কনফিগারেশন স্টেট
     private val _adConfigState = MutableStateFlow(
         AdsConfigResponse(
             success = true,
@@ -62,7 +61,13 @@ object UnifiedAdManager {
             fallbackNetwork = "adsterra",
             startio = StartIoConfig(enabled = true, appId = DEFAULT_STARTIO_APP_ID),
             adsterra = AdsterraConfig(enabled = true),
-            rules = AdRulesConfig(timerSeconds = 10, rewardedUnlockHours = 2, freeUnlockedEpisodes = 1)
+            rules = AdRulesConfig(
+                timerSeconds = 5,
+                adWaitSeconds = 5,
+                unlockClicksRequired = 1,
+                rewardedUnlockHours = 2,
+                freeUnlockedEpisodes = 1
+            )
         )
     )
     val adConfigState: StateFlow<AdsConfigResponse> = _adConfigState.asStateFlow()
@@ -70,7 +75,7 @@ object UnifiedAdManager {
     private var isStartIoInitialized = false
     private var currentStartIoAppId: String = DEFAULT_STARTIO_APP_ID
 
-    // Start.io প্রি-লোডেড অ্যাড অবজেক্ট
+    // Start.io অবজেক্ট
     private var startIoInterstitialAd: StartAppAd? = null
     private var startIoRewardedAd: StartAppAd? = null
     private var isStartIoInterstitialLoading = false
@@ -80,7 +85,7 @@ object UnifiedAdManager {
     private var lastPopunderTimestamp = 0L
 
     // ============================================================
-    // 🌐 CHROME CUSTOM TABS LAUNCHER (Adsterra Direct Smartlink)
+    // 🌐 ০ সেকেন্ডে CHROME CUSTOM TABS ওপেন
     // ============================================================
     fun openChromeCustomTab(context: Context, url: String): Boolean {
         return try {
@@ -114,13 +119,13 @@ object UnifiedAdManager {
             }
             true
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to launch Chrome Custom Tab: ${t.message}")
+            Log.e(TAG, "Chrome Custom Tab launch failed: ${t.message}")
             openUrlSafely(context, url)
         }
     }
 
     // ============================================================
-    // 🚀 INITIALIZATION ENGINE
+    // 🚀 INITIALIZATION
     // ============================================================
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
         val appContext = context.applicationContext
@@ -137,11 +142,9 @@ object UnifiedAdManager {
         }
 
         val config = _adConfigState.value
-        if (!config.adsEnabled || isVip) {
-            Log.i(TAG, "Ads globally disabled or user is VIP.")
-            return
-        }
+        if (!config.adsEnabled || isVip) return
 
+        // 🎯 সার্ভার সুইচ চেক: Start.io অন থাকলেই শুধু ইনিশিয়ালাইজ হবে
         if (config.startio?.enabled == true) {
             val startIoAppId = config.startio.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             val isTestMode = config.startio.testMode
@@ -151,7 +154,6 @@ object UnifiedAdManager {
 
     fun applyRemoteConfig(context: Context, newConfig: AdsConfigResponse, isVip: Boolean = false) {
         _adConfigState.value = newConfig
-
         if (!newConfig.adsEnabled || isVip) return
 
         if (newConfig.startio?.enabled == true) {
@@ -171,18 +173,13 @@ object UnifiedAdManager {
             currentStartIoAppId = appId
             val appContext = context.applicationContext
 
-            val now = System.currentTimeMillis()
-            StartAppSDK.setUserConsent(appContext, "pas", now, true)
-            StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
-            StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
-
             StartAppSDK.init(appContext, appId, false)
             StartAppSDK.setTestAdsEnabled(testMode)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             
             isStartIoInitialized = true
-            Log.i(TAG, "✓ Start.io SDK Initialized (TestMode: $testMode).")
+            Log.i(TAG, "✓ Start.io Initialized (TestMode: $testMode).")
 
             if (!isVip) {
                 preloadInterstitial(context)
@@ -194,7 +191,7 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🎁 REWARDED VIDEO ADS (Start.io -> Adsterra Fallback)
+    // 🎁 REWARDED VIDEO ADS (সার্ভার সুইচ অনুযায়ী)
     // ============================================================
     fun showRewardedAd(
         activity: Activity,
@@ -218,23 +215,38 @@ object UnifiedAdManager {
     ) {
         val config = _adConfigState.value
 
+        // ১. ভিআইপি ইউজার অথবা অ্যাড বন্ধ থাকলে সরাসরি আনলক
         if (isVip || !config.adsEnabled) {
             onRewardUnlocked()
             onAdClosed?.invoke(true)
             return
         }
 
-        val activity = context.findActivity()
-        if (activity == null) {
-            fallbackToAdsterraDirectLink(context, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        val isStartIoOn = config.startio?.enabled == true
+        val isAdsterraOn = config.adsterra?.enabled == true
+
+        // ২. সার্ভার থেকে দুটিই বন্ধ থাকলে কোনো বিজ্ঞাপন ছাড়াই সরাসরি আনলক
+        if (!isStartIoOn && !isAdsterraOn) {
+            onRewardUnlocked()
+            onAdClosed?.invoke(true)
             return
         }
 
-        val isStartIoOn = config.startio?.enabled == true
+        val activity = context.findActivity() ?: run {
+            if (isAdsterraOn) {
+                fallbackToAdsterraDirectLink(context, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+            } else {
+                onRewardUnlocked()
+                onAdClosed?.invoke(true)
+            }
+            return
+        }
 
+        // ৩. সার্ভার সুইচ অনুযায়ী পরিচালনা
         if (isStartIoOn) {
             showStartIoRewardedWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-        } else {
+        } else if (isAdsterraOn) {
+            // Start.io অফ থাকলে সরাসরি ০ সেকেন্ডে Adsterra ওপেন
             fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         }
     }
@@ -296,17 +308,31 @@ object UnifiedAdManager {
                         override fun adDisplayed(shownAd: Ad) {}
                         override fun adClicked(shownAd: Ad) {}
                         override fun adNotDisplayed(shownAd: Ad) {
-                            preloadStartIoRewarded(activity)
-                            fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                            handleStartIoFailed(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                         }
                     })
                 }
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
-                    fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                    handleStartIoFailed(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
         } catch (t: Throwable) {
+            handleStartIoFailed(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        }
+    }
+
+    private fun handleStartIoFailed(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val config = _adConfigState.value
+        if (config.adsterra?.enabled == true) {
             fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        } else {
+            onRewardUnlocked()
+            onAdClosed?.invoke(true)
         }
     }
 
@@ -322,14 +348,13 @@ object UnifiedAdManager {
             onRewardUnlocked()
             onAdClosed?.invoke(true)
         } else {
-            // লিংক ওপেন করতে কোনো সিস্টেম সমস্যা হলেও আনলক নিশ্চিত রাখা
             onRewardUnlocked()
             onAdClosed?.invoke(true)
         }
     }
 
     // ============================================================
-    // 🎬 INTERSTITIAL ADS (Start.io On-Demand)
+    // 🎬 INTERSTITIAL ADS (৩ পেজ পরপর • শুধুমাত্র অন থাকলে)
     // ============================================================
     fun showInterstitial(
         context: Context,
@@ -337,8 +362,7 @@ object UnifiedAdManager {
         onComplete: () -> Unit
     ) {
         val config = _adConfigState.value
-
-        if (isVip || !config.adsEnabled) {
+        if (isVip || !config.adsEnabled || config.startio?.enabled != true) {
             onComplete()
             return
         }
@@ -354,11 +378,7 @@ object UnifiedAdManager {
             return
         }
 
-        if (config.startio?.enabled == true) {
-            showStartIoInterstitial(activity, onComplete)
-        } else {
-            onComplete()
-        }
+        showStartIoInterstitial(activity, onComplete)
     }
 
     private fun showStartIoInterstitial(activity: Activity, onComplete: () -> Unit) {
@@ -379,7 +399,6 @@ object UnifiedAdManager {
                 }
             })
         } else {
-            // 🎯 প্রি-লোড না থাকলে সরাসরি অন-ডিমান্ড লাইভ লোড
             try {
                 val onDemandAd = StartAppAd(activity)
                 onDemandAd.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
@@ -490,7 +509,7 @@ object UnifiedAdManager {
         fallbackUrl: String? = null
     ): Boolean {
         val config = _adConfigState.value
-        if (isVip || !config.adsEnabled) return false
+        if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) return false
 
         val targetUrl = config.adsterra?.effectiveDirectLink?.trim()?.takeIf { it.isNotBlank() }
             ?: fallbackUrl
@@ -505,12 +524,10 @@ object UnifiedAdManager {
         fallbackUrl: String? = null
     ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl)
 
-    // 🎯 HELPER FUNCTIONS
+    // 🎯 ডাইনামিক রুলস ও হেল্পার মেথড
     fun isAdsGloballyEnabled(): Boolean = _adConfigState.value.adsEnabled
-    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true)
-    fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
-    fun isAdMobPrimary(): Boolean = false
-    fun isUnityPrimary(): Boolean = false
+    fun isStartIoEnabled(): Boolean = _adConfigState.value.adsEnabled && _adConfigState.value.startio?.enabled == true
+    fun isAdsterraEnabled(): Boolean = _adConfigState.value.adsEnabled && _adConfigState.value.adsterra?.enabled == true
 
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
@@ -522,9 +539,12 @@ object UnifiedAdManager {
     fun isSmartlinkAvailable(isVip: Boolean = false): Boolean = isDirectLinkAvailable(isVip)
     fun getEffectiveDirectLink(): String? = if (_adConfigState.value.adsEnabled) _adConfigState.value.adsterra?.effectiveDirectLink else null
     fun getSmartlinkUrl(): String? = getEffectiveDirectLink()
-    fun getVerificationTimerSeconds(): Int = _adConfigState.value.rules?.timerSeconds ?: 10
-    fun getUnlockDurationHours(): Int = _adConfigState.value.rules?.rewardedUnlockHours ?: 2
-    fun getFreeUnlockedEpisodesCount(): Int = _adConfigState.value.rules?.freeUnlockedEpisodes ?: 1
+
+    // ⏱️ ডায়নামিক সেটিংস (সার্ভার থেকে আসে)
+    fun getUnlockClicksRequired(): Int = _adConfigState.value.rules?.unlockClicksRequired?.coerceAtLeast(1) ?: 1
+    fun getVerificationTimerSeconds(): Int = (_adConfigState.value.rules?.adWaitSeconds ?: _adConfigState.value.rules?.timerSeconds ?: 5).coerceAtLeast(1)
+    fun getUnlockDurationHours(): Int = _adConfigState.value.rules?.rewardedUnlockHours?.coerceAtLeast(1) ?: 2
+    fun getFreeUnlockedEpisodesCount(): Int = _adConfigState.value.rules?.freeUnlockedEpisodes?.coerceAtLeast(1) ?: 1
 
     fun openUrlSafely(context: Context, url: String): Boolean {
         return try {
@@ -539,9 +559,7 @@ object UnifiedAdManager {
 }
 
 /**
- * ============================================================
- * 📱 START.IO AD BANNER COMPOSABLE (Clean)
- * ============================================================
+ * 📱 ব্যানার (শুধুমাত্র Start.io অন থাকলেই রেন্ডার হবে)
  */
 @Composable
 fun UnifiedAdBanner(
