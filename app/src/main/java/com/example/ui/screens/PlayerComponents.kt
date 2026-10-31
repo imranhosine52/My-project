@@ -893,8 +893,7 @@ fun ModernCommentRowItem(
                         Box(
                             modifier = Modifier
                                 .size(130.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.Transparent)
+                                .clip(RoundedCornerShape(8.dp)
                         ) {
                             CommentVideoStickerPlayer(
                                 videoUrl = text,
@@ -908,7 +907,6 @@ fun ModernCommentRowItem(
                             modifier = Modifier
                                 .size(130.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color.Transparent)
                         ) {
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
