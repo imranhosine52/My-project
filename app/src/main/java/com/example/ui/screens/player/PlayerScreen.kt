@@ -92,18 +92,18 @@ import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.CustomVideoAdDialog
 import com.example.ui.components.DownloadResourceSheet
+import com.example.ui.components.GlassEpisodeUnlockCard
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.components.TelegramMediaPickerSheet
 import com.example.ui.screens.player.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.AdVerificationHelper
 import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -177,14 +177,7 @@ fun PlayerScreen(
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
 
-    // =========================================================================
-    // 🎯 Dynamic Step, Timer & Single-Episode Session Lock States
-    // =========================================================================
     var activeUnlockedEpisodeNumber by rememberSaveable(slug) { mutableStateOf<Int?>(null) }
-    var unlockCurrentStep by remember { mutableIntStateOf(0) }
-    var isUnlockTimerRunning by remember { mutableStateOf(false) }
-    var unlockRemainingSeconds by remember { mutableIntStateOf(0) }
-    var unlockTimerJob by remember { mutableStateOf<Job?>(null) }
 
     fun handleBackNavigation() {
         when {
@@ -275,7 +268,6 @@ fun PlayerScreen(
         lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
     }
 
-    // 🎯 Dynamic Episode List: Only default free or currently unlocked episode remains open
     val freeEpisodesCount = remember(adConfig.rules) {
         UnifiedAdManager.getFreeUnlockedEpisodesCount()
     }
@@ -342,123 +334,22 @@ fun PlayerScreen(
             }
     }
 
-    // =========================================================================
-    // 🔒 Unlock Specific Episode Directly Without Resetting to Ep 1
-    // =========================================================================
     fun unlockOnlyThisEpisode(ep: EpisodeDto) {
-        // Clear any old legacy cache
-        val prefs = context.getSharedPreferences("drama_flix_unlocked_episodes_prefs", Context.MODE_PRIVATE)
-        prefs.edit().clear().apply()
-
-        // 🎯 1. Mark this exact episode as currently unlocked
         activeUnlockedEpisodeNumber = ep.episodeNumber
-
-        // 🎯 2. Save current episode as last watched
         if (ep.episodeNumber > 0) {
             lastWatchedEpPrefs.edit().putInt("last_ep_$slug", ep.episodeNumber).apply()
         }
-
-        // 🎯 3. Directly select the unlocked episode in viewModel without reloading details from network
         val unlockedEpisode = ep.copy(isLocked = false)
         viewModel.selectEpisode(unlockedEpisode)
     }
 
-    fun advanceUnlockStep(ep: EpisodeDto) {
-        val totalRequiredClicks = UnifiedAdManager.getUnlockClicksRequired()
-        unlockCurrentStep++
-
-        if (unlockCurrentStep >= totalRequiredClicks) {
-            unlockCurrentStep = 0
-            isUnlockTimerRunning = false
-            unlockRemainingSeconds = 0
-            unlockTimerJob?.cancel()
-
-            viewModel.dismissEpisodeUnlockModal()
-            showFireworksCelebration = true
-            unlockOnlyThisEpisode(ep)
-            Toast.makeText(context, "Episode ${ep.episodeNumber} unlocked!", Toast.LENGTH_SHORT).show()
-        } else {
-            isUnlockTimerRunning = false
-            unlockRemainingSeconds = 0
-            Toast.makeText(
-                context,
-                "Step $unlockCurrentStep of $totalRequiredClicks completed. Visit the next sponsor to unlock.",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-    }
-
-    fun startAdsterraCountdown(ep: EpisodeDto, seconds: Int) {
-        unlockTimerJob?.cancel()
-        isUnlockTimerRunning = true
-        unlockRemainingSeconds = seconds
-
-        unlockTimerJob = coroutineScope.launch {
-            while (isActive && unlockRemainingSeconds > 0) {
-                delay(1000L)
-                unlockRemainingSeconds--
-            }
-            if (isActive) {
-                advanceUnlockStep(ep)
-            }
-        }
-    }
-
-    fun handleRewardedAdUnlock(ep: EpisodeDto) {
-        val act = activity ?: return
-        exoPlayer.pause()
-
-        val isStartIoOn = UnifiedAdManager.isStartIoEnabled()
-        val isAdsterraOn = UnifiedAdManager.isAdsterraEnabled()
-        val waitSeconds = UnifiedAdManager.getVerificationTimerSeconds()
-
-        if (!isStartIoOn && !isAdsterraOn) {
-            advanceUnlockStep(ep)
-            return
-        }
-
-        if (isStartIoOn) {
-            UnifiedAdManager.showRewardedVideo(
-                context = act,
-                isVip = isUserVip,
-                onRewardUnlocked = {
-                    advanceUnlockStep(ep)
-                },
-                onAdNotReadyOrFailed = { _ ->
-                    if (isAdsterraOn) {
-                        UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
-                        startAdsterraCountdown(ep, waitSeconds)
-                    } else {
-                        advanceUnlockStep(ep)
-                    }
-                },
-                onAdClosed = { earnedReward ->
-                    if (earnedReward) {
-                        advanceUnlockStep(ep)
-                    }
-                }
-            )
-        } else if (isAdsterraOn) {
-            UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
-            startAdsterraCountdown(ep, waitSeconds)
-        }
-    }
-
-    // =========================================================================
-    // 🎯 Switch Episode Engine: Auto Relock Previous Episode
-    // =========================================================================
     fun switchEpisodeWithRelock(targetEp: EpisodeDto) {
-        // If moving to another episode, immediately revoke unlock of previous episode
         if (activeUnlockedEpisodeNumber != targetEp.episodeNumber) {
             activeUnlockedEpisodeNumber = null
         }
 
         val isDefaultFree = targetEp.episodeNumber <= freeEpisodesCount
         if (shouldLockEpisodes && !isDefaultFree && activeUnlockedEpisodeNumber != targetEp.episodeNumber) {
-            unlockCurrentStep = 0
-            isUnlockTimerRunning = false
-            unlockRemainingSeconds = 0
-            unlockTimerJob?.cancel()
             viewModel.showEpisodeUnlockModal(targetEp.copy(isLocked = true))
         } else {
             if (targetEp.episodeNumber > 0) {
@@ -635,6 +526,9 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🛡️ লাইফসাইকেল সিঙ্ক ও অ্যান্টি-চিট অ্যাড ভেরিফিকেশন চেকার
+    // =========================================================================
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -653,6 +547,24 @@ fun PlayerScreen(
                     if (!useWebPlayerFallback && activeCustomVideoAd == null) {
                         exoPlayer.playWhenReady = true
                         exoPlayer.play()
+                    }
+
+                    // 🔍 ইউজার বিজ্ঞাপন পরিদর্শন শেষ করে অ্যাপে ফিরলে অ্যান্টি-চিট চেক
+                    if (AdVerificationHelper.verificationState.value.isVerifying) {
+                        val result = AdVerificationHelper.checkAndFulfillVisit()
+                        if (result.isSuccess) {
+                            val lockedTarget = playerState.lockedEpisodeTarget
+                            if (lockedTarget != null) {
+                                unlockOnlyThisEpisode(lockedTarget)
+                                viewModel.dismissEpisodeUnlockModal()
+                                showFireworksCelebration = true
+                                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            }
+                            AdVerificationHelper.resetVerification(context)
+                        } else {
+                            // সময় অপূর্ণ থাকলে সতর্কবার্তা
+                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
                 else -> {}
@@ -1540,33 +1452,39 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🔒 Locked Episode Modal with Dynamic Steps and Live Countdown
+        // 🔒 স্ক্রিনশটের হুবহু মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
-            val totalClicks = UnifiedAdManager.getUnlockClicksRequired()
+            val timerSec = UnifiedAdManager.getVerificationTimerSeconds()
 
-            CompactUnlockEpisodeDialog(
-                episodeNumber = lockedTarget.episodeNumber,
-                completedSteps = unlockCurrentStep,
-                totalSteps = totalClicks,
-                isTimerRunning = isUnlockTimerRunning,
-                remainingTimerSeconds = unlockRemainingSeconds,
-                onDismiss = {
-                    unlockTimerJob?.cancel()
-                    unlockCurrentStep = 0
-                    isUnlockTimerRunning = false
-                    unlockRemainingSeconds = 0
-                    viewModel.dismissEpisodeUnlockModal()
+            GlassEpisodeUnlockCard(
+                timerSeconds = timerSec,
+                isLoading = false,
+                onWatchAdClick = {
+                    val act = activity ?: return@GlassEpisodeUnlockCard
+                    exoPlayer.pause()
+
+                    // ১. ব্যাকগ্রাউন্ড নোটিফিকেশন কাউন্টডাউন ও অ্যান্টি-চিট ট্র্যাকার শুরু
+                    AdVerificationHelper.startAdVerification(
+                        context = act,
+                        episodeNumber = lockedTarget.episodeNumber,
+                        durationSeconds = timerSec
+                    )
+
+                    // ২. ক্রোম কাস্টম ট্যাবে ডাইরেক্ট লিংক স্পনসর পেজ ওপেন
+                    UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
                 },
-                onWatchAd = {
-                    handleRewardedAdUnlock(lockedTarget)
-                },
-                onUpgradeVip = {
-                    unlockTimerJob?.cancel()
+                onUpgradeVipClick = {
+                    AdVerificationHelper.resetVerification(context)
                     viewModel.dismissEpisodeUnlockModal()
                     onNavigateToVip()
-                }
+                },
+                onDismiss = {
+                    AdVerificationHelper.resetVerification(context)
+                    viewModel.dismissEpisodeUnlockModal()
+                },
+                modifier = Modifier.fillMaxSize()
             )
         }
 
