@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,7 +94,7 @@ fun PlayerControlsOverlay(
     Box(modifier = modifier.fillMaxSize()) {
 
         // =============================================================
-        // 🔝 ১. টপ অ্যাকশন বার (🎯 কোনো এপিসোড সংখ্যা বা টেক্সট ছাড়া শুধু ব্যাক বাটন)
+        // 🔝 ১. টপ অ্যাকশন বার (কোনো এপিসোড সংখ্যা ছাড়া ক্লিন ব্যাক বাটন)
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked,
@@ -109,7 +111,6 @@ fun PlayerControlsOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // শুধু ব্যাক আইকন (কোনো এপিসোড সংখ্যা বা টেক্সট ছাড়া)
                 IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -165,7 +166,7 @@ fun PlayerControlsOverlay(
         }
 
         // =============================================================
-        // 🔒 ৩. ডান পাশে লক এবং নেক্সট এপিসোড বাটন
+        // 🎯 ৩. ডান পাশের ফ্লোটিং আইকন (কালো ব্যাকগ্রাউন্ড সম্পূর্ণ রিমুভড)
         // =============================================================
         if (isDeviceLandscape) {
             AnimatedVisibility(
@@ -182,38 +183,42 @@ fun PlayerControlsOverlay(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.padding(end = 16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(end = 14.dp)
                 ) {
+                    // ১. লক আইকন (কোনো ব্যাকগ্রাউন্ড ছাড়া ক্লিন ফ্লোটিং)
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .clickable { onLockToggle() },
+                            .size(36.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onLockToggle() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.LockOpen,
-                            contentDescription = "Lock",
+                            contentDescription = "Lock Screen",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
+                    // ২. নেক্সট এপিসোড আইকন (কোনো ব্যাকগ্রাউন্ড ছাড়া ক্লিন ফ্লোটিং)
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .clickable { onNextEpisode() },
+                            .size(36.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onNextEpisode() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Episode",
                             tint = Color.White,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
@@ -221,7 +226,7 @@ fun PlayerControlsOverlay(
         }
 
         // =============================================================
-        // 📺 ৪. বটম কন্ট্রোল বার (টাইমলাইন ও বাটনসমূহ)
+        // 📺 ৪. বটম কন্ট্রোল বার (গ্লাস Jump Play ব্যানার ও টাইমলাইন)
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked,
@@ -245,32 +250,47 @@ fun PlayerControlsOverlay(
                     .padding(horizontal = 6.dp, vertical = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                // লাস্ট সিন জাম্প ব্যানার
+                // =============================================================
+                // 🌟 আধুনিক ফ্রস্টেড গ্লাস "Last Seen / Jump Play" ব্যানার
+                // =============================================================
                 if (showLastSeenBanner && lastSeenPosMs > 5000L) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xF0131722),
-                        border = BorderStroke(0.8.dp, Color(0xFF263248)),
-                        modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 8.dp, bottom = 6.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0x38FFFFFF),
+                                        Color(0x22FFFFFF),
+                                        Color(0x18000000)
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 0.8.dp,
+                                color = Color(0x55FFFFFF),
+                                shape = RoundedCornerShape(18.dp)
+                            )
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Dismiss",
-                                tint = Color(0xFF00E5FF),
+                                tint = Color.White.copy(alpha = 0.85f),
                                 modifier = Modifier
-                                    .size(14.dp)
+                                    .size(13.dp)
                                     .clickable { onLastSeenDismiss() }
                             )
 
                             Text(
                                 text = "Last Seen ${formatTime(lastSeenPosMs)}",
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium
                             )
 
@@ -458,7 +478,7 @@ fun PlayerControlsOverlay(
                             }
                         }
 
-                        // এপিসোড ড্রয়ার আইকন (ল্যান্ডস্কেপ মোডে)
+                        // এপিসোড ড্রয়ার আইকন
                         if (isDeviceLandscape) {
                             IconButton(
                                 onClick = onEpisodesClick,
