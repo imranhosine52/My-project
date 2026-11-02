@@ -6,14 +6,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// 🎯 Download Quota & Long Video VIP Access Manager
+// 🎯 Download Quota & 100% VIP Exclusive Access Manager
 object DownloadQuotaManager {
     private const val PREF_NAME = "playdramaflix_download_quota_pref"
     private const val KEY_LAST_DATE = "quota_last_date"
     private const val KEY_USED_BYTES = "quota_used_bytes_today"
-
-    // 🎯 শর্ট ভিডিওর জন্য দৈনিক ফ্রি ডাউনলোড লিমিট: ২.০ জিবি (Bytes)
-    const val DAILY_FREE_LIMIT_BYTES: Long = 2L * 1024L * 1024L * 1024L // 2.0 GB
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -40,24 +37,18 @@ object DownloadQuotaManager {
         }
     }
 
-    fun getRemainingFreeBytes(context: Context): Long {
-        val used = getTodayUsedBytes(context)
-        return (DAILY_FREE_LIMIT_BYTES - used).coerceAtLeast(0L)
-    }
-
     /**
      * 🎯 ডাউনলোড পারমিশন ভ্যালিডেশন ইঞ্জিন:
-     * ১. VIP ইউজাররা লং ও শর্ট সব ধরনের ভিডিও আনলিমিটেড ডাউনলোড করতে পারবে।
-     * ২. লং ভিডিও হলে ফ্রি ইউজারদের জন্য ডাউনলোড সম্পূর্ণ বন্ধ থাকবে (VIP বাধ্যতামূলক)।
-     * ৩. শর্ট ভিডিও হলে ফ্রি ইউজারদের জন্য দৈনিক ২.০ জিবি লিমিট কার্যকর থাকবে।
+     * শর্ট এবং লং উভয় প্রকার ভিডিও ডাউনলোড এখন ১০০% VIP মেম্বারদের জন্য সংরক্ষিত।
+     * ফ্রি ইউজারদের ডাউনলোড সরাসরি ব্লক করা হবে।
      */
     fun checkCanDownload(
         context: Context,
         bytesToDownload: Long,
         isVip: Boolean,
-        isLongVideo: Boolean = false // 👈 লং ভিডিও ফ্ল্যাগ
+        isLongVideo: Boolean = false
     ): QuotaCheckResult {
-        // 👑 ১. ভিআইপি ইউজারদের জন্য সবকিছু আনলিমিটেড
+        // 👑 ১. VIP ইউজারদের জন্য সমস্ত ডাউনলোড আনলিমিটেড
         if (isVip) {
             return QuotaCheckResult(
                 canDownload = true,
@@ -66,35 +57,12 @@ object DownloadQuotaManager {
             )
         }
 
-        // 🚫 ২. লং ভিডিও হলে ফ্রি ইউজারদের জন্য ডাউনলোড সম্পূর্ণ রেস্ট্রিক্টেড
-        if (isLongVideo) {
-            return QuotaCheckResult(
-                canDownload = false,
-                isVip = false,
-                message = "👑 লং ভিডিও ডাউনলোড শুধুমাত্র VIP মেম্বারদের জন্য প্রযোজ্য! ফুল ড্রামা ও হাই-স্পিড ডাউনলোডের জন্য VIP পাস নিন।"
-            )
-        }
-
-        // 📱 ৩. শর্ট ভিডিওর ক্ষেত্রে দৈনিক ২ জিবি ফ্রি কোটা চেক
-        val used = getTodayUsedBytes(context)
-        val remaining = (DAILY_FREE_LIMIT_BYTES - used).coerceAtLeast(0L)
-
-        return if (used + bytesToDownload <= DAILY_FREE_LIMIT_BYTES) {
-            QuotaCheckResult(
-                canDownload = true,
-                isVip = false,
-                message = "OK",
-                remainingBytes = remaining - bytesToDownload
-            )
-        } else {
-            val remainingFormatted = formatBytes(remaining)
-            QuotaCheckResult(
-                canDownload = false,
-                isVip = false,
-                message = "⚠️ দৈনিক ২.০ জিবি ফ্রি শর্ট ভিডিও ডাউনলোড সীমা শেষ! আজকে আর মাত্র $remainingFormatted বাকি আছে। আনলিমিটেড ডাউনলোডের জন্য VIP পাস নিন।",
-                remainingBytes = remaining
-            )
-        }
+        // 🚫 ২. ফ্রি ইউজারদের জন্য শর্ট ও লং উভয় ভিডিওর ডাউনলোড সম্পূর্ণ রেস্ট্রিক্টেড (ইংরেজিতে)
+        return QuotaCheckResult(
+            canDownload = false,
+            isVip = false,
+            message = "👑 Video downloading is exclusive to VIP members! Upgrade to VIP for unlimited high-speed downloads."
+        )
     }
 
     fun recordDownloadUsage(context: Context, bytes: Long) {
