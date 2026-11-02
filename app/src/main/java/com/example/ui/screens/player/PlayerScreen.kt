@@ -167,7 +167,6 @@ fun PlayerScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
-    // 🟢 রিয়েল-টাইম লাইভ ভেরিফিকেশন স্টেট পর্যবেক্ষণ
     val verificationStatus by AdVerificationHelper.verificationState.collectAsStateWithLifecycle()
 
     val isUserLoggedIn = authState.isLoggedIn
@@ -250,7 +249,7 @@ fun PlayerScreen(
             try {
                 val client = OkHttpClient()
                 val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
-                val response = client.newCall(request).execute() // 👈 OkHttp Syntax Fixed
+                val response = client.newCall(request).execute()
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.isNotBlank()) {
                     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -557,7 +556,7 @@ fun PlayerScreen(
 
                     // 🔍 ইউজার বিজ্ঞাপন পরিদর্শন শেষ করে অ্যাপে ফিরলে চেক করা
                     if (AdVerificationHelper.hasPendingSession()) {
-                        val result = AdVerificationHelper.checkAndFulfillVisit()
+                        val result = AdVerificationHelper.checkAndFulfillVisit(context)
                         if (result.isSuccess) {
                             val lockedTarget = playerState.lockedEpisodeTarget ?: currentEp
                             val requiredClicks = UnifiedAdManager.getUnlockClicksRequired()
@@ -1486,9 +1485,16 @@ fun PlayerScreen(
                 isLoading = false,
                 onWatchAdClick = {
                     val act = activity ?: return@GlassEpisodeUnlockCard
+
+                    // 📱 ফোনের "Display over other apps" পারমিশন চেক
+                    if (!AdVerificationHelper.canDrawOverlays(act)) {
+                        AdVerificationHelper.requestOverlayPermission(act)
+                        return@GlassEpisodeUnlockCard
+                    }
+
                     exoPlayer.pause()
 
-                    // ১. অ্যান্টি-চিট রিয়েল-টাইম লাইভ ট্র্যাকার শুরু
+                    // ১. অ্যান্টি-চিট রিয়েল-টাইম লাইভ ট্র্যাকার শুরু (ফ্লোটিং পিল ও নোটিফিকেশন ব্যানার সহ)
                     AdVerificationHelper.startAdVerification(
                         context = act,
                         episodeNumber = lockedTarget.episodeNumber,
@@ -1499,13 +1505,13 @@ fun PlayerScreen(
                     UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
                 },
                 onUpgradeVipClick = {
-                    AdVerificationHelper.resetVerification()
+                    AdVerificationHelper.resetVerification(context)
                     currentClickStep = 1
                     viewModel.dismissEpisodeUnlockModal()
                     onNavigateToVip()
                 },
                 onDismiss = {
-                    AdVerificationHelper.resetVerification()
+                    AdVerificationHelper.resetVerification(context)
                     currentClickStep = 1
                     viewModel.dismissEpisodeUnlockModal()
                 },
@@ -1514,7 +1520,7 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🟢 স্ক্রিনের নিচে একক ডায়নামিক লাইভ ভেরিফিকেশন পিল (বারবার টোস্ট ছাড়া)
+        // 🟢 স্ক্রিনের নিচে ইন-অ্যাপ ডায়নামিক লাইভ পিল
         // =====================================================================
         AnimatedVisibility(
             visible = verificationStatus.displayStatusText.isNotBlank(),
