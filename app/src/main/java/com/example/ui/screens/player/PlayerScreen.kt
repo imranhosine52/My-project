@@ -1484,7 +1484,7 @@ fun PlayerScreen(
 
                     exoPlayer.pause()
 
-                    // ১. কোনো সেটিংস পারমিশন ছাড়াই স্ক্রিনশটের মতো লাইভ কাউন্টডাউন শুরু
+                    // ১. কোনো সেটিংস পারমিশন ছাড়া সরাসরি স্ক্রিনশটের মতো লাইভ কাউন্টডাউন শুরু
                     AdVerificationHelper.startAdVerification(
                         context = act,
                         episodeNumber = lockedTarget.episodeNumber,
