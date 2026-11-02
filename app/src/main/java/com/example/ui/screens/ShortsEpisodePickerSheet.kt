@@ -2,7 +2,6 @@
 
 package com.example.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
+import com.example.ui.theme.GoldVip
 
 private const val CHUNK_SIZE = 25
 
@@ -131,7 +131,7 @@ fun ShortsEpisodePickerSheet(
             // 🔲 পর্বের গ্রিড (০১-১০ রেঞ্জ সাপোর্ট ও ক্লিন বর্ডার সহ)
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
             val hasRange = remember(currentChunkEpisodes) {
-                currentChunkEpisodes.any { it.formattedEpisodeRange.length > 3 }
+                currentChunkEpisodes.any { it.isMergedRange || it.formattedEpisodeRange.length > 3 }
             }
 
             LazyVerticalGrid(
@@ -146,29 +146,47 @@ fun ShortsEpisodePickerSheet(
                 items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
                     val isCurrent = (ep.episodeNumber == currentEpisodeNumber)
                     val isLocked = shouldLockEpisodes && ep.isLocked
+                    val isItemRange = ep.isMergedRange || ep.formattedEpisodeRange.length > 3
                     val displayText = ep.formattedEpisodeRange
-                    val isItemRange = displayText.length > 3
 
                     Box(
                         modifier = Modifier
-                            .aspectRatio(if (isItemRange) 1.2f else 1f)
+                            .aspectRatio(if (isItemRange) 1.25f else 1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isCurrent) Color(0xFF1E382B) else Color(0xFF3A3F4D))
-                            // 🎯 সবুজ বর্ডার লাইন রিমুভ করে সাধারণ ক্লিন ডার্ক বর্ডার
                             .border(
                                 width = 0.8.dp,
-                                color = Color(0xFF454B5A),
+                                color = if (isCurrent) Color(0xFF00E676).copy(alpha = 0.5f) else Color(0xFF454B5A),
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .clickable { onSelectEpisode(ep) },
                         contentAlignment = Alignment.Center
                     ) {
+                        // 🏷️ মার্জড পর্বের জন্য ব্যাজ (টপ-লেফটে)
+                        if (isItemRange) {
+                            val badgeLabel = if (ep.mergedEpisodeCount > 1) "${ep.mergedEpisodeCount} IN 1" else "MULTI"
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 4.dp),
+                                color = if (isCurrent) Color(0xFF00E676) else Color(0xFF282E3B),
+                                modifier = Modifier.align(Alignment.TopStart)
+                            ) {
+                                Text(
+                                    text = badgeLabel,
+                                    color = if (isCurrent) Color.Black else Color(0xFFDCE0E8),
+                                    fontSize = 6.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+
                         // এপিসোড নম্বর বা ০১-১০ রেঞ্জ
                         Text(
                             text = displayText,
                             color = if (isCurrent) Color(0xFF00E676) else Color.White,
                             fontSize = if (isItemRange) 11.5.sp else 13.5.sp,
-                            fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold
+                            fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold,
+                            modifier = Modifier.padding(top = if (isItemRange) 3.dp else 0.dp)
                         )
 
                         // বাম কোণায় সবুজ প্লেয়িং ইকুয়ালাইজার
@@ -185,7 +203,7 @@ fun ShortsEpisodePickerSheet(
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = "Locked",
-                                tint = Color(0xFFFFB300),
+                                tint = GoldVip,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(5.dp)
