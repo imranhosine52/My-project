@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight // 👈 ফিক্সড: FontWeight মিসিং ছিল
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.screens.SleekOnlineTimeline
@@ -275,7 +276,7 @@ fun PlayerControlsOverlay(
                     }
                 }
 
-                // গ) স্লিক অনলাইন টাইমলাইন (কিউ ডট সহ)
+                // গ) স্লিক অনলাইন টাইমলাইন
                 SleekOnlineTimeline(
                     currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                     totalDurationMs = totalDurationMs,
@@ -439,7 +440,7 @@ fun PlayerControlsOverlay(
                             }
                         }
 
-                        // এপিসোড ড্রয়ার আইকন (ল্যান্ডস্কেপে)
+                        // এপিসোড ড্রয়ার আইকন
                         if (isDeviceLandscape) {
                             IconButton(
                                 onClick = onEpisodesClick,
@@ -454,7 +455,7 @@ fun PlayerControlsOverlay(
                             }
                         }
 
-                        // ডাউনলোড বাটন (কোনো মুকুট আইকন ছাড়া)
+                        // ডাউনলোড বাটন
                         IconButton(
                             onClick = onDownloadClick,
                             modifier = Modifier.size(24.dp)
