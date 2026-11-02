@@ -45,7 +45,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -166,8 +165,6 @@ fun PlayerScreen(
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
-
-    val verificationStatus by AdVerificationHelper.verificationState.collectAsStateWithLifecycle()
 
     val isUserLoggedIn = authState.isLoggedIn
 
@@ -581,7 +578,6 @@ fun PlayerScreen(
                         } else {
                             // সময় শেষ হওয়ার আগেই ব্যাক করেছে: সতর্কতা বার্তা
                             currentClickStep = 1 // আবার প্রথম থেকে শুরু
-                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                         }
                     }
                 }
@@ -1470,7 +1466,7 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🔒 মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড (স্টেপ ও সার্ভার ভ্যালু সহ)
+        // 🔒 মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড (কোনো স্পেশাল পারমিশন ছাড়া)
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
@@ -1486,15 +1482,9 @@ fun PlayerScreen(
                 onWatchAdClick = {
                     val act = activity ?: return@GlassEpisodeUnlockCard
 
-                    // 📱 ফোনের "Display over other apps" পারমিশন চেক
-                    if (!AdVerificationHelper.canDrawOverlays(act)) {
-                        AdVerificationHelper.requestOverlayPermission(act)
-                        return@GlassEpisodeUnlockCard
-                    }
-
                     exoPlayer.pause()
 
-                    // ১. অ্যান্টি-চিট রিয়েল-টাইম লাইভ ট্র্যাকার শুরু (ফ্লোটিং পিল ও নোটিফিকেশন ব্যানার সহ)
+                    // ১. কোনো সেটিংস পারমিশন ছাড়াই স্ক্রিনশটের মতো লাইভ কাউন্টডাউন শুরু
                     AdVerificationHelper.startAdVerification(
                         context = act,
                         episodeNumber = lockedTarget.episodeNumber,
@@ -1517,57 +1507,6 @@ fun PlayerScreen(
                 },
                 modifier = Modifier.fillMaxSize()
             )
-        }
-
-        // =====================================================================
-        // 🟢 স্ক্রিনের নিচে ইন-অ্যাপ ডায়নামিক লাইভ পিল
-        // =====================================================================
-        AnimatedVisibility(
-            visible = verificationStatus.displayStatusText.isNotBlank(),
-            enter = slideInVertically(initialOffsetY = { it * 2 }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it * 2 }) + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = Color(0xF2121622),
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (verificationStatus.isFulfilled) Color(0xFF00E676) else Color(0xFF00E5FF)
-                ),
-                shadowElevation = 10.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (verificationStatus.isFulfilled) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF00E676),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    } else {
-                        CircularProgressIndicator(
-                            color = Color(0xFF00E5FF),
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-
-                    Text(
-                        text = verificationStatus.displayStatusText,
-                        color = if (verificationStatus.isFulfilled) Color(0xFF00E676) else Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
         }
 
         if (showFireworksCelebration) {
