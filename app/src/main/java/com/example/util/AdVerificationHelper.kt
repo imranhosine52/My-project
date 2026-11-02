@@ -2,11 +2,8 @@ package com.example.util
 
 import android.content.Context
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.widget.Toast
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,13 +14,13 @@ data class AdVerificationStatus(
     val targetEpisodeNumber: Int = 1,
     val totalRequiredSeconds: Int = 10,
     val remainingSeconds: Int = 0,
-    val isFulfilled: Boolean = false
+    val isFulfilled: Boolean = false,
+    val isCancelledEarly: Boolean = false,
+    val displayStatusText: String = "" // "Verifying… 10s", "Verified ✓"
 )
 
 object AdVerificationHelper {
-    private const val TAG = "AdVerificationHelper"
-
-    private val helperScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val helperScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var verificationJob: Job? = null
 
     @Volatile
@@ -38,39 +35,22 @@ object AdVerificationHelper {
     private val _verificationState = MutableStateFlow(AdVerificationStatus())
     val verificationState: StateFlow<AdVerificationStatus> = _verificationState.asStateFlow()
 
-    private var activeToast: Toast? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
-
-    private fun showLiveToast(context: Context, message: String) {
-        mainHandler.post {
-            try {
-                if (activeToast == null) {
-                    activeToast = Toast.makeText(context, message, Toast.LENGTH_SHORT)
-                } else {
-                    activeToast?.setText(message)
-                    activeToast?.duration = Toast.LENGTH_SHORT
-                }
-                activeToast?.show()
-            } catch (_: Exception) {}
-        }
-    }
-
     private fun triggerSuccessVibration(context: Context) {
         try {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
             if (vibrator != null && vibrator.hasVibrator()) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(250, VibrationEffect.DEFAULT_AMPLITUDE))
+                    vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
                 } else {
                     @Suppress("DEPRECATION")
-                    vibrator.vibrate(250)
+                    vibrator.vibrate(200)
                 }
             }
         } catch (_: Exception) {}
     }
 
     /**
-     * 🚀 অ্যাড ভিজিট শুরু করার মেথড
+     * 🚀 ১. স্পনসর লিংকে ক্লিক করলে রিয়েল-টাইম লাইভ কাউন্টডাউন শুরু করা
      */
     fun startAdVerification(
         context: Context,
@@ -92,7 +72,9 @@ object AdVerificationHelper {
             targetEpisodeNumber = episodeNumber,
             totalRequiredSeconds = safeDuration,
             remainingSeconds = safeDuration,
-            isFulfilled = false
+            isFulfilled = false,
+            isCancelledEarly = false,
+            displayStatusText = "Verifying… ${safeDuration}s"
         )
 
         verificationJob = helperScope.launch {
@@ -102,33 +84,42 @@ object AdVerificationHelper {
                 _verificationState.value = _verificationState.value.copy(
                     isVerifying = true,
                     remainingSeconds = secondsLeft,
+                    displayStatusText = "Verifying… ${secondsLeft}s",
                     isFulfilled = false
                 )
-                showLiveToast(appContext, "⏳ Verifying sponsor visit: ${secondsLeft}s...")
                 delay(1000L)
                 secondsLeft--
             }
 
+            // ০ সেকেন্ডে পৌঁছালে: "Verified ✓" প্রদর্শন ও ভাইব্রেশন
             if (isActive) {
                 _verificationState.value = _verificationState.value.copy(
                     isVerifying = false,
                     remainingSeconds = 0,
-                    isFulfilled = true
+                    isFulfilled = true,
+                    displayStatusText = "Verified ✓"
                 )
-                showLiveToast(appContext, "🎉 Verification Complete! Return to app.")
                 triggerSuccessVibration(appContext)
                 onComplete?.invoke()
+
+                // ১.২ সেকেন্ড পর ডায়নামিক লেয়ার স্মুথলি হাইড করা
+                delay(1200L)
+                if (_verificationState.value.isFulfilled) {
+                    _verificationState.value = _verificationState.value.copy(displayStatusText = "")
+                }
             }
         }
     }
 
     /**
-     * 🎯 কোনো অ্যাক্টিভ ভেরিফিকেশন সেশন আছে কি না যাচাই
+     * 🔍 সেশন সক্রিয় আছে কি না যাচাই
      */
     fun hasPendingSession(): Boolean = adVisitStartTimeMs > 0L
 
     /**
-     * 🛡️ অ্যান্টি-চিট চেকার: ব্রাউজার থেকে অ্যাপে ফিরলে এটি ১০০% সফলভাবে আনলক করবে
+     * 🛡️ ২. অ্যাপে ফেরার পর চেকার:
+     * - পুরো সময় থাকলে: আনলক সফল
+     * - সময় শেষ হওয়ার আগে ব্যাক করলে: টাইম কাউন্ট বন্ধ, রিসেট এবং মেসেজ প্রদান
      */
     fun checkAndFulfillVisit(): VerificationResult {
         if (adVisitStartTimeMs == 0L) {
@@ -136,43 +127,57 @@ object AdVerificationHelper {
         }
 
         val elapsedMs = System.currentTimeMillis() - adVisitStartTimeMs
-        val requiredMs = (requiredDurationSeconds - 1) * 1000L // ১ সেকেন্ডের নেটওয়ার্ক ল্যাগ মার্জিন
+        val requiredMs = (requiredDurationSeconds - 1) * 1000L // ১ সেকেন্ডের মার্জিন
 
         return if (elapsedMs >= requiredMs || _verificationState.value.isFulfilled) {
             verificationJob?.cancel()
-            _verificationState.value = _verificationState.value.copy(isVerifying = false, isFulfilled = true)
-            adVisitStartTimeMs = 0L // সেশন সম্পন্ন
-
-            mainHandler.post { activeToast?.cancel(); activeToast = null }
+            _verificationState.value = _verificationState.value.copy(
+                isVerifying = false,
+                isFulfilled = true,
+                displayStatusText = "Verified ✓"
+            )
+            adVisitStartTimeMs = 0L
 
             VerificationResult(
                 isSuccess = true,
                 remainingSeconds = 0,
-                message = "✓ Verification completed! Episode $targetEpisodeNumber unlocked."
+                message = "✓ Verified! Episode $targetEpisodeNumber unlocked."
             )
         } else {
+            // ⚠️ সময় শেষ হওয়ার আগেই ব্যাক করেছে: সম্পূর্ণ রিসেট
             val secondsLeft = (((requiredDurationSeconds * 1000L) - elapsedMs) / 1000L).toInt().coerceAtLeast(1)
+            cancelDueToEarlyExit()
+
             VerificationResult(
                 isSuccess = false,
                 remainingSeconds = secondsLeft,
-                message = "⚠️ Please browse the ad page for $secondsLeft more seconds to unlock!"
+                message = "⚠️ সময় শেষ হওয়ার আগেই ব্যাক করেছেন! আনলক করতে পুরো সময় অপেক্ষা করুন।"
             )
         }
     }
 
-    fun resetVerification(context: Context) {
+    /**
+     * 🚫 আগে ব্যাক করলে টাইমার বন্ধ এবং সবকিছু প্রথম থেকে শুরু করার জন্য রিসেট
+     */
+    fun cancelDueToEarlyExit() {
         verificationJob?.cancel()
         verificationJob = null
         adVisitStartTimeMs = 0L
-        requiredDurationSeconds = 10
-        _verificationState.value = AdVerificationStatus()
+        _verificationState.value = AdVerificationStatus(
+            isVerifying = false,
+            isCancelledEarly = true,
+            displayStatusText = ""
+        )
+    }
 
-        mainHandler.post {
-            try {
-                activeToast?.cancel()
-                activeToast = null
-            } catch (_: Exception) {}
-        }
+    /**
+     * 🧹 ফুল রিসেট
+     */
+    fun resetVerification() {
+        verificationJob?.cancel()
+        verificationJob = null
+        adVisitStartTimeMs = 0L
+        _verificationState.value = AdVerificationStatus()
     }
 }
 
