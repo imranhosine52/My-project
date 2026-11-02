@@ -266,6 +266,9 @@ fun PlayerScreen(
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
     }
 
+    // =========================================================================
+    // 🎯 শেষ দেখা পর্ব মেমোরি থেকে নিরাপদভাবে রিড করা (ওভাররাইট প্রতিরোধ সহ)
+    // =========================================================================
     val savedEpisodeNumber = remember(slug) {
         lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
     }
@@ -293,8 +296,14 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 কারেন্ট এপিসোড সিলেকশন: সংরক্ষিত শেষ দেখা পর্বকে প্রাধান্য দেওয়া হচ্ছে
     val currentEp = remember(playerState.currentEpisode, effectiveEpisodes, savedEpisodeNumber) {
-        val targetNum = playerState.currentEpisode?.episodeNumber?.takeIf { it > 0 } ?: savedEpisodeNumber
+        val targetNum = when {
+            playerState.currentEpisode != null && playerState.currentEpisode?.episodeNumber != 1 -> playerState.currentEpisode!!.episodeNumber
+            savedEpisodeNumber > 1 -> savedEpisodeNumber
+            playerState.currentEpisode != null -> playerState.currentEpisode!!.episodeNumber
+            else -> 1
+        }
         effectiveEpisodes.find { it.episodeNumber == targetNum } ?: effectiveEpisodes.firstOrNull()
     }
 
@@ -354,6 +363,7 @@ fun PlayerScreen(
         if (shouldLockEpisodes && !isDefaultFree && activeUnlockedEpisodeNumber != targetEp.episodeNumber) {
             viewModel.showEpisodeUnlockModal(targetEp.copy(isLocked = true))
         } else {
+            // 🎯 ইউজার নিজে পর্ব বদলালে সংরক্ষিত নম্বরটি আপডেট হবে
             if (targetEp.episodeNumber > 0) {
                 lastWatchedEpPrefs.edit().putInt("last_ep_$slug", targetEp.episodeNumber).apply()
             }
@@ -442,8 +452,9 @@ fun PlayerScreen(
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    LaunchedEffect(slug, currentEp?.episodeNumber) {
-        val epNum = currentEp?.episodeNumber ?: 1
+    // 🎯 ইউজার ভিডিও দেখতে শুরু করলে তবেই স্টোরেজে পর্বটি সংরক্ষিত থাকবে
+    LaunchedEffect(currentEp?.episodeNumber) {
+        val epNum = currentEp?.episodeNumber ?: 0
         if (slug.isNotBlank() && epNum > 0) {
             lastWatchedEpPrefs.edit().putInt("last_ep_$slug", epNum).apply()
         }
@@ -528,9 +539,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🛡️ লাইফসাইকেল সিঙ্ক ও অ্যান্টি-চিট আনলক চেকার
-    // =========================================================================
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -551,7 +559,6 @@ fun PlayerScreen(
                         exoPlayer.play()
                     }
 
-                    // 🔍 ইউজার বিজ্ঞাপন পরিদর্শন শেষ করে অ্যাপে ফিরলে চেক করা
                     if (AdVerificationHelper.hasPendingSession()) {
                         val result = AdVerificationHelper.checkAndFulfillVisit(context)
                         if (result.isSuccess) {
@@ -576,8 +583,7 @@ fun PlayerScreen(
                                 }
                             }
                         } else {
-                            // সময় শেষ হওয়ার আগেই ব্যাক করেছে: সতর্কতা বার্তা
-                            currentClickStep = 1 // আবার প্রথম থেকে শুরু
+                            currentClickStep = 1
                         }
                     }
                 }
@@ -1253,7 +1259,7 @@ fun PlayerScreen(
 
                                     item {
                                         StartAppBanner(
-                                            isVip = isUserVip,
+                                            isUserVip,
                                             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
                                         )
                                     }
@@ -1465,9 +1471,6 @@ fun PlayerScreen(
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
-        // =====================================================================
-        // 🔒 মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড (কোনো স্পেশাল পারমিশন ছাড়া)
-        // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             val timerSec = UnifiedAdManager.getVerificationTimerSeconds()
@@ -1484,14 +1487,12 @@ fun PlayerScreen(
 
                     exoPlayer.pause()
 
-                    // ১. কোনো সেটিংস পারমিশন ছাড়া সরাসরি স্ক্রিনশটের মতো লাইভ কাউন্টডাউন শুরু
                     AdVerificationHelper.startAdVerification(
                         context = act,
                         episodeNumber = lockedTarget.episodeNumber,
                         durationSeconds = timerSec
                     )
 
-                    // ২. স্পনসর ডাইরেক্ট লিঙ্ক ওপেন
                     UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
                 },
                 onUpgradeVipClick = {
