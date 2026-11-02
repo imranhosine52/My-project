@@ -13,18 +13,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-/**
- * 🎵 রিয়েল অডিও ট্র্যাক ডেটা মডেল
- */
-data class RealAudioTrack(
-    val id: String,
-    val language: String,
-    val label: String,
-    val groupIndex: Int,
-    val trackIndex: Int,
-    val isSelected: Boolean = false
-)
+// 🎯 ফিক্সড: মেইন মডেল থেকে ইমপোর্ট করা হলো
+import com.example.ui.screens.player.RealAudioTrack
 
 /**
  * 🎵 প্লেয়ার অডিও ল্যাঙ্গুয়েজ সিলেকশন সাইড ড্রয়ার
@@ -64,7 +54,7 @@ fun PlayerAudioDrawer(
             }
         }
 
-        // ২. অডিও ভাষার তালিকা (Hindi, English, Bangla, Japanese ইত্যাদি)
+        // ২. অডিও ভাষার তালিকা
         items(availableAudioTracks) { audioTrack ->
             val isSelected = (selectedAudioTrackId == audioTrack.id)
 
