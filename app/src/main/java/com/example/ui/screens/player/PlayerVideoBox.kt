@@ -144,6 +144,21 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
+/**
+ * 🎯 ০১-১০ বা ১-১০ মার্জড এপিসোড রেঞ্জ ডিটেকশন ও ফরম্যাটার
+ */
+fun formatEpisodeDisplayName(ep: EpisodeDto): String {
+    val titleCandidate = ep.rawTitle ?: ep.epTitle ?: ""
+    val rangeRegex = Regex("""(\d+)\s*[-–]\s*(\d+)""")
+    val match = rangeRegex.find(titleCandidate)
+    if (match != null) {
+        val start = match.groupValues[1].toIntOrNull() ?: 1
+        val end = match.groupValues[2].toIntOrNull() ?: 1
+        return String.format(Locale.US, "%02d-%02d", start, end)
+    }
+    return String.format(Locale.US, "%02d", ep.episodeNumber)
+}
+
 @Composable
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
@@ -207,16 +222,10 @@ fun PlayerVideoBox(
     var isFirstFrameRendered by remember { mutableStateOf(false) }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // =========================================================================
-    // 📡 কাস্টম বিজ্ঞাপন, কিউ-পয়েন্ট ও কিউমুলেটিভ কাউন্টডাউন
-    // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeInPlayerCustomAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
 
-    // 🎯 পেন্ডিং বিজ্ঞাপন ক্লিকের লাইভ সংখ্যা (একাধিক অ্যাড স্কিপ করলে যোগ হবে)
     var pendingAdClicks by rememberSaveable(slug, episodeNumber) { mutableIntStateOf(0) }
-
-    // ৩-সেকেন্ড কাউন্টডাউন নোটিশ
     var activeCountdownSeconds by remember { mutableIntStateOf(0) }
     val triggeredCueMarks = rememberSaveable(slug, episodeNumber) { mutableSetOf<Long>() }
 
@@ -244,7 +253,6 @@ fun PlayerVideoBox(
         customAdsConfig?.longVideoRules
     }
 
-    // 🎯 সার্ভার নিয়ন্ত্রিত সমস্ত কিউ-পয়েন্ট (মিলি-সেকেন্ডে)
     val serverCuePointsMs = remember(totalDurationMs, longVideoRules, isVip) {
         if (isVip || longVideoRules?.enabled != true || totalDurationMs <= 0L) {
             emptyList<Long>()
@@ -261,16 +269,12 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // ⏱️ বিজ্ঞাপন আসার টাইমে ভিডিও রানিং থাকবে, পজ হবে না
-    // =========================================================================
     LaunchedEffect(currentPositionMs, serverCuePointsMs, isPlaying, isVip, pendingAdClicks) {
         if (isVip || serverCuePointsMs.isEmpty() || totalDurationMs <= 0L) {
             activeCountdownSeconds = 0
             return@LaunchedEffect
         }
 
-        // ৩-সেকেন্ড পূর্বে কাউন্টডাউন নোটিশ
         if (pendingAdClicks == 0 && isPlaying) {
             val upcomingCue = serverCuePointsMs.firstOrNull { cueMs ->
                 cueMs !in triggeredCueMarks && currentPositionMs in (cueMs - 3200L)..<cueMs
@@ -285,7 +289,6 @@ fun PlayerVideoBox(
             activeCountdownSeconds = 0
         }
 
-        // অ্যাডের পয়েন্টে পৌঁছালে ক্লিক সংখ্যা যোগ হবে কিন্তু ভিডিও ব্যাকগ্রাউন্ডে চলতে থাকবে
         val reachedCue = serverCuePointsMs.firstOrNull { cueMs ->
             cueMs !in triggeredCueMarks && currentPositionMs >= cueMs && currentPositionMs <= (cueMs + 2000L)
         }
@@ -299,13 +302,11 @@ fun PlayerVideoBox(
                 exoPlayer.pause()
             } else if (UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                 val clicksToAdd = (longVideoRules?.directLinkClicksPerAd ?: 1).coerceAtLeast(1)
-                pendingAdClicks += clicksToAdd // 👈 ক্লিক সংখ্যা যোগ হলো
-                // 🎯 ভিডিও পজ হবে না, ব্যাকগ্রাউন্ডে রানিং থাকবে
+                pendingAdClicks += clicksToAdd
             }
         }
     }
 
-    // ভেরিফিকেশন সাকসেস ট্র্যাকার (বিজ্ঞাপন দেখে ব্যাক করলে পেন্ডিং ক্লিক কমানো)
     val verificationStatus by AdVerificationHelper.verificationState.collectAsState()
     LaunchedEffect(verificationStatus.isFulfilled) {
         if (verificationStatus.isFulfilled && pendingAdClicks > 0) {
@@ -904,9 +905,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // 🎯 ইউজার সিক করার সময় পার হওয়া সমস্ত বিজ্ঞাপন কিউতে যোগ করা
-    // =========================================================================
     fun handleSafeSeek(targetPos: Long) {
         if (isVip || serverCuePointsMs.isEmpty()) {
             onSeekFinished(targetPos)
@@ -925,7 +923,7 @@ fun PlayerVideoBox(
                 val totalAddedClicks = skippedCues.size * clicksPerAd
 
                 triggeredCueMarks.addAll(skippedCues)
-                pendingAdClicks += totalAddedClicks // 👈 স্কিপ করা অ্যাডগুলো কিউতে যোগ হলো
+                pendingAdClicks += totalAddedClicks
             }
         }
 
@@ -1133,18 +1131,17 @@ fun PlayerVideoBox(
             )
 
             // =========================================================================
-            // 🎯 ফুল প্লেয়ার ক্লিকবেড লেয়ার (ভিডিও রানিং থাকবে, টাচ করলে অ্যাডে যাবে)
+            // 🎯 ফুল প্লেয়ার ক্লিকবেড লেয়ার (ভিডিও রানিং থাকবে, টাচ করলে বিজ্ঞাপনে যাবে)
             // =========================================================================
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Transparent) // 👈 ভিডিও ক্লিয়ারভাবে চলবে
+                        .background(Color.Transparent)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            // স্ক্রিনের যেকোনো স্থানে ক্লিক করলে সরাসরি বিজ্ঞাপনে নিয়ে যাবে
                             activity?.let { act ->
                                 val timerSec = UnifiedAdManager.getVerificationTimerSeconds()
                                 AdVerificationHelper.startAdVerification(
@@ -1159,7 +1156,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 🏷️ উপরে ডানে স্লিম ছোট লাইভ কাউন্টার ব্যাজ (Tap Screen রিমুভড)
+            // 🏷️ চিহ্নিত অংশে (উপরে ডানে) স্লিম ছোট লাইভ কাউন্টার
             // =========================================================================
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
                 val badgeText = if (pendingAdClicks > 1) {
@@ -1202,7 +1199,7 @@ fun PlayerVideoBox(
                         Text(
                             text = badgeText,
                             color = Color(0xFFFFB300),
-                            fontSize = 11.sp, // 👈 ছোট ও কমপ্যাক্ট
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1514,23 +1511,32 @@ fun PlayerVideoBox(
                 )
             }
 
-            // সাইড ড্রয়ার প্যানেল
+            // =========================================================================
+            // 📑 সাইড ড্রয়ার: কমপ্যাক্ট উইডথ (স্ক্রিন ঢেকে ফেলা রোধ) + স্মুথ স্লাইড অ্যানিমেশন
+            // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
-                enter = slideInHorizontally { it } + fadeIn(),
-                exit = slideOutHorizontally { it } + fadeOut(),
+                enter = slideInHorizontally(
+                    initialOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(220)),
+                exit = slideOutHorizontally(
+                    targetOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(180)),
                 modifier = Modifier.align(Alignment.CenterEnd)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(if (isDeviceLandscape) 0.24f else 0.52f)
+                        // 🎯 অর্ধেক স্ক্রিন অন্ধকার না করে একদম সাইটে কমপ্যাক্ট সাইজ রাখা হলো
+                        .widthIn(max = if (isDeviceLandscape) 125.dp else 165.dp)
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.85f),
-                                    Color.Black.copy(alpha = 0.98f)
+                                    Color.Black.copy(alpha = 0.70f),
+                                    Color.Black.copy(alpha = 0.94f)
                                 )
                             )
                         )
