@@ -43,7 +43,7 @@ private fun formatTime(millis: Long): String {
 }
 
 /**
- * 🎮 প্লেয়ারের টপ, সেন্টার ও বটম কন্ট্রোল ওভারলে
+ * 🎮 লং ভিডিও প্লেয়ারের টপ, সেন্টার ও বটম কন্ট্রোল ওভারলে
  */
 @Composable
 fun PlayerControlsOverlay(
@@ -92,7 +92,7 @@ fun PlayerControlsOverlay(
     Box(modifier = modifier.fillMaxSize()) {
 
         // =============================================================
-        // 🔝 ১. টপ অ্যাকশন বার (Back, PiP, Cast, Share)
+        // 🔝 ১. টপ অ্যাকশন বার (🎯 কোনো এপিসোড সংখ্যা বা টেক্সট ছাড়া শুধু ব্যাক বাটন)
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked,
@@ -109,6 +109,7 @@ fun PlayerControlsOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // শুধু ব্যাক আইকন (কোনো এপিসোড সংখ্যা বা টেক্সট ছাড়া)
                 IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -164,7 +165,7 @@ fun PlayerControlsOverlay(
         }
 
         // =============================================================
-        // 🔒 ৩. ডান পাশে লক এবং নেক্সট এপিসোড বাটন (সাইড থেকে স্মুথ অ্যানিমেশন)
+        // 🔒 ৩. ডান পাশে লক এবং নেক্সট এপিসোড বাটন
         // =============================================================
         if (isDeviceLandscape) {
             AnimatedVisibility(
@@ -184,7 +185,6 @@ fun PlayerControlsOverlay(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.padding(end = 16.dp)
                 ) {
-                    // ১. লক বাটন
                     Box(
                         modifier = Modifier
                             .size(38.dp)
@@ -201,7 +201,6 @@ fun PlayerControlsOverlay(
                         )
                     }
 
-                    // 🎯 ২. নেক্সট এপিসোড বাটন (লক আইকনের ঠিক নিচে রাখা হলো)
                     Box(
                         modifier = Modifier
                             .size(38.dp)
@@ -246,7 +245,7 @@ fun PlayerControlsOverlay(
                     .padding(horizontal = 6.dp, vertical = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                // ক) লাস্ট সিন জাম্প ব্যানার
+                // লাস্ট সিন জাম্প ব্যানার
                 if (showLastSeenBanner && lastSeenPosMs > 5000L) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
@@ -286,7 +285,7 @@ fun PlayerControlsOverlay(
                     }
                 }
 
-                // খ) সিকিং টাইম প্রিভিউ ব্যাজ
+                // সিকিং টাইম প্রিভিউ ব্যাজ
                 if (isUserSeeking && totalDurationMs > 0) {
                     Box(
                         modifier = Modifier
@@ -309,7 +308,7 @@ fun PlayerControlsOverlay(
                     }
                 }
 
-                // গ) স্লিক অনলাইন টাইমলাইন
+                // স্লিক অনলাইন টাইমলাইন
                 SleekOnlineTimeline(
                     currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                     totalDurationMs = totalDurationMs,
@@ -323,7 +322,7 @@ fun PlayerControlsOverlay(
                         .height(10.dp)
                 )
 
-                // ঘ) কন্ট্রোল আইকন ও ইনফো রো
+                // কন্ট্রোল আইকন ও ইনফো রো
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -459,7 +458,7 @@ fun PlayerControlsOverlay(
                             }
                         }
 
-                        // এপিসোড ড্রয়ার আইকন
+                        // এপিসোড ড্রয়ার আইকন (ল্যান্ডস্কেপ মোডে)
                         if (isDeviceLandscape) {
                             IconButton(
                                 onClick = onEpisodesClick,
