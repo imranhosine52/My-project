@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,10 @@ fun PlayerPlaylistDrawer(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasRangeEpisodes = remember(episodes) {
+        episodes.any { it.formattedEpisodeRange.length > 3 }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -137,13 +142,13 @@ fun PlayerPlaylistDrawer(
 
         Spacer(modifier = Modifier.height(5.dp))
 
-        // ৩. ৪-কলামের কমপ্যাক্ট পর্ব গ্রিড
+        // ৩. কমপ্যাক্ট পর্ব গ্রিড (রেঞ্জ টেক্সট ফিট হওয়ার জন্য অটো কলাম অ্যাডজাস্ট)
         val displayEps = episodes.ifEmpty {
             (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
+            columns = GridCells.Fixed(if (hasRangeEpisodes) 3 else 4),
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
             modifier = Modifier.weight(1f)
@@ -152,10 +157,12 @@ fun PlayerPlaylistDrawer(
                 val isSelected = (ep.episodeNumber == currentEpNumber)
                 val isEpLocked = shouldLockEpisodes && ep.isLocked
                 val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
+                val displayText = ep.formattedEpisodeRange
+                val isRange = displayText.length > 3
 
                 Box(
                     modifier = Modifier
-                        .aspectRatio(1.1f)
+                        .aspectRatio(if (isRange) 1.25f else 1.1f)
                         .clip(RoundedCornerShape(6.dp))
                         .background(
                             if (sideDrawerType == "download") {
@@ -164,9 +171,10 @@ fun PlayerPlaylistDrawer(
                                 if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
                             }
                         )
+                        // 🎯 সবুজ বর্ডার লাইন সম্পূর্ণ রিমুভ করা হয়েছে
                         .border(
-                            width = 1.dp,
-                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
+                            width = 0.8.dp,
+                            color = Color(0xFF2C3545),
                             shape = RoundedCornerShape(6.dp)
                         )
                         .clickable {
@@ -184,9 +192,9 @@ fun PlayerPlaylistDrawer(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = ep.episodeNumber.toString(),
+                            text = displayText,
                             color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                            fontSize = 12.sp,
+                            fontSize = if (isRange) 10.5.sp else 12.sp,
                             fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                         )
 
@@ -203,7 +211,7 @@ fun PlayerPlaylistDrawer(
             }
         }
 
-        // ৪. ডাউনলোড বাটন (ফ্রি ইউজারদের জন্য VIP আপগ্রেড প্রম্পট সহ)
+        // ৪. ডাউনলোড বাটন
         if (sideDrawerType == "download") {
             Spacer(modifier = Modifier.height(5.dp))
             val displaySize = formatBytesDisplay(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
