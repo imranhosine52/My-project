@@ -142,7 +142,6 @@ data class ActivityUiState(
     val errorMessage: String? = null
 )
 
-// 📊 রিয়েল-টাইম পাবলিক ও হিস্টোরিক্যাল অ্যানালিটিক্স UI স্টেট
 data class PublicLiveAnalyticsUiState(
     val isLoading: Boolean = false,
     val liveOnlineCount: Int = 1,
@@ -749,10 +748,11 @@ class DramaFlixViewModel(
     }
 
     // =========================================================================
-    // 🎬 ড্রামা লোড ও সর্বশেষ দেখা পর্ব থেকে স্বয়ংক্রিয় প্লেব্যাক
+    // 🎬 ড্রামা লোড ও শুধুমাত্র নির্দিষ্ট ড্রামার জন্য সেভড এপিসোড রিড
     // =========================================================================
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
+            // 🎯 নতুন ড্রামায় প্রবেশের সময় আগের ড্রামার পর্ব সম্পূর্ণ ক্লিয়ার করা হলো
             _playerUiState.update { 
                 it.copy(
                     isLoading = true, 
@@ -761,7 +761,9 @@ class DramaFlixViewModel(
                     comments = emptyList(),
                     isInWatchlist = false,
                     reactions = emptyMap(),
-                    myReaction = null
+                    myReaction = null,
+                    content = null,         // 👈 আগের ড্রামার তথ্য মুছে ফেলা হলো
+                    currentEpisode = null   // 👈 আগের ড্রামার পর্ব রিসেট
                 ) 
             }
 
@@ -821,12 +823,12 @@ class DramaFlixViewModel(
                 }
 
                 // =============================================================
-                // 🎯 সর্বশেষ দেখা পর্ব রিড করা (ডিফল্ট ১ নম্বরের বদলে)
+                // 🎯 কঠোরভাবে শুধুমাত্র এই ড্রামার সেভড পর্ব চেক করা (অন্যান্য ড্রামা কখনোই একে ওভাররাইড করতে পারবে না)
                 // =============================================================
-                val savedEpNum = context?.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
+                val savedEpNumForThisDrama = context?.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
                     ?.getInt("last_ep_$slug", 1) ?: 1
 
-                val initialEp = eps.find { it.episodeNumber == savedEpNum } ?: eps.firstOrNull()
+                val initialEp = eps.find { it.episodeNumber == savedEpNumForThisDrama } ?: eps.firstOrNull()
                 val initialSrv = srvs.firstOrNull()
 
                 val stats = repository.getOrCreateDramaStats(contentItem.slug, 0, 0)
@@ -837,7 +839,7 @@ class DramaFlixViewModel(
                         isNotFound = false,
                         content = contentItem,
                         episodes = eps,
-                        currentEpisode = initialEp, // 👈 সর্বশেষ দেখা পর্ব অটো-সেট করা হলো
+                        currentEpisode = initialEp,
                         servers = srvs,
                         selectedServer = initialSrv,
                         isVip = isUserVip,
