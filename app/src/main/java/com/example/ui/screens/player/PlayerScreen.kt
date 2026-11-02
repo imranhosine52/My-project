@@ -178,6 +178,7 @@ fun PlayerScreen(
     var threadReplyText by remember { mutableStateOf("") }
 
     var activeUnlockedEpisodeNumber by rememberSaveable(slug) { mutableStateOf<Int?>(null) }
+    var currentClickStep by rememberSaveable(slug) { mutableIntStateOf(1) }
 
     fun handleBackNavigation() {
         when {
@@ -244,7 +245,7 @@ fun PlayerScreen(
             try {
                 val client = OkHttpClient()
                 val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
-                val response = client.newCall(request).execute()
+                val response = client.execute(request)
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.isNotBlank()) {
                     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -527,7 +528,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🛡️ লাইফসাইকেল সিঙ্ক ও অ্যান্টি-চিট অ্যাড ভেরিফিকেশন চেকার
+    // 🛡️ লাইফসাইকেল সিঙ্ক ও অ্যান্টি-চিট ১০০% আনলক চেকার
     // =========================================================================
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
@@ -549,20 +550,33 @@ fun PlayerScreen(
                         exoPlayer.play()
                     }
 
-                    // 🔍 ইউজার বিজ্ঞাপন পরিদর্শন শেষ করে অ্যাপে ফিরলে অ্যান্টি-চিট চেক
-                    if (AdVerificationHelper.verificationState.value.isVerifying) {
+                    // 🎯 ফিক্সড: টাইমার শেষ হওয়ার পরেও সেশন চেক করে ১০০% আনলক সম্পন্ন হবে
+                    if (AdVerificationHelper.hasPendingSession()) {
                         val result = AdVerificationHelper.checkAndFulfillVisit()
                         if (result.isSuccess) {
-                            val lockedTarget = playerState.lockedEpisodeTarget
-                            if (lockedTarget != null) {
-                                unlockOnlyThisEpisode(lockedTarget)
-                                viewModel.dismissEpisodeUnlockModal()
-                                showFireworksCelebration = true
-                                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            val lockedTarget = playerState.lockedEpisodeTarget ?: currentEp
+                            val requiredClicks = UnifiedAdManager.getUnlockClicksRequired()
+
+                            if (currentClickStep < requiredClicks) {
+                                currentClickStep++
+                                Toast.makeText(
+                                    context,
+                                    "✓ Step completed! Complete step $currentClickStep of $requiredClicks to unlock.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                currentClickStep = 1
+                                if (lockedTarget != null) {
+                                    viewModel.unlockEpisodeWithRewardAd(context, slug, lockedTarget)
+                                    unlockOnlyThisEpisode(lockedTarget)
+                                    viewModel.dismissEpisodeUnlockModal()
+                                    showFireworksCelebration = true
+                                    exoPlayer.play()
+                                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                }
                             }
                             AdVerificationHelper.resetVerification(context)
                         } else {
-                            // সময় অপূর্ণ থাকলে সতর্কবার্তা
                             Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                         }
                     }
@@ -1452,13 +1466,17 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🔒 স্ক্রিনশটের হুবহু মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড
+        // 🔒 মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড (স্টেপ ও টাইমার সহ)
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             val timerSec = UnifiedAdManager.getVerificationTimerSeconds()
+            val requiredClicks = UnifiedAdManager.getUnlockClicksRequired()
 
             GlassEpisodeUnlockCard(
+                episodeNumber = lockedTarget.episodeNumber,
+                currentStep = currentClickStep,
+                totalSteps = requiredClicks,
                 timerSeconds = timerSec,
                 isLoading = false,
                 onWatchAdClick = {
@@ -1477,11 +1495,13 @@ fun PlayerScreen(
                 },
                 onUpgradeVipClick = {
                     AdVerificationHelper.resetVerification(context)
+                    currentClickStep = 1
                     viewModel.dismissEpisodeUnlockModal()
                     onNavigateToVip()
                 },
                 onDismiss = {
                     AdVerificationHelper.resetVerification(context)
+                    currentClickStep = 1
                     viewModel.dismissEpisodeUnlockModal()
                 },
                 modifier = Modifier.fillMaxSize()
