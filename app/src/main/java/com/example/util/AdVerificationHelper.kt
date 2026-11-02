@@ -1,9 +1,13 @@
 package com.example.util
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.provider.Settings
+import com.example.service.AdTimerOverlayService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,7 +54,35 @@ object AdVerificationHelper {
     }
 
     /**
-     * 🚀 ১. স্পনসর লিংকে ক্লিক করলে রিয়েল-টাইম লাইভ কাউন্টডাউন শুরু করা
+     * 📱 অন্য অ্যাপের ওপর ভাসমান উইন্ডো দেখানোর পারমিশন আছে কি না চেক
+     */
+    fun canDrawOverlays(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+    }
+
+    /**
+     * ⚙️ পারমিশন না থাকলে সেটিংস ওপেন করার হেল্পার মেথড
+     */
+    fun requestOverlayPermission(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * 🚀 ১. স্পনসর লিংকে ক্লিক করলে রিয়েল-টাইম লাইভ কাউন্টডাউন ও ফ্লোটিং ওভারলে চালু করা
      */
     fun startAdVerification(
         context: Context,
@@ -66,6 +98,9 @@ object AdVerificationHelper {
         targetEpisodeNumber = episodeNumber
 
         verificationJob?.cancel()
+
+        // 🌟 ক্রোম ব্রাউজারের ওপর স্ক্রিনের নিচে ভাসমান লাইভ পিল সার্ভিস স্টার্ট করা
+        AdTimerOverlayService.start(appContext, safeDuration)
 
         _verificationState.value = AdVerificationStatus(
             isVerifying = true,
@@ -119,9 +154,9 @@ object AdVerificationHelper {
     /**
      * 🛡️ ২. অ্যাপে ফেরার পর চেকার:
      * - পুরো সময় থাকলে: আনলক সফল
-     * - সময় শেষ হওয়ার আগে ব্যাক করলে: টাইম কাউন্ট বন্ধ, রিসেট এবং মেসেজ প্রদান
+     * - সময় শেষ হওয়ার আগে ব্যাক করলে: টাইম কাউন্ট ও ফ্লোটিং লেয়ার বন্ধ, রিসেট এবং মেসেজ প্রদান
      */
-    fun checkAndFulfillVisit(): VerificationResult {
+    fun checkAndFulfillVisit(context: Context? = null): VerificationResult {
         if (adVisitStartTimeMs == 0L) {
             return VerificationResult(isSuccess = false, remainingSeconds = 0, message = "No active ad visit found.")
         }
@@ -138,15 +173,18 @@ object AdVerificationHelper {
             )
             adVisitStartTimeMs = 0L
 
+            // সার্ভিস বন্ধ করা
+            context?.let { AdTimerOverlayService.stop(it) }
+
             VerificationResult(
                 isSuccess = true,
                 remainingSeconds = 0,
                 message = "✓ Verified! Episode $targetEpisodeNumber unlocked."
             )
         } else {
-            // ⚠️ সময় শেষ হওয়ার আগেই ব্যাক করেছে: সম্পূর্ণ রিসেট
+            // ⚠️ সময় শেষ হওয়ার আগেই ব্যাক করেছে: ফ্লোটিং ওভারলে বাতিল ও সম্পূর্ণ রিসেট
             val secondsLeft = (((requiredDurationSeconds * 1000L) - elapsedMs) / 1000L).toInt().coerceAtLeast(1)
-            cancelDueToEarlyExit()
+            cancelDueToEarlyExit(context)
 
             VerificationResult(
                 isSuccess = false,
@@ -159,7 +197,7 @@ object AdVerificationHelper {
     /**
      * 🚫 আগে ব্যাক করলে টাইমার বন্ধ এবং সবকিছু প্রথম থেকে শুরু করার জন্য রিসেট
      */
-    fun cancelDueToEarlyExit() {
+    fun cancelDueToEarlyExit(context: Context? = null) {
         verificationJob?.cancel()
         verificationJob = null
         adVisitStartTimeMs = 0L
@@ -168,16 +206,18 @@ object AdVerificationHelper {
             isCancelledEarly = true,
             displayStatusText = ""
         )
+        context?.let { AdTimerOverlayService.stop(it) }
     }
 
     /**
      * 🧹 ফুল রিসেট
      */
-    fun resetVerification() {
+    fun resetVerification(context: Context? = null) {
         verificationJob?.cancel()
         verificationJob = null
         adVisitStartTimeMs = 0L
         _verificationState.value = AdVerificationStatus()
+        context?.let { AdTimerOverlayService.stop(it) }
     }
 }
 
