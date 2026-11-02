@@ -14,6 +14,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Rational
@@ -21,6 +22,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -29,12 +31,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -45,7 +47,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -57,17 +58,14 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -99,18 +97,28 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
+import com.example.data.model.CustomAdsConfigResponse
+import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.EpisodeDto
+import com.example.ui.components.InPlayerAdCountdownNotice
+import com.example.ui.components.InPlayerCustomVideoAdView
+import com.example.ui.components.InPlayerDirectLinkRequirementOverlay
 import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.screens.SleekOnlineTimeline
 import com.example.ui.screens.shorts.RealVideoTrack
 import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -141,9 +149,6 @@ data class RealSubtitleTrack(
     val isSelected: Boolean = false
 )
 
-// -----------------------------------------------------------------------------
-// 🌟 PD Flix Brand Logo
-// -----------------------------------------------------------------------------
 @Composable
 fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
     Column(
@@ -157,9 +162,7 @@ fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
             Text(
                 text = "P",
                 style = TextStyle(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFF00F0FF), Color(0xFF0072FF))
-                    ),
+                    brush = Brush.verticalGradient(listOf(Color(0xFF00F0FF), Color(0xFF0072FF))),
                     fontSize = 44.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -168,9 +171,7 @@ fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
             Text(
                 text = "D",
                 style = TextStyle(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFFFF007A), Color(0xFFC000FF))
-                    ),
+                    brush = Brush.verticalGradient(listOf(Color(0xFFFF007A), Color(0xFFC000FF))),
                     fontSize = 44.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -200,7 +201,7 @@ fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
                     text = "Flix",
                     style = TextStyle(
                         brush = Brush.verticalGradient(
-                            colors = listOf(Color(0xFFFFFFFF), Color(0xFFD6E4FF), Color(0xFF9CB8FF))
+                            listOf(Color(0xFFFFFFFF), Color(0xFFD6E4FF), Color(0xFF9CB8FF))
                         ),
                         fontSize = 44.sp,
                         fontWeight = FontWeight.Black
@@ -484,7 +485,7 @@ fun PlayerVideoBox(
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
-    // 🎯 কোয়ালিটি ট্র্যাকার এবং মাল্টি-কোয়ালিটি ডিটেকশন
+    // 🎯 কোয়ালিটি ও ট্র্যাক ট্র্যাকার
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var hasMultipleQualities by rememberSaveable { mutableStateOf(false) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
@@ -504,6 +505,108 @@ fun PlayerVideoBox(
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
     var isFirstFrameRendered by remember { mutableStateOf(false) }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // =========================================================================
+    // 📡 কাস্টম বিজ্ঞাপন ও সার্ভার কিউ-পয়েন্ট কনফিগারেশন
+    // =========================================================================
+    var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
+    var activeInPlayerCustomAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
+    var isDirectLinkOverlayActive by remember { mutableStateOf(false) }
+    var pendingAdClicks by rememberSaveable(slug, episodeNumber) { mutableIntStateOf(0) }
+
+    // ৩-সেকেন্ড কাউন্টডাউন ট্র্যাকার
+    var activeCountdownSeconds by remember { mutableIntStateOf(0) }
+    var isCountdownForDirectLink by remember { mutableStateOf(false) }
+    val triggeredCueMarks = rememberSaveable(slug, episodeNumber) { mutableSetOf<Long>() }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                    val adapter = moshi.adapter(CustomAdsConfigResponse::class.java)
+                    customAdsConfig = adapter.fromJson(body)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val longVideoAds = remember(customAdsConfig) {
+        customAdsConfig?.ads?.filter { it.placement == "long_video" || it.placement == "all" } ?: emptyList()
+    }
+
+    val longVideoRules = remember(customAdsConfig) {
+        customAdsConfig?.longVideoRules
+    }
+
+    // 🎯 সার্ভার নিয়ন্ত্রিত কিউ-পয়েন্টস (কোনো ৮ মিনিট ফিক্সড নয়)
+    val serverCuePointsMs = remember(totalDurationMs, longVideoRules, isVip) {
+        if (isVip || longVideoRules?.enabled != true || totalDurationMs <= 0L) {
+            emptyList<Long>()
+        } else {
+            longVideoRules.calculateCuePointsMs(totalDurationMs)
+        }
+    }
+
+    val adCueFractions = remember(totalDurationMs, serverCuePointsMs) {
+        if (totalDurationMs <= 0L || serverCuePointsMs.isEmpty()) {
+            emptyList()
+        } else {
+            serverCuePointsMs.map { (it.toFloat() / totalDurationMs.toFloat()).coerceIn(0.01f, 0.99f) }
+        }
+    }
+
+    // =========================================================================
+    // ⏱️ বিজ্ঞাপন আসার ৩ সেকেন্ড আগে প্লেয়ারের কোণায় কাউন্টডাউন ও বিজ্ঞাপন ট্রিগার
+    // =========================================================================
+    LaunchedEffect(currentPositionMs, serverCuePointsMs, isPlaying, isVip) {
+        if (isVip || serverCuePointsMs.isEmpty() || !isPlaying || totalDurationMs <= 0L) {
+            activeCountdownSeconds = 0
+            return@LaunchedEffect
+        }
+
+        // পরবর্তী আসন্ন কিউ-পয়েন্ট খোঁজা যা ৩ সেকেন্ডের মধ্যে
+        val upcomingCue = serverCuePointsMs.firstOrNull { cueMs ->
+            cueMs !in triggeredCueMarks && currentPositionMs in (cueMs - 3200L)..<cueMs
+        }
+
+        if (upcomingCue != null) {
+            val diffSec = ((upcomingCue - currentPositionMs) / 1000L).toInt().coerceIn(1, 3)
+            activeCountdownSeconds = diffSec
+
+            // কাস্টম ভিডিও অ্যাড নাকি ডাইরেক্ট লিংক হবে তা যাচাই
+            val hasVideoAds = longVideoAds.isNotEmpty()
+            isCountdownForDirectLink = !hasVideoAds
+        } else {
+            activeCountdownSeconds = 0
+        }
+
+        // যখন কিউ পয়েন্টে পৌঁছে যাবে
+        val reachedCue = serverCuePointsMs.firstOrNull { cueMs ->
+            cueMs !in triggeredCueMarks && currentPositionMs >= cueMs && currentPositionMs <= (cueMs + 2000L)
+        }
+
+        if (reachedCue != null) {
+            triggeredCueMarks.add(reachedCue)
+            activeCountdownSeconds = 0
+
+            // ১. কাস্টম ভিডিও অ্যাড থাকলে ইন-প্লেয়ার ভিডিও অ্যাড চালু
+            if (longVideoAds.isNotEmpty()) {
+                activeInPlayerCustomAd = longVideoAds.random()
+                exoPlayer.pause()
+            }
+            // ২. কাস্টম ভিডিও অ্যাড না থাকলে ডাইরেক্ট লিংক ক্লিক অ্যাড চালু (নন-স্কিপেবল)
+            else if (UnifiedAdManager.isDirectLinkAvailable(isVip)) {
+                pendingAdClicks = longVideoRules?.directLinkClicksPerAd ?: 1
+                isDirectLinkOverlayActive = true
+                exoPlayer.pause()
+            }
+        }
+    }
 
     val targetStartupBufferBytes = 2 * 1024 * 1024L
     var realDownloadedBytes by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
@@ -534,7 +637,7 @@ fun PlayerVideoBox(
                     hasCompletedStartup = true
                     isFirstFrameRendered = true
                     isBuffering = false
-                    if (!exoPlayer.isPlaying) {
+                    if (!exoPlayer.isPlaying && activeInPlayerCustomAd == null && !isDirectLinkOverlayActive) {
                         exoPlayer.play()
                     }
                     break
@@ -604,49 +707,9 @@ fun PlayerVideoBox(
         }
     }
 
-    var hasAutoSelectedLastWatchedEp by rememberSaveable(slug) { mutableStateOf(false) }
-    LaunchedEffect(slug, episodes) {
-        if (!hasAutoSelectedLastWatchedEp && episodes.isNotEmpty()) {
-            hasAutoSelectedLastWatchedEp = true
-            val savedEpNum = lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
-            if (savedEpNum > 1 && savedEpNum != episodeNumber) {
-                val targetEp = episodes.find { it.episodeNumber == savedEpNum }
-                if (targetEp != null) {
-                    onSelectEpisode(targetEp)
-                }
-            }
-        }
-    }
-
-    val eightMinutesMs = 8 * 60 * 1000L
-    var pendingAdClicks by rememberSaveable(slug) { mutableIntStateOf(0) }
-    val triggeredAdMarks = rememberSaveable(slug) { mutableSetOf<Int>() }
-
-    val isServerAdActive = remember(isVip) { UnifiedAdManager.isDirectLinkAvailable(isVip) }
-
-    LaunchedEffect(currentPositionMs, isVip, totalDurationMs, isServerAdActive) {
-        if (!isVip && isServerAdActive && totalDurationMs > 0L) {
-            val currentMark = (currentPositionMs / eightMinutesMs).toInt()
-            if (currentMark > 0 && currentMark !in triggeredAdMarks) {
-                triggeredAdMarks.add(currentMark)
-                pendingAdClicks += 2
-            }
-        }
-    }
-
-    val adCueFractions = remember(totalDurationMs, isVip, isServerAdActive) {
-        if (isVip || !isServerAdActive || totalDurationMs <= eightMinutesMs) {
-            emptyList()
-        } else {
-            val count = (totalDurationMs / eightMinutesMs).toInt()
-            (1..count).map { (it * eightMinutesMs).toFloat() / totalDurationMs.toFloat() }
-        }
-    }
-
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
-    // 🔒 ডাউনলোড কোয়ালিটি অপশনসমূহ (শুধুমাত্র VIP ইউজারদের জন্য আনলকড)
     val downloadQualityOptions = remember(episodes) {
         val detected = mutableListOf<SideDrawerQualityItem>()
         val seen = mutableSetOf<String>()
@@ -684,7 +747,6 @@ fun PlayerVideoBox(
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
-    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     val speedOptions = remember { listOf(2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
     var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
@@ -751,9 +813,6 @@ fun PlayerVideoBox(
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
-    // =========================================================================
-    // 🎯 ট্র্যাক এক্সট্র্যাকশন ও মাল্টিপল কোয়ালিটি ডিটেকশন
-    // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -1091,13 +1150,6 @@ fun PlayerVideoBox(
     }
 
     fun triggerSkipWithFeedback(seconds: Int) {
-        if (seconds > 0 && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
-            pendingAdClicks--
-            UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-            Toast.makeText(context, "Please view sponsor ad to continue skipping!", Toast.LENGTH_SHORT).show()
-            return
-        }
-
         onSeek(seconds)
         coroutineScope.launch {
             if (seconds < 0) {
@@ -1252,14 +1304,8 @@ fun PlayerVideoBox(
                         } while (event.changes.any { it.pressed })
 
                         if (isHorizontalDragging) {
-                            if (scrubTargetPositionMs > startScrubPos && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
-                                pendingAdClicks--
-                                UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-                                Toast.makeText(context, "Please clear sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                onSeekFinished(scrubTargetPositionMs)
-                                exoPlayer.seekTo(scrubTargetPositionMs)
-                            }
+                            onSeekFinished(scrubTargetPositionMs)
+                            exoPlayer.seekTo(scrubTargetPositionMs)
                         }
 
                         showBrightnessOverlay = false
@@ -1267,7 +1313,7 @@ fun PlayerVideoBox(
                         isHorizontalScrubbing = false
                     }
                 }
-                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking, pendingAdClicks, sideDrawerType) {
+                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking, sideDrawerType) {
                     if (isScreenLocked || isPiPActive) return@pointerInput
 
                     detectTapGestures(
@@ -1294,12 +1340,6 @@ fun PlayerVideoBox(
                         onTap = {
                             if (showSideDrawer && sideDrawerType == "for_you") {
                                 showSideDrawer = false
-                                return@detectTapGestures
-                            }
-
-                            if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
-                                pendingAdClicks--
-                                UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
                                 return@detectTapGestures
                             }
 
@@ -1431,7 +1471,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // Error Dialog (English Only)
+            // Error Dialog
             if (playbackErrorMessage != null) {
                 Box(
                     modifier = Modifier
@@ -1623,41 +1663,6 @@ fun PlayerVideoBox(
                 OttDoubleTapSkipBadge(isForward = true, skipSeconds = 10)
             }
 
-            // Sponsor Ad Badge
-            if (pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.78f),
-                    border = BorderStroke(1.2.dp, Color(0xFFFFCC00)),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = if (isDeviceLandscape) 16.dp else 46.dp, end = 14.dp)
-                        .clickable {
-                            pendingAdClicks--
-                            UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-                        }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFFCC00))
-                        )
-                        Text(
-                            text = "Sponsored • Tap to Visit (${pendingAdClicks} left)",
-                            color = Color(0xFFFFCC00),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
             // Buffering Spinner
             if (isBuffering && isFirstFrameRendered && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1727,6 +1732,68 @@ fun PlayerVideoBox(
                         )
                     }
                 }
+            }
+
+            // =========================================================================
+            // ⏱️ ৩-সেকেন্ড কাউন্টডাউন ব্যানার (প্লেয়ারের নিচে কোণায়)
+            // =========================================================================
+            if (activeCountdownSeconds in 1..3 && activeInPlayerCustomAd == null && !isDirectLinkOverlayActive) {
+                InPlayerAdCountdownNotice(
+                    secondsLeft = activeCountdownSeconds,
+                    isDirectLink = isCountdownForDirectLink,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 42.dp)
+                )
+            }
+
+            // =========================================================================
+            // 🎬 ইন-প্লেয়ার কাস্টম ভিডিও বিজ্ঞাপন (YouTube Style Embedded)
+            // =========================================================================
+            if (activeInPlayerCustomAd != null) {
+                InPlayerCustomVideoAdView(
+                    ad = activeInPlayerCustomAd!!,
+                    onAdFinishedOrSkipped = {
+                        activeInPlayerCustomAd = null
+                        exoPlayer.play()
+                    },
+                    onOpenAdTarget = { targetUrl ->
+                        activeInPlayerCustomAd = null
+                        if (targetUrl.contains("vip", ignoreCase = true)) {
+                            onNavigateToVip()
+                        } else {
+                            val opened = UnifiedAdManager.openChromeCustomTab(context, targetUrl)
+                            if (!opened) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        exoPlayer.play()
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // =========================================================================
+            // 🔒 ডাইরেক্ট লিংক ক্লিক অ্যাড ওভারলে (নন-স্কিপেবল)
+            // =========================================================================
+            if (isDirectLinkOverlayActive && pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
+                InPlayerDirectLinkRequirementOverlay(
+                    remainingClicks = pendingAdClicks,
+                    onVisitSponsor = {
+                        pendingAdClicks--
+                        UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
+                        if (pendingAdClicks <= 0) {
+                            isDirectLinkOverlayActive = false
+                            exoPlayer.play()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             if (isPiPActive) {
@@ -1799,7 +1866,7 @@ fun PlayerVideoBox(
 
                 // Center Play/Pause Button
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked,
+                    visible = isControlsVisible && !isScreenLocked && activeInPlayerCustomAd == null && !isDirectLinkOverlayActive,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
                     modifier = Modifier.align(Alignment.Center)
@@ -1849,7 +1916,7 @@ fun PlayerVideoBox(
 
                 // Bottom Controls Bar
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked,
+                    visible = isControlsVisible && !isScreenLocked && activeInPlayerCustomAd == null,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(),
                     modifier = Modifier.align(Alignment.BottomCenter)
@@ -1935,6 +2002,7 @@ fun PlayerVideoBox(
                             }
                         }
 
+                        // 🟡 টাইমলাইন (সার্ভারের কিউ ডট সহ)
                         SleekOnlineTimeline(
                             currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                             totalDurationMs = totalDurationMs,
@@ -1943,13 +2011,7 @@ fun PlayerVideoBox(
                             onSeekStarted = { isUserSeeking = true },
                             onSeeking = { scrubPosition = it },
                             onSeekFinished = { targetPos ->
-                                if (targetPos > currentPositionMs && pendingAdClicks > 0 && !isVip && UnifiedAdManager.isDirectLinkAvailable(isVip)) {
-                                    pendingAdClicks--
-                                    UnifiedAdManager.openAdsterraDirectLink(context, isVip = false, fallbackUrl = null)
-                                    Toast.makeText(context, "Please view sponsor ad to scrub forward!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    onSeekFinished(targetPos)
-                                }
+                                onSeekFinished(targetPos)
                                 isUserSeeking = false
                             },
                             modifier = Modifier
@@ -2134,43 +2196,27 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 👑 ডাউনলোড বাটন: শুধুমাত্র VIP ইউজারদের জন্য
+                                // =============================================================
+                                // 🎯 ডাউনলোড বাটন: মুকুট আইকনটি সরানো হয়েছে
+                                // সাধারণ ইউজার ক্লিক করলে ড্রয়ার ওপেন হবে এবং VIP অপশন দেখাবে
+                                // =============================================================
                                 IconButton(
                                     onClick = {
-                                        if (!isVip) {
-                                            Toast.makeText(
-                                                context,
-                                                "👑 Downloading is exclusive to VIP members! Upgrade now to download.",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                            onNavigateToVip()
+                                        if (isDeviceLandscape) {
+                                            sideDrawerType = "download"
+                                            showSideDrawer = !showSideDrawer
                                         } else {
-                                            if (isDeviceLandscape) {
-                                                sideDrawerType = "download"
-                                                showSideDrawer = !showSideDrawer
-                                            } else {
-                                                onDownloadClick?.invoke()
-                                            }
+                                            onDownloadClick?.invoke()
                                         }
                                     },
                                     modifier = Modifier.size(24.dp)
                                 ) {
-                                    Box(contentAlignment = Alignment.TopEnd) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.FileDownload,
-                                            contentDescription = "Download",
-                                            tint = if (isDeviceLandscape && showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
-                                            modifier = Modifier.size(17.dp)
-                                        )
-                                        if (!isVip) {
-                                            MiniCrownVector(
-                                                tint = Color(0xFFFFB300),
-                                                modifier = Modifier
-                                                    .offset(x = 3.dp, y = (-3).dp)
-                                                    .size(8.dp)
-                                            )
-                                        }
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = "Download",
+                                        tint = if (isDeviceLandscape && showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
+                                        modifier = Modifier.size(17.dp)
+                                    )
                                 }
 
                                 Box(
@@ -2189,7 +2235,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার প্যানেল (কোয়ালিটি, স্পিড, অডিও ও ডাউনলোড)
+            // 📑 সাইড ড্রয়ার প্যানেল
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -2551,7 +2597,7 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 👑 সাইড ড্রয়ারের ডাউনলোড বোতাম: VIP না হলে সরাসরি লকড
+                            // 👑 সাইড ড্রয়ারের ডাউনলোড বোতাম: VIP না হলে আপগ্রেড করার জন্য নির্দেশ দেওয়া
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(5.dp))
                                 val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
