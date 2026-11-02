@@ -50,13 +50,14 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TextStyle
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle // 👈 ফিক্সড: TextStyle ইমপোর্ট যুক্ত করা হয়েছে
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -263,7 +264,7 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // ⏱️ বিজ্ঞাপন আসার ৩ সেকেন্ড আগে কাউন্টডাউন ও বিজ্ঞাপন প্রদর্শন লজিক
+    // ⏱️ বিজ্ঞাপন আসার ৩ সেকেন্ড আগে কাউন্টডাউন ও প্রদর্শন লজিক
     // =========================================================================
     LaunchedEffect(currentPositionMs, serverCuePointsMs, isPlaying, isVip) {
         if (isVip || serverCuePointsMs.isEmpty() || !isPlaying || totalDurationMs <= 0L) {
@@ -1424,7 +1425,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার প্যানেল (আলাদা ফাইলে বিভক্ত)
+            // 📑 সাইড ড্রয়ার প্যানেল (মডিউলার কম্পোনেন্টসমূহ)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -1583,7 +1584,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎬 For You Side Panel (আলাদা ফাইলে বিভক্ত)
+        // 🎬 For You Side Panel
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
