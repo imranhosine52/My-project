@@ -13,18 +13,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-/**
- * 💬 রিয়েল সাবটাইটেল ট্র্যাক ডেটা মডেল
- */
-data class RealSubtitleTrack(
-    val id: String,
-    val language: String,
-    val label: String,
-    val groupIndex: Int,
-    val trackIndex: Int,
-    val isSelected: Boolean = false
-)
+// 🎯 ফিক্সড: মেইন মডেল থেকে ইমপোর্ট করা হলো
+import com.example.ui.screens.player.RealSubtitleTrack
 
 /**
  * 💬 প্লেয়ার সাবটাইটেল সিলেকশন সাইড ড্রয়ার
@@ -64,7 +54,7 @@ fun PlayerSubtitleDrawer(
             }
         }
 
-        // ২. সাবটাইটেল বন্ধ রাখার অপশন ("Off")
+        // ২. সাবটাইটেল বন্ধ রাখার অপশন
         item {
             val isOffSelected = (selectedSubtitleTrackId == "off")
             Text(
