@@ -8,14 +8,11 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
-    <!-- 📱 ২. অন্য অ্যাপের (যেমন: Chrome) ওপর ফ্লোটিং টাইমার দেখানোর পারমিশন -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-    <!-- 📁 ৩. অল ফাইলস ও স্টোরেজ পারমিশন (Android 11+) -->
+    <!-- 📁 ২. অল ফাইলস ও স্টোরেজ পারমিশন (Android 11+) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 🔔 ৪. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন -->
+    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -24,7 +21,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- 🎬 ৫. লোকাল মিডিয়া ও মাইক্রোফোন পারমিশন -->
+    <!-- 🎬 ৪. লোকাল মিডিয়া ও মাইক্রোফোন পারমিশন -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -65,11 +62,6 @@
             android:name=".service.VideoDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <!-- ⏳ ক্রোম বা অন্য অ্যাপের ওপর বিজ্ঞাপন টাইমার ভাসমান রাখার সার্ভিস -->
-        <service
-            android:name=".service.AdTimerOverlayService"
-            android:exported="false" />
 
         <!-- 🚀 রিলস ব্যাকগ্রাউন্ড আপলোডের জন্য WorkManager Foreground Service (Android 14+ এর জন্য আবশ্যক) -->
         <service
