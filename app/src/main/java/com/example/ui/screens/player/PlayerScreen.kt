@@ -245,7 +245,7 @@ fun PlayerScreen(
             try {
                 val client = OkHttpClient()
                 val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
-                val response = client.execute(request)
+                val response = client.newCall(request).execute()
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.isNotBlank()) {
                     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
