@@ -132,7 +132,6 @@ fun ShortsBatchDownloadSheet(
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
     val realSizesMap = remember { mutableStateMapOf<String, Long>() }
-    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     // =========================================================================
     // 🔍 ১. শর্টসের আসল কোয়ালিটি ডিটেকশন
@@ -356,7 +355,7 @@ fun ShortsBatchDownloadSheet(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                                         ) {
-                                            if (q.isVipOnly) {
+                                            if (q.isVipOnly || !isVip) {
                                                 VipCrownVectorIcon(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
                                             }
                                             Text(
@@ -482,7 +481,7 @@ fun ShortsBatchDownloadSheet(
                 }
 
                 // =============================================================
-                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (শর্টসে ২ জিবি ফ্রি কোটা সহ)
+                // 👑 ৩. নিচের ফিক্সড ডাউনলোড বার (১০০% VIP এক্সক্লুসিভ ইঞ্জিন)
                 // =============================================================
                 Surface(
                     modifier = Modifier
@@ -552,9 +551,8 @@ fun ShortsBatchDownloadSheet(
                                 )
                             }
 
-                            val isVipLocked = selectedQuality.isVipOnly && !isVip
-
-                            val downloadButtonBrush = if (isVipLocked) {
+                            // 🎯 ফ্রি ইউজারদের জন্য গোল্ডেন VIP বাটন, VIP হলে গ্রিন বাটন
+                            val downloadButtonBrush = if (!isVip) {
                                 Brush.horizontalGradient(listOf(Color(0xFFE5B567), Color(0xFFF6D38B)))
                             } else {
                                 Brush.horizontalGradient(
@@ -567,43 +565,44 @@ fun ShortsBatchDownloadSheet(
                             }
 
                             val buttonText = when {
-                                isVipLocked -> "Unlock HD (${selectedQuality.label})"
+                                !isVip -> "Unlock VIP to Download 👑"
                                 totalCalculatedMb > 0.0 -> String.format(Locale.US, "Download · %.1fMB", totalCalculatedMb)
                                 selectedDownloadEpisodes.isNotEmpty() -> "Download (${selectedDownloadEpisodes.size})"
-                                else -> "Download · 0.0MB"
+                                else -> "Download (${selectedQuality.label})"
                             }
 
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(start = 18.dp)
+                                    .padding(start = 14.dp)
                                     .height(44.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(downloadButtonBrush)
                                     .clickable {
-                                        if (isVipLocked) {
+                                        // 🚫 ফ্রি ইউজার ক্লিক করলে সাথে সাথে VIP স্ক্রিনে রিডাইরেক্ট
+                                        if (!isVip) {
+                                            Toast.makeText(
+                                                context,
+                                                "👑 Video downloading is exclusive to VIP members!",
+                                                Toast.LENGTH_LONG
+                                            ).show()
                                             onNavigateToVip()
                                             return@clickable
                                         }
+
                                         if (selectedDownloadEpisodes.isEmpty()) {
                                             Toast.makeText(context, "Please select at least one episode", Toast.LENGTH_SHORT).show()
                                             return@clickable
                                         }
 
-                                        // 🎯 শর্টসের জন্য isLongVideo = false (ফ্রি ২ জিবি লিমিট কার্যকর)
                                         val totalSelectedBytes = (totalCalculatedMb * 1024.0 * 1024.0).toLong()
                                         val checkResult = DownloadQuotaManager.checkCanDownload(
                                             context = context,
                                             bytesToDownload = totalSelectedBytes,
-                                            isVip = isVip,
-                                            isLongVideo = false
+                                            isVip = true
                                         )
 
                                         if (checkResult.canDownload) {
-                                            if (!isVip) {
-                                                DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
-                                                todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
-                                            }
                                             onDownloadSelected(selectedDownloadEpisodes.toList(), selectedQuality.key)
                                         } else {
                                             Toast.makeText(context, checkResult.message, Toast.LENGTH_LONG).show()
@@ -616,13 +615,13 @@ fun ShortsBatchDownloadSheet(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    if (isVipLocked) {
+                                    if (!isVip) {
                                         VipCrownVectorIcon(tint = Color(0xFF2B210E))
                                         Text(
                                             text = buttonText,
                                             color = Color(0xFF2B210E),
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black
                                         )
                                     } else {
                                         Icon(
@@ -634,7 +633,7 @@ fun ShortsBatchDownloadSheet(
                                         Text(
                                             text = buttonText,
                                             color = Color.White,
-                                            fontSize = 14.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -643,7 +642,7 @@ fun ShortsBatchDownloadSheet(
                         }
 
                         // =============================================================
-                        // 🌟 শর্টস ডাউনলোডের ফ্রি ২ জিবি লিমিট টেক্সট
+                        // 🌟 ফুটার নোটিশ (সম্পূর্ণ ইংরেজিতে)
                         // =============================================================
                         if (isVip) {
                             Text(
@@ -654,12 +653,11 @@ fun ShortsBatchDownloadSheet(
                                 modifier = Modifier.align(Alignment.CenterHorizontally)
                             )
                         } else {
-                            val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
-                            val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
                             Text(
-                                text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
-                                color = Color(0xFF94A3B8),
+                                text = "👑 Video downloading is exclusive to VIP members",
+                                color = Color(0xFFFFB300),
                                 fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.align(Alignment.CenterHorizontally)
                             )
                         }
