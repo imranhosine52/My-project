@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.theme.GoldVip
-import java.util.Locale
 
 @Composable
 fun PlayerEpisodesRow(
@@ -44,38 +43,49 @@ fun PlayerEpisodesRow(
         item {
             Box(
                 modifier = Modifier
-                    .size(width = 62.dp, height = 48.dp)
+                    .size(width = 58.dp, height = 46.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF222630))
                     .border(0.8.dp, Color(0xFF333A4A), RoundedCornerShape(8.dp))
                     .clickable { onAllClick() },
                 contentAlignment = Alignment.Center
             ) {
-                Text("All", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "All",
+                    color = Color.White,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
-        // [ 01 ], [ 02 ]... বাটন
+        // [ 01 ], [ 02 ] বা [ 01-10 ] এপিসোড বাটনসমূহ
         items(episodes.size) { index ->
             val ep = episodes[index]
             val isSelected = currentEpNumber == ep.episodeNumber
             val isEpLocked = shouldLockEpisodes && ep.isLocked
-            val formattedNum = String.format(Locale.US, "%02d", ep.episodeNumber)
+
+            // 🎯 সার্ভার থেকে আসা ০১-১০ বা ১-১০ ডায়নামিক রেঞ্জ টেক্সট
+            val displayText = ep.formattedEpisodeRange
+            val isRange = displayText.length > 3
+            val buttonWidth = if (isRange) 76.dp else 58.dp
 
             Box(
                 modifier = Modifier
-                    .size(width = 62.dp, height = 48.dp)
+                    .size(width = buttonWidth, height = 46.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(
                         if (isSelected) {
+                            // সিলেক্টেড হলে শুধু সফট ডার্ক-গ্রিন ব্যাকগ্রাউন্ড শেড থাকবে
                             Brush.verticalGradient(listOf(Color(0xFF0F3B32), Color(0xFF0B2C25)))
                         } else {
                             Brush.linearGradient(listOf(Color(0xFF222630), Color(0xFF222630)))
                         }
                     )
+                    // 🎯 সবুজ বর্ডার লাইন সম্পূর্ণ রিমুভ করে সাধারণ ক্লিন ডার্ক বর্ডার রাখা হয়েছে
                     .border(
-                        width = if (isSelected) 1.5.dp else 0.8.dp,
-                        color = if (isSelected) Color(0xFF00E676) else Color(0xFF333A4A),
+                        width = 0.8.dp,
+                        color = Color(0xFF333A4A),
                         shape = RoundedCornerShape(8.dp)
                     )
                     .clickable { onEpisodeSelect(ep) },
@@ -86,16 +96,16 @@ fun PlayerEpisodesRow(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = formattedNum,
+                        text = displayText,
                         color = if (isSelected) Color(0xFF00E676) else Color(0xFFDCE0E8),
-                        fontSize = 14.sp,
+                        fontSize = if (isRange) 12.sp else 13.5.sp, // রেঞ্জ থাকলে লেখা যেন সুন্দর ফিট হয়
                         fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                     )
 
                     if (isSelected) {
                         Spacer(modifier = Modifier.height(2.dp))
                         EqualizerBarsIcon(
-                            modifier = Modifier.size(12.dp, 8.dp),
+                            modifier = Modifier.size(11.dp, 7.dp),
                             tint = Color(0xFF00E676)
                         )
                     }
