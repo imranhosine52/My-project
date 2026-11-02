@@ -144,21 +144,6 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
-/**
- * 🎯 ০১-১০ বা ১-১০ মার্জড এপিসোড রেঞ্জ ডিটেকশন ও ফরম্যাটার
- */
-fun formatEpisodeDisplayName(ep: EpisodeDto): String {
-    val titleCandidate = ep.rawTitle ?: ep.epTitle ?: ""
-    val rangeRegex = Regex("""(\d+)\s*[-–]\s*(\d+)""")
-    val match = rangeRegex.find(titleCandidate)
-    if (match != null) {
-        val start = match.groupValues[1].toIntOrNull() ?: 1
-        val end = match.groupValues[2].toIntOrNull() ?: 1
-        return String.format(Locale.US, "%02d-%02d", start, end)
-    }
-    return String.format(Locale.US, "%02d", ep.episodeNumber)
-}
-
 @Composable
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
@@ -1130,9 +1115,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // =========================================================================
-            // 🎯 ফুল প্লেয়ার ক্লিকবেড লেয়ার (ভিডিও রানিং থাকবে, টাচ করলে বিজ্ঞাপনে যাবে)
-            // =========================================================================
+            // ফুল প্লেয়ার ক্লিকবেড লেয়ার
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
                 Box(
                     modifier = Modifier
@@ -1155,9 +1138,7 @@ fun PlayerVideoBox(
                 )
             }
 
-            // =========================================================================
-            // 🏷️ চিহ্নিত অংশে (উপরে ডানে) স্লিম ছোট লাইভ কাউন্টার
-            // =========================================================================
+            // চিহ্নিত অংশে স্লিম ছোট লাইভ কাউন্টার
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
                 val badgeText = if (pendingAdClicks > 1) {
                     "Sponsor Ad: $pendingAdClicks Clicks Left"
@@ -1512,8 +1493,18 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার: কমপ্যাক্ট উইডথ (স্ক্রিন ঢেকে ফেলা রোধ) + স্মুথ স্লাইড অ্যানিমেশন
+            // 🎯 সাইড ড্রয়ার উইডথ ফিক্স (ছবি ১-এর আরামদায়ক মাপ অনুযায়ী বাড়ানো হলো)
             // =========================================================================
+            val targetDrawerWidth = remember(sideDrawerType, isDeviceLandscape) {
+                if (sideDrawerType == "playlist" || sideDrawerType == "download") {
+                    // ছবি ১-এর ৫-কলাম গ্রিডের জন্য আরামদায়ক ২৮০.dp থেকে ৩১৫.dp মাপ
+                    if (isDeviceLandscape) 295.dp else 260.dp
+                } else {
+                    // স্পিড বা কোয়ালিটি অপশনের জন্য কমপ্যাক্ট মাপ
+                    if (isDeviceLandscape) 140.dp else 165.dp
+                }
+            }
+
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally(
@@ -1529,14 +1520,13 @@ fun PlayerVideoBox(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        // 🎯 অর্ধেক স্ক্রিন অন্ধকার না করে একদম সাইটে কমপ্যাক্ট সাইজ রাখা হলো
-                        .widthIn(max = if (isDeviceLandscape) 125.dp else 165.dp)
+                        .width(targetDrawerWidth) // 👈 সাইড ড্রয়ার চওড়া করা হলো
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.70f),
-                                    Color.Black.copy(alpha = 0.94f)
+                                    Color.Black.copy(alpha = 0.75f),
+                                    Color(0xFF0F1117)
                                 )
                             )
                         )
