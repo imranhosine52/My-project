@@ -30,14 +30,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // 🎨 প্রিমিয়াম ফ্রস্টেড গ্লাস ও কালার প্যালেট
-private val FrostedGlassBg = Color(0xD9101420) // হালকা ডার্ক ট্রান্সলুসেন্ট গ্লাস
-private val GlassBorderColor = Color(0x33FFFFFF)
-private val FrostedButtonBg = Color(0xFF2C3242)
+private val FrostedGlassBg = Color(0xDD111522) // হালকা কালো ফ্রস্টেড গ্লাস ইফেক্ট
+private val GlassBorderColor = Color(0x38FFFFFF) // কাঁচের স্লিম লাইট বর্ডার
+private val FrostedButtonBg = Color(0xFF282E3E)
 private val PastelGoldButtonBg = Brush.horizontalGradient(
     listOf(Color(0xFFFBE4C0), Color(0xFFF5CD8E))
 )
 private val DarkGoldText = Color(0xFF332003)
 
+/**
+ * 👑 ক্যাপসুল বাটনের জন্য মিনি প্রিমিয়াম ক্রাউন ভেক্টর আইকন
+ */
 @Composable
 private fun SmallCrownIcon(
     modifier: Modifier = Modifier,
@@ -60,6 +63,9 @@ private fun SmallCrownIcon(
     }
 }
 
+/**
+ * 🔒 আধুনিক স্লিম ফ্রস্টেড গ্লাস আনলক কার্ড
+ */
 @Composable
 fun GlassEpisodeUnlockCard(
     episodeNumber: Int = 1,
@@ -73,11 +79,11 @@ fun GlassEpisodeUnlockCard(
     showCloseButton: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    // 🎯 পুরো স্ক্রিন অতিরিক্ত ডার্ক না করে হালকা (alpha = 0.25f) ড্রপ রেখে প্লেয়ারকে স্পষ্ট রাখা হলো
+    // 🎯 পুরো স্ক্রিন ব্লার বা কালো না করে একদম হালকা ড্রপ রাখা হলো যাতে পেছনের স্ক্রিন স্পষ্ট থাকে
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.25f))
+            .background(Color.Black.copy(alpha = 0.20f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -86,20 +92,20 @@ fun GlassEpisodeUnlockCard(
             },
         contentAlignment = Alignment.Center
     ) {
-        // 🌟 আসল ফ্রস্টেড গ্লাস কার্ড
+        // 🌟 আসল ফ্রস্টেড গ্লাস কার্ড (কমপ্যাক্ট ৩১০.dp উইডথ)
         Surface(
             modifier = Modifier
-                .widthIn(max = 310.dp)
-                .fillMaxWidth(0.82f)
-                .clip(RoundedCornerShape(20.dp))
-                .border(BorderStroke(1.dp, GlassBorderColor), RoundedCornerShape(20.dp))
+                .widthIn(max = 300.dp)
+                .fillMaxWidth(0.80f)
+                .clip(RoundedCornerShape(22.dp))
+                .border(BorderStroke(1.dp, GlassBorderColor), RoundedCornerShape(22.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
-                ) {}, // ক্লিক ইভেন্ট কনজিউম যাতে ব্যাকগ্রাউন্ডে ক্লিক না যায়
-            shape = RoundedCornerShape(20.dp),
+                ) {},
+            shape = RoundedCornerShape(22.dp),
             color = FrostedGlassBg,
-            shadowElevation = 16.dp
+            shadowElevation = 18.dp
         ) {
             Column(
                 modifier = Modifier
@@ -108,13 +114,13 @@ fun GlassEpisodeUnlockCard(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // টপ বার: স্টেপ ব্যাজ ও ক্লোজ বাটন
+                // ১. টপ বার: স্টেপ ব্যাজ ও ক্লোজ বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // স্টেপ ইন্ডিকেটর ব্যাজ
+                    // সার্ভারের ক্লিক সংখ্যা অনুযায়ী স্টেপ ব্যাজ
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = Color(0x3300E5FF),
@@ -123,7 +129,7 @@ fun GlassEpisodeUnlockCard(
                         Text(
                             text = if (totalSteps > 1) "STEP $currentStep OF $totalSteps" else "EPISODE $episodeNumber",
                             color = Color(0xFF00E5FF),
-                            fontSize = 9.sp,
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
@@ -132,39 +138,39 @@ fun GlassEpisodeUnlockCard(
                     if (showCloseButton && !isLoading) {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(22.dp)
                                 .clip(CircleShape)
-                                .background(Color(0x33FFFFFF))
+                                .background(Color(0x2EFFFFFF))
                                 .clickable { onDismiss() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(14.dp)
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(13.dp)
                             )
                         }
                     }
                 }
 
-                // ১. সেন্ট্রাল সাদা লক আইকন (সাইজ ৩৫.dp তে কম্প্যাক্ট করা হয়েছে)
+                // ২. সেন্ট্রাল লক আইকন (কমপ্যাক্ট ৩৬.dp)
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color(0x22FFFFFF)),
+                        .background(Color(0x24FFFFFF)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
                         contentDescription = "Episode Locked",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                // ২. [ Watch Ad to Unlock · Xs ] ছোট ও স্লিম বাটন
+                // ৩. [ Watch Ad to Unlock · Xs ] ছোট ও স্লিম বোতাম
                 val adButtonLabel = when {
                     isLoading -> "Loading Ad..."
                     totalSteps > 1 -> "Watch Ad (Step $currentStep/$totalSteps) · ${timerSeconds}s"
@@ -178,7 +184,7 @@ fun GlassEpisodeUnlockCard(
                     border = BorderStroke(0.8.dp, Color(0x44FFFFFF)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(38.dp) // 👈 ছোট উচ্চতা
+                        .height(36.dp) // 👈 ছোট উচ্চতা
                         .clickable(enabled = !isLoading) { onWatchAdClick() }
                 ) {
                     Box(
@@ -189,7 +195,7 @@ fun GlassEpisodeUnlockCard(
                             CircularProgressIndicator(
                                 color = Color.White,
                                 strokeWidth = 1.8.dp,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         } else {
                             Row(
@@ -200,12 +206,12 @@ fun GlassEpisodeUnlockCard(
                                     imageVector = Icons.Default.PlayCircle,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
                                 Text(
                                     text = adButtonLabel,
                                     color = Color.White,
-                                    fontSize = 12.5.sp, // 👈 স্লিম টেক্সট
+                                    fontSize = 12.sp, // 👈 কমপ্যাক্ট টেক্সট সাইজ
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -213,12 +219,12 @@ fun GlassEpisodeUnlockCard(
                     }
                 }
 
-                // ৩. [ 👑 Premium Pro Unlock ] ছোট ও স্লিম বাটন
+                // ৪. [ 👑 Premium Pro Unlock ] ছোট ও স্লিম গোল্ডেন বোতাম
                 Surface(
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(38.dp) // 👈 ছোট উচ্চতা
+                        .height(36.dp) // 👈 ছোট উচ্চতা
                         .clip(RoundedCornerShape(18.dp))
                         .clickable(enabled = !isLoading) { onUpgradeVipClick() }
                 ) {
@@ -234,7 +240,7 @@ fun GlassEpisodeUnlockCard(
                         ) {
                             SmallCrownIcon(
                                 tint = DarkGoldText,
-                                modifier = Modifier.size(14.dp, 12.dp)
+                                modifier = Modifier.size(13.dp, 11.dp)
                             )
 
                             Spacer(modifier = Modifier.width(6.dp))
@@ -242,7 +248,7 @@ fun GlassEpisodeUnlockCard(
                             Text(
                                 text = "Premium Pro Unlock",
                                 color = DarkGoldText,
-                                fontSize = 12.5.sp, // 👈 স্লিম টেক্সট
+                                fontSize = 12.sp, // 👈 কমপ্যাক্ট টেক্সট সাইজ
                                 fontWeight = FontWeight.Bold
                             )
                         }
