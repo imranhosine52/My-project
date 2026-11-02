@@ -1,6 +1,7 @@
 package com.example.ui.screens.player.components
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -22,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight // 👈 ফিক্সড: FontWeight মিসিং ছিল
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.screens.SleekOnlineTimeline
@@ -163,27 +164,59 @@ fun PlayerControlsOverlay(
         }
 
         // =============================================================
-        // 🔒 ৩. ল্যান্ডস্কেপ লক বাটন
+        // 🔒 ৩. ডান পাশে লক এবং নেক্সট এপিসোড বাটন (সাইড থেকে স্মুথ অ্যানিমেশন)
         // =============================================================
         if (isDeviceLandscape) {
             AnimatedVisibility(
                 visible = isControlsVisible && !isScreenLocked,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                enter = slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(280, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(240)),
+                exit = slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(240, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(200)),
                 modifier = Modifier.align(Alignment.CenterEnd)
             ) {
-                IconButton(
-                    onClick = onLockToggle,
-                    modifier = Modifier
-                        .padding(end = 16.dp)
-                        .size(34.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.padding(end = 16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.LockOpen,
-                        contentDescription = "Lock",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    // ১. লক বাটন
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .clickable { onLockToggle() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.LockOpen,
+                            contentDescription = "Lock",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // 🎯 ২. নেক্সট এপিসোড বাটন (লক আইকনের ঠিক নিচে রাখা হলো)
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .clickable { onNextEpisode() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next Episode",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -360,20 +393,6 @@ fun PlayerControlsOverlay(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        if (isDeviceLandscape) {
-                            IconButton(
-                                onClick = onNextEpisode,
-                                modifier = Modifier.size(26.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SkipNext,
-                                    contentDescription = "Next Episode",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-
                         // স্পিড চিপ
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
