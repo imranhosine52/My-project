@@ -208,7 +208,7 @@ fun PlayerVideoBox(
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // =========================================================================
-    // 📡 কাস্টম বিজ্ঞাপন, কিউ-পয়েন্ট ও অ্যাড কিউমুলেশন (যোগ হওয়ার লজিক)
+    // 📡 কাস্টম বিজ্ঞাপন, কিউ-পয়েন্ট ও কিউমুলেটিভ কাউন্টডাউন
     // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeInPlayerCustomAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
@@ -262,7 +262,7 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // ⏱️ স্বাভাবিক টাইমে বিজ্ঞাপন আসার ৩ সেকেন্ড আগে নোটিশ ও পজ লজিক
+    // ⏱️ বিজ্ঞাপন আসার টাইমে ভিডিও রানিং থাকবে, পজ হবে না
     // =========================================================================
     LaunchedEffect(currentPositionMs, serverCuePointsMs, isPlaying, isVip, pendingAdClicks) {
         if (isVip || serverCuePointsMs.isEmpty() || totalDurationMs <= 0L) {
@@ -270,7 +270,7 @@ fun PlayerVideoBox(
             return@LaunchedEffect
         }
 
-        // ৩-সেকেন্ড পূর্বে কাউন্টডাউন সতর্কবার্তা
+        // ৩-সেকেন্ড পূর্বে কাউন্টডাউন নোটিশ
         if (pendingAdClicks == 0 && isPlaying) {
             val upcomingCue = serverCuePointsMs.firstOrNull { cueMs ->
                 cueMs !in triggeredCueMarks && currentPositionMs in (cueMs - 3200L)..<cueMs
@@ -285,7 +285,7 @@ fun PlayerVideoBox(
             activeCountdownSeconds = 0
         }
 
-        // অ্যাডের পয়েন্টে পৌঁছালে ভিডিও পজ ও ক্লিক সংখ্যা যোগ করা
+        // অ্যাডের পয়েন্টে পৌঁছালে ক্লিক সংখ্যা যোগ হবে কিন্তু ভিডিও ব্যাকগ্রাউন্ডে চলতে থাকবে
         val reachedCue = serverCuePointsMs.firstOrNull { cueMs ->
             cueMs !in triggeredCueMarks && currentPositionMs >= cueMs && currentPositionMs <= (cueMs + 2000L)
         }
@@ -300,21 +300,18 @@ fun PlayerVideoBox(
             } else if (UnifiedAdManager.isDirectLinkAvailable(isVip)) {
                 val clicksToAdd = (longVideoRules?.directLinkClicksPerAd ?: 1).coerceAtLeast(1)
                 pendingAdClicks += clicksToAdd // 👈 ক্লিক সংখ্যা যোগ হলো
-                exoPlayer.pause()
+                // 🎯 ভিডিও পজ হবে না, ব্যাকগ্রাউন্ডে রানিং থাকবে
             }
         }
     }
 
-    // ভেরিফিকেশন সাকসেস ট্র্যাকার (অ্যাড দেখে ব্যাক করলে পেন্ডিং ক্লিক কমানো)
+    // ভেরিফিকেশন সাকসেস ট্র্যাকার (বিজ্ঞাপন দেখে ব্যাক করলে পেন্ডিং ক্লিক কমানো)
     val verificationStatus by AdVerificationHelper.verificationState.collectAsState()
     LaunchedEffect(verificationStatus.isFulfilled) {
         if (verificationStatus.isFulfilled && pendingAdClicks > 0) {
             pendingAdClicks--
             if (pendingAdClicks <= 0) {
                 pendingAdClicks = 0
-                if (!exoPlayer.isPlaying) {
-                    exoPlayer.play()
-                }
             }
         }
     }
@@ -347,7 +344,7 @@ fun PlayerVideoBox(
                     hasCompletedStartup = true
                     isFirstFrameRendered = true
                     isBuffering = false
-                    if (!exoPlayer.isPlaying && activeInPlayerCustomAd == null && pendingAdClicks == 0) {
+                    if (!exoPlayer.isPlaying && activeInPlayerCustomAd == null) {
                         exoPlayer.play()
                     }
                     break
@@ -860,7 +857,6 @@ fun PlayerVideoBox(
     }
 
     fun triggerSkipWithFeedback(seconds: Int) {
-        if (pendingAdClicks > 0) return // বিজ্ঞাপন পেন্ডিং থাকলে স্কিপ ব্লক
         onSeek(seconds)
         coroutineScope.launch {
             if (seconds < 0) {
@@ -883,7 +879,6 @@ fun PlayerVideoBox(
     }
 
     fun enterPiPMode() {
-        if (pendingAdClicks > 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 val params = PictureInPictureParams.Builder()
@@ -910,7 +905,7 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // 🎯 ইউজার স্ক্রল/সিক করার সময় বিজ্ঞাপন অতিক্রম রোধ ও যোগ করার হ্যান্ডলার
+    // 🎯 ইউজার সিক করার সময় পার হওয়া সমস্ত বিজ্ঞাপন কিউতে যোগ করা
     // =========================================================================
     fun handleSafeSeek(targetPos: Long) {
         if (isVip || serverCuePointsMs.isEmpty()) {
@@ -919,7 +914,6 @@ fun PlayerVideoBox(
             return
         }
 
-        // ব্যবহারকারী বর্তমান পজিশন থেকে সামনে যতগুলো না-দেখা অ্যাডের কিউ পয়েন্ট পার করছে
         val current = exoPlayer.currentPosition
         if (targetPos > current) {
             val skippedCues = serverCuePointsMs.filter { cue ->
@@ -930,23 +924,9 @@ fun PlayerVideoBox(
                 val clicksPerAd = (longVideoRules?.directLinkClicksPerAd ?: 1).coerceAtLeast(1)
                 val totalAddedClicks = skippedCues.size * clicksPerAd
 
-                // সব পার হওয়া কিউ মার্ক করা ও ক্লিক কাউন্টে যোগ করা
                 triggeredCueMarks.addAll(skippedCues)
-                pendingAdClicks += totalAddedClicks
-
-                // প্রথম বিজ্ঞাপনের পয়েন্টে আটকে রাখা (বিজ্ঞাপন ছাড়া সামনে যাওয়া যাবে না)
-                val earliestCue = skippedCues.minOrNull() ?: targetPos
-                exoPlayer.seekTo(earliestCue)
-                onSeekFinished(earliestCue)
-                exoPlayer.pause()
-                return
+                pendingAdClicks += totalAddedClicks // 👈 স্কিপ করা অ্যাডগুলো কিউতে যোগ হলো
             }
-        }
-
-        // যদি অলরেডি বিজ্ঞাপন পেন্ডিং থাকে, তবে সামনে যাওয়া যাবে না
-        if (pendingAdClicks > 0 && targetPos > current) {
-            exoPlayer.pause()
-            return
         }
 
         onSeekFinished(targetPos)
@@ -964,7 +944,7 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer, pendingAdClicks) {
+                .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer) {
                     if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
 
                     awaitEachGesture {
@@ -990,7 +970,7 @@ fun PlayerVideoBox(
                             val event = awaitPointerEvent()
                             val pointerCount = event.changes.size
 
-                            if (pointerCount >= 2 && pendingAdClicks == 0) {
+                            if (pointerCount >= 2) {
                                 isTransforming = true
                                 showBrightnessOverlay = false
                                 showVolumeOverlay = false
@@ -1060,7 +1040,7 @@ fun PlayerVideoBox(
                         } while (event.changes.any { it.pressed })
 
                         if (isHorizontalDragging) {
-                            handleSafeSeek(scrubTargetPositionMs) // 👈 বিজ্ঞাপন চেক করে সেভ সিক
+                            handleSafeSeek(scrubTargetPositionMs)
                         }
 
                         showBrightnessOverlay = false
@@ -1068,7 +1048,7 @@ fun PlayerVideoBox(
                         isHorizontalScrubbing = false
                     }
                 }
-                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking, pendingAdClicks) {
+                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, isUserSeeking) {
                     if (isScreenLocked || isPiPActive) return@pointerInput
 
                     detectTapGestures(
@@ -1077,7 +1057,7 @@ fun PlayerVideoBox(
                             try {
                                 holdJob = coroutineScope.launch {
                                     delay(400)
-                                    if (!isUserSeeking && !isHorizontalScrubbing && !showSideDrawer && pendingAdClicks == 0) {
+                                    if (!isUserSeeking && !isHorizontalScrubbing && !showSideDrawer) {
                                         is2xActive = true
                                         previousSpeedBefore2x = currentSpeed
                                         exoPlayer.setPlaybackSpeed(2.0f)
@@ -1106,7 +1086,7 @@ fun PlayerVideoBox(
                             }
                         },
                         onDoubleTap = { offset ->
-                            if (!isScreenLocked && !showSideDrawer && !isPiPActive && pendingAdClicks == 0) {
+                            if (!isScreenLocked && !showSideDrawer && !isPiPActive) {
                                 if (zoomScale > 1.05f) {
                                     zoomScale = 1.0f
                                     zoomOffset = Offset.Zero
@@ -1153,18 +1133,18 @@ fun PlayerVideoBox(
             )
 
             // =========================================================================
-            // 🎯 সম্পূর্ণ প্লেয়ার স্ক্রিনে ফুল ক্লিকবেড লেয়ার (বিজ্ঞাপন ক্লিক ট্রিগার)
+            // 🎯 ফুল প্লেয়ার ক্লিকবেড লেয়ার (ভিডিও রানিং থাকবে, টাচ করলে অ্যাডে যাবে)
             // =========================================================================
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.35f))
+                        .background(Color.Transparent) // 👈 ভিডিও ক্লিয়ারভাবে চলবে
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            // প্লেয়ারের যেকোনো স্থানে ক্লিক করলে সরাসরি বিজ্ঞাপনে নিয়ে যাবে
+                            // স্ক্রিনের যেকোনো স্থানে ক্লিক করলে সরাসরি বিজ্ঞাপনে নিয়ে যাবে
                             activity?.let { act ->
                                 val timerSec = UnifiedAdManager.getVerificationTimerSeconds()
                                 AdVerificationHelper.startAdVerification(
@@ -1179,14 +1159,20 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 🏷️ স্ক্রিনশটের চিহ্নিত অংশে (উপরে ডানে) ফ্লোটিং অ্যাড কাউন্টার ব্যাজ
+            // 🏷️ উপরে ডানে স্লিম ছোট লাইভ কাউন্টার ব্যাজ (Tap Screen রিমুভড)
             // =========================================================================
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
+                val badgeText = if (pendingAdClicks > 1) {
+                    "Sponsor Ad: $pendingAdClicks Clicks Left"
+                } else {
+                    "Sponsor Ad: 1 Click Left"
+                }
+
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = Color(0xF2121622),
-                    border = BorderStroke(1.dp, Color(0xFFFFB300)),
-                    shadowElevation = 8.dp,
+                    border = BorderStroke(0.8.dp, Color(0xFFFFB300)),
+                    shadowElevation = 6.dp,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 10.dp, end = 12.dp)
@@ -1203,27 +1189,21 @@ fun PlayerVideoBox(
                         }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.5.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
+                                .size(6.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFFFFB300))
                         )
                         Text(
-                            text = if (pendingAdClicks > 1) "Sponsor Ad: $pendingAdClicks Clicks Left" else "Sponsor Ad Required",
+                            text = badgeText,
                             color = Color(0xFFFFB300),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp, // 👈 ছোট ও কমপ্যাক্ট
                             fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "• Tap Screen",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -1407,7 +1387,7 @@ fun PlayerVideoBox(
             )
 
             // বাফারিং স্পিনার
-            if (isBuffering && isFirstFrameRendered && !isPiPActive && pendingAdClicks == 0) {
+            if (isBuffering && isFirstFrameRendered && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                 }
@@ -1492,7 +1472,7 @@ fun PlayerVideoBox(
                     onSeekStarted = { isUserSeeking = true },
                     onSeeking = { scrubPosition = it },
                     onSeekFinished = { targetPos ->
-                        handleSafeSeek(targetPos) // 👈 বিজ্ঞাপন চেক করে সেভ সিক
+                        handleSafeSeek(targetPos)
                         isUserSeeking = false
                     },
                     onLastSeenDismiss = { showLastSeenBanner = false },
