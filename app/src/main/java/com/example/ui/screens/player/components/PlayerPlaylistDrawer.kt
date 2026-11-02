@@ -72,8 +72,9 @@ fun PlayerPlaylistDrawer(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 🎯 মার্জড বা রেঞ্জ এপিসোড শনাক্তকরণ
     val hasRangeEpisodes = remember(episodes) {
-        episodes.any { it.formattedEpisodeRange.length > 3 }
+        episodes.any { it.isMergedRange || it.formattedEpisodeRange.length > 3 }
     }
 
     Column(
@@ -142,7 +143,7 @@ fun PlayerPlaylistDrawer(
 
         Spacer(modifier = Modifier.height(5.dp))
 
-        // ৩. কমপ্যাক্ট পর্ব গ্রিড (রেঞ্জ টেক্সট ফিট হওয়ার জন্য অটো কলাম অ্যাডজাস্ট)
+        // ৩. কমপ্যাক্ট পর্ব গ্রিড (রেঞ্জ থাকলে ৩ কলাম, সিঙ্গেল হলে ৪ কলাম)
         val displayEps = episodes.ifEmpty {
             (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
         }
@@ -157,8 +158,8 @@ fun PlayerPlaylistDrawer(
                 val isSelected = (ep.episodeNumber == currentEpNumber)
                 val isEpLocked = shouldLockEpisodes && ep.isLocked
                 val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
+                val isRange = ep.isMergedRange || ep.formattedEpisodeRange.length > 3
                 val displayText = ep.formattedEpisodeRange
-                val isRange = displayText.length > 3
 
                 Box(
                     modifier = Modifier
@@ -171,10 +172,13 @@ fun PlayerPlaylistDrawer(
                                 if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
                             }
                         )
-                        // 🎯 সবুজ বর্ডার লাইন সম্পূর্ণ রিমুভ করা হয়েছে
                         .border(
                             width = 0.8.dp,
-                            color = Color(0xFF2C3545),
+                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) {
+                                Color(0xFF00E676).copy(alpha = 0.5f)
+                            } else {
+                                Color(0xFF2C3545)
+                            },
                             shape = RoundedCornerShape(6.dp)
                         )
                         .clickable {
@@ -187,14 +191,37 @@ fun PlayerPlaylistDrawer(
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    // 🏷️ মার্জড পর্বের জন্য ব্যাজ (টপ-লেফটে)
+                    if (isRange) {
+                        val badgeLabel = if (ep.mergedEpisodeCount > 1) "${ep.mergedEpisodeCount} IN 1" else "MULTI"
+                        Surface(
+                            shape = RoundedCornerShape(topStart = 6.dp, bottomEnd = 4.dp),
+                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) {
+                                Color(0xFF00E676)
+                            } else {
+                                Color(0xFF3A4456)
+                            },
+                            modifier = Modifier.align(Alignment.TopStart)
+                        ) {
+                            Text(
+                                text = badgeLabel,
+                                color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color.Black else Color(0xFFDCE0E8),
+                                fontSize = 6.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.8.dp)
+                            )
+                        }
+                    }
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(top = if (isRange) 2.dp else 0.dp)
                     ) {
                         Text(
                             text = displayText,
                             color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                            fontSize = if (isRange) 10.5.sp else 12.sp,
+                            fontSize = if (isRange) 10.sp else 12.sp,
                             fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                         )
 
