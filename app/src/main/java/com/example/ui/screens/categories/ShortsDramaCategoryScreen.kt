@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -409,7 +408,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ব্যাচ ডাউনলোড শিট (শর্টস ভিডিওতে ফ্রি ২ জিবি লিমিট কার্যকর)
+        // 📥 ব্যাচ ডাউনলোড শিট (১০০% VIP এক্সক্লুসিভ)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
@@ -837,7 +836,7 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 শর্টস ব্যাচ ডাউনলোড শিট (ফ্রি ২ জিবি লিমিট নিশ্চিত করা হয়েছে)
+// 📥 শর্টস ব্যাচ ডাউনলোড শিট (১০০% VIP এক্সক্লুসিভ • সম্পূর্ণ ইংরেজিতে)
 // =========================================================================
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
@@ -1039,6 +1038,9 @@ fun ShortsEpisodeBatchDownloadModal(
                 }
             }
 
+            // =============================================================
+            // 👑 ৩. নিচের ফিক্সড ডাউনলোড বার (১০০% VIP এক্সক্লুসিভ)
+            // =============================================================
             Surface(
                 color = Color(0xFF1A1F2C),
                 tonalElevation = 10.dp,
@@ -1087,28 +1089,45 @@ fun ShortsEpisodeBatchDownloadModal(
 
                         val displaySize = formatBytesDisplay(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
 
+                        val downloadButtonBrush = if (!isVip) {
+                            Brush.horizontalGradient(listOf(Color(0xFFE5B567), Color(0xFFF6D38B)))
+                        } else {
+                            BlueGreenGradient
+                        }
+
+                        val buttonText = when {
+                            !isVip -> "Unlock VIP to Download 👑"
+                            selectedEpisodes.isNotEmpty() -> "Download (${selectedEpisodes.size}) · $displaySize"
+                            else -> "Download"
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.74f)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(BlueGreenGradient)
+                                .background(downloadButtonBrush)
                                 .clickable {
+                                    // 🚫 ফ্রি ইউজার ক্লিক করলে সরাসরি VIP অ্যালার্ট
+                                    if (!isVip) {
+                                        Toast.makeText(
+                                            context,
+                                            "👑 Video downloading is exclusive to VIP members!",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        onDismiss()
+                                        return@clickable
+                                    }
+
                                     val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
                                     
-                                    // 🎯 শর্ট ভিডিওর জন্য isLongVideo = false পাস করা হলো (দৈনিক ২ জিবি ফ্রি কোটা কার্যকর)
                                     val quotaCheck = DownloadQuotaManager.checkCanDownload(
                                         context = context,
                                         bytesToDownload = totalSelectedBytes,
-                                        isVip = isVip,
-                                        isLongVideo = false
+                                        isVip = true
                                     )
 
                                     if (quotaCheck.canDownload) {
-                                        if (!isVip) {
-                                            DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
-                                        }
-
                                         targets.forEach { ep ->
                                             R2DownloadManager.startDownload(
                                                 context = context,
@@ -1119,7 +1138,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                         }
 
                                         onDismiss()
-                                        Toast.makeText(context, "📥 Download started for ${targets.size} episodes! Check notifications.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "📥 Download started for ${targets.size} episodes!", Toast.LENGTH_SHORT).show()
                                     } else {
                                         Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
                                     }
@@ -1130,17 +1149,27 @@ fun ShortsEpisodeBatchDownloadModal(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
-                                Text(
-                                    text = if (selectedEpisodes.isNotEmpty()) "Download (${selectedEpisodes.size}) · $displaySize" else "Download",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                if (!isVip) {
+                                    Text(
+                                        text = buttonText,
+                                        color = Color(0xFF2B210E),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
+                                    Text(
+                                        text = buttonText,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
 
+                    // 🌟 ফুটার নোটিশ (ইংরেজিতে)
                     if (isVip) {
                         Text(
                             text = "👑 VIP Member: Unlimited Downloads",
@@ -1150,12 +1179,11 @@ fun ShortsEpisodeBatchDownloadModal(
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
                     } else {
-                        val usedFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getTodayUsedBytes(context))
-                        val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
                         Text(
-                            text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
-                            color = Color(0xFF94A3B8),
+                            text = "👑 Video downloading is exclusive to VIP members",
+                            color = Color(0xFFFFB300),
                             fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
                     }
