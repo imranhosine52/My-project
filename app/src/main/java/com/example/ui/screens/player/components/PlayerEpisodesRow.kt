@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -59,16 +60,16 @@ fun PlayerEpisodesRow(
             }
         }
 
-        // [ 01 ], [ 02 ] বা [ 01-10 ] এপিসোড বাটনসমূহ
+        // [ 01 ], [ 02 ] অথবা মার্জড [ 01-10 ] এপিসোড বাটনসমূহ
         items(episodes.size) { index ->
             val ep = episodes[index]
             val isSelected = currentEpNumber == ep.episodeNumber
             val isEpLocked = shouldLockEpisodes && ep.isLocked
 
-            // 🎯 সার্ভার থেকে আসা ০১-১০ বা ১-১০ ডায়নামিক রেঞ্জ টেক্সট
+            // 🎯 সার্ভার থেকে আসা ০১-১০ বা ১-১০ রেঞ্জ
+            val isRange = ep.isMergedRange || ep.formattedEpisodeRange.length > 3
             val displayText = ep.formattedEpisodeRange
-            val isRange = displayText.length > 3
-            val buttonWidth = if (isRange) 76.dp else 58.dp
+            val buttonWidth = if (isRange) 80.dp else 58.dp
 
             Box(
                 modifier = Modifier
@@ -76,29 +77,48 @@ fun PlayerEpisodesRow(
                     .clip(RoundedCornerShape(8.dp))
                     .background(
                         if (isSelected) {
-                            // সিলেক্টেড হলে শুধু সফট ডার্ক-গ্রিন ব্যাকগ্রাউন্ড শেড থাকবে
+                            // সিলেক্টেড হলে সফট ডার্ক-গ্রিন ব্যাকগ্রাউন্ড
                             Brush.verticalGradient(listOf(Color(0xFF0F3B32), Color(0xFF0B2C25)))
                         } else {
                             Brush.linearGradient(listOf(Color(0xFF222630), Color(0xFF222630)))
                         }
                     )
-                    // 🎯 সবুজ বর্ডার লাইন সম্পূর্ণ রিমুভ করে সাধারণ ক্লিন ডার্ক বর্ডার রাখা হয়েছে
                     .border(
                         width = 0.8.dp,
-                        color = Color(0xFF333A4A),
+                        color = if (isSelected) Color(0xFF00E676).copy(alpha = 0.5f) else Color(0xFF333A4A),
                         shape = RoundedCornerShape(8.dp)
                     )
                     .clickable { onEpisodeSelect(ep) },
                 contentAlignment = Alignment.Center
             ) {
+                // 🏷️ মার্জড এপিসোড বোঝানোর জন্য ছোট সূক্ষ্ম ব্যাজ (টপ-লেফটে)
+                if (isRange) {
+                    val countBadgeText = if (ep.mergedEpisodeCount > 1) "${ep.mergedEpisodeCount} IN 1" else "MULTI"
+                    Surface(
+                        shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 5.dp),
+                        color = if (isSelected) Color(0xFF00E676) else Color(0xFF3A4456),
+                        modifier = Modifier.align(Alignment.TopStart)
+                    ) {
+                        Text(
+                            text = countBadgeText,
+                            color = if (isSelected) Color.Black else Color(0xFFDCE0E8),
+                            fontSize = 7.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+
+                // মূল লেখা: 01-10 বা 01
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(top = if (isRange) 4.dp else 0.dp)
                 ) {
                     Text(
                         text = displayText,
                         color = if (isSelected) Color(0xFF00E676) else Color(0xFFDCE0E8),
-                        fontSize = if (isRange) 12.sp else 13.5.sp, // রেঞ্জ থাকলে লেখা যেন সুন্দর ফিট হয়
+                        fontSize = if (isRange) 12.sp else 13.5.sp,
                         fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                     )
 
@@ -111,6 +131,7 @@ fun PlayerEpisodesRow(
                     }
                 }
 
+                // লক করা থাকলে ডান কোণায় লক আইকন
                 if (isEpLocked && !isSelected) {
                     Icon(
                         imageVector = Icons.Default.Lock,
