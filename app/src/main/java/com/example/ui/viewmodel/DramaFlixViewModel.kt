@@ -178,7 +178,6 @@ class DramaFlixViewModel(
     private val _activityUiState = MutableStateFlow(ActivityUiState())
     val activityUiState: StateFlow<ActivityUiState> = _activityUiState.asStateFlow()
 
-    // 🟢 পাবলিক লাইভ ও কমপ্লিট অ্যানালিটিক্স স্টেট
     private val _liveAnalyticsState = MutableStateFlow(PublicLiveAnalyticsUiState())
     val liveAnalyticsState: StateFlow<PublicLiveAnalyticsUiState> = _liveAnalyticsState.asStateFlow()
 
@@ -205,12 +204,8 @@ class DramaFlixViewModel(
         loadRemoteAdsConfig()
         loadNotifications()
         loadUserActivity()
-        startLiveAnalyticsPolling() // 👈 অ্যাপ ওপেন হওয়ার সাথে সাথেই ব্যাকগ্রাউন্ডে অ্যানালিটিক্স পোলিং শুরু
+        startLiveAnalyticsPolling()
     }
-
-    // =========================================================================
-    // 🟢 রিয়েল-টাইম পাবলিক অ্যানালিটিক্স পোলিং ইঞ্জিন (Redis Powered)
-    // =========================================================================
 
     fun startLiveAnalyticsPolling() {
         if (liveAnalyticsPollingJob?.isActive == true) return
@@ -218,7 +213,7 @@ class DramaFlixViewModel(
         liveAnalyticsPollingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 fetchPublicLiveAnalytics(isInitial = false)
-                delay(4000L) // প্রতি ৪ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে স্বয়ংক্রিয় রিফ্রেশ
+                delay(4000L)
             }
         }
     }
@@ -753,6 +748,9 @@ class DramaFlixViewModel(
         }
     }
 
+    // =========================================================================
+    // 🎬 ড্রামা লোড ও সর্বশেষ দেখা পর্ব থেকে স্বয়ংক্রিয় প্লেব্যাক
+    // =========================================================================
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _playerUiState.update { 
@@ -822,7 +820,13 @@ class DramaFlixViewModel(
                     }
                 }
 
-                val initialEp = eps.firstOrNull()
+                // =============================================================
+                // 🎯 সর্বশেষ দেখা পর্ব রিড করা (ডিফল্ট ১ নম্বরের বদলে)
+                // =============================================================
+                val savedEpNum = context?.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
+                    ?.getInt("last_ep_$slug", 1) ?: 1
+
+                val initialEp = eps.find { it.episodeNumber == savedEpNum } ?: eps.firstOrNull()
                 val initialSrv = srvs.firstOrNull()
 
                 val stats = repository.getOrCreateDramaStats(contentItem.slug, 0, 0)
@@ -833,7 +837,7 @@ class DramaFlixViewModel(
                         isNotFound = false,
                         content = contentItem,
                         episodes = eps,
-                        currentEpisode = initialEp,
+                        currentEpisode = initialEp, // 👈 সর্বশেষ দেখা পর্ব অটো-সেট করা হলো
                         servers = srvs,
                         selectedServer = initialSrv,
                         isVip = isUserVip,
@@ -1407,9 +1411,6 @@ class DramaFlixViewModel(
         }
     }
 
-    /**
-     * 🧹 মেমোরি লিক রোধে ভিউমডেল ক্লিয়ারের সময় লাইভ পোলিং জব ক্যান্সেল
-     */
     override fun onCleared() {
         super.onCleared()
         stopLiveAnalyticsPolling()
