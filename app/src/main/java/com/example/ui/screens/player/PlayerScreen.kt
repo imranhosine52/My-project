@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -61,6 +62,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -165,6 +167,9 @@ fun PlayerScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
+    // 🟢 রিয়েল-টাইম লাইভ ভেরিফিকেশন স্টেট পর্যবেক্ষণ
+    val verificationStatus by AdVerificationHelper.verificationState.collectAsStateWithLifecycle()
+
     val isUserLoggedIn = authState.isLoggedIn
 
     val isUserVip = playerState.isVip ||
@@ -245,7 +250,7 @@ fun PlayerScreen(
             try {
                 val client = OkHttpClient()
                 val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
-                val response = client.newCall(request).execute()
+                val response = client.newCall(request).execute() // 👈 OkHttp Syntax Fixed
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.isNotBlank()) {
                     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -528,7 +533,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🛡️ লাইফসাইকেল সিঙ্ক ও অ্যান্টি-চিট ১০০% আনলক চেকার
+    // 🛡️ লাইফসাইকেল সিঙ্ক ও অ্যান্টি-চিট আনলক চেকার
     // =========================================================================
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
@@ -550,7 +555,7 @@ fun PlayerScreen(
                         exoPlayer.play()
                     }
 
-                    // 🎯 ফিক্সড: টাইমার শেষ হওয়ার পরেও সেশন চেক করে ১০০% আনলক সম্পন্ন হবে
+                    // 🔍 ইউজার বিজ্ঞাপন পরিদর্শন শেষ করে অ্যাপে ফিরলে চেক করা
                     if (AdVerificationHelper.hasPendingSession()) {
                         val result = AdVerificationHelper.checkAndFulfillVisit()
                         if (result.isSuccess) {
@@ -572,11 +577,11 @@ fun PlayerScreen(
                                     viewModel.dismissEpisodeUnlockModal()
                                     showFireworksCelebration = true
                                     exoPlayer.play()
-                                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                                 }
                             }
-                            AdVerificationHelper.resetVerification(context)
                         } else {
+                            // সময় শেষ হওয়ার আগেই ব্যাক করেছে: সতর্কতা বার্তা
+                            currentClickStep = 1 // আবার প্রথম থেকে শুরু
                             Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                         }
                     }
@@ -1466,7 +1471,7 @@ fun PlayerScreen(
         }
 
         // =====================================================================
-        // 🔒 মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড (স্টেপ ও টাইমার সহ)
+        // 🔒 মিনিমালিস্ট ফ্রস্টেড গ্লাস আনলক কার্ড (স্টেপ ও সার্ভার ভ্যালু সহ)
         // =====================================================================
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
@@ -1483,29 +1488,80 @@ fun PlayerScreen(
                     val act = activity ?: return@GlassEpisodeUnlockCard
                     exoPlayer.pause()
 
-                    // ১. ব্যাকগ্রাউন্ড নোটিফিকেশন কাউন্টডাউন ও অ্যান্টি-চিট ট্র্যাকার শুরু
+                    // ১. অ্যান্টি-চিট রিয়েল-টাইম লাইভ ট্র্যাকার শুরু
                     AdVerificationHelper.startAdVerification(
                         context = act,
                         episodeNumber = lockedTarget.episodeNumber,
                         durationSeconds = timerSec
                     )
 
-                    // ২. ক্রোম কাস্টম ট্যাবে ডাইরেক্ট লিংক স্পনসর পেজ ওপেন
+                    // ২. স্পনসর ডাইরেক্ট লিঙ্ক ওপেন
                     UnifiedAdManager.openAdsterraDirectLink(act, isVip = false)
                 },
                 onUpgradeVipClick = {
-                    AdVerificationHelper.resetVerification(context)
+                    AdVerificationHelper.resetVerification()
                     currentClickStep = 1
                     viewModel.dismissEpisodeUnlockModal()
                     onNavigateToVip()
                 },
                 onDismiss = {
-                    AdVerificationHelper.resetVerification(context)
+                    AdVerificationHelper.resetVerification()
                     currentClickStep = 1
                     viewModel.dismissEpisodeUnlockModal()
                 },
                 modifier = Modifier.fillMaxSize()
             )
+        }
+
+        // =====================================================================
+        // 🟢 স্ক্রিনের নিচে একক ডায়নামিক লাইভ ভেরিফিকেশন পিল (বারবার টোস্ট ছাড়া)
+        // =====================================================================
+        AnimatedVisibility(
+            visible = verificationStatus.displayStatusText.isNotBlank(),
+            enter = slideInVertically(initialOffsetY = { it * 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it * 2 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xF2121622),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (verificationStatus.isFulfilled) Color(0xFF00E676) else Color(0xFF00E5FF)
+                ),
+                shadowElevation = 10.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (verificationStatus.isFulfilled) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF00E676),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            color = Color(0xFF00E5FF),
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    Text(
+                        text = verificationStatus.displayStatusText,
+                        color = if (verificationStatus.isFulfilled) Color(0xFF00E676) else Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         if (showFireworksCelebration) {
