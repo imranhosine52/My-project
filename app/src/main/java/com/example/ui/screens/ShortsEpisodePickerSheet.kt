@@ -2,7 +2,9 @@
 
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -68,7 +70,7 @@ fun ShortsEpisodePickerSheet(
                 .fillMaxHeight(0.72f)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // 🔝 ২য় ছবির হেডার (Title ও Close 'X' বাটন)
+            // 🔝 হেডার (Title ও Close 'X' বাটন)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -101,7 +103,7 @@ fun ShortsEpisodePickerSheet(
 
             HorizontalDivider(color = Color(0xFF333845), thickness = 0.8.dp)
 
-            // 📑 ২য় ছবির পর্বের রেঞ্জ ট্যাব: [ 1-25 ]  [ 26-46 ]
+            // 📑 পর্বের রেঞ্জ ট্যাব: [ 1-25 ]  [ 26-46 ]
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -126,11 +128,14 @@ fun ShortsEpisodePickerSheet(
                 }
             }
 
-            // 🔲 ২য় ছবির হুবহু ৫-কলাম গ্রিড (5 Columns Square Grid)
+            // 🔲 পর্বের গ্রিড (০১-১০ রেঞ্জ সাপোর্ট ও ক্লিন বর্ডার সহ)
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
+            val hasRange = remember(currentChunkEpisodes) {
+                currentChunkEpisodes.any { it.formattedEpisodeRange.length > 3 }
+            }
 
             LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
+                columns = GridCells.Fixed(if (hasRange) 4 else 5),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 24.dp),
@@ -141,24 +146,32 @@ fun ShortsEpisodePickerSheet(
                 items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
                     val isCurrent = (ep.episodeNumber == currentEpisodeNumber)
                     val isLocked = shouldLockEpisodes && ep.isLocked
+                    val displayText = ep.formattedEpisodeRange
+                    val isItemRange = displayText.length > 3
 
                     Box(
                         modifier = Modifier
-                            .aspectRatio(1f)
+                            .aspectRatio(if (isItemRange) 1.2f else 1f)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF3A3F4D))
+                            .background(if (isCurrent) Color(0xFF1E382B) else Color(0xFF3A3F4D))
+                            // 🎯 সবুজ বর্ডার লাইন রিমুভ করে সাধারণ ক্লিন ডার্ক বর্ডার
+                            .border(
+                                width = 0.8.dp,
+                                color = Color(0xFF454B5A),
+                                shape = RoundedCornerShape(8.dp)
+                            )
                             .clickable { onSelectEpisode(ep) },
                         contentAlignment = Alignment.Center
                     ) {
-                        // এপিসোড নম্বর
+                        // এপিসোড নম্বর বা ০১-১০ রেঞ্জ
                         Text(
-                            text = ep.episodeNumber.toString(),
+                            text = displayText,
                             color = if (isCurrent) Color(0xFF00E676) else Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = if (isItemRange) 11.5.sp else 13.5.sp,
+                            fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold
                         )
 
-                        // ২য় ছবির মতো বাম কোণায় সবুজ প্লেয়িং ইকুয়ালাইজার
+                        // বাম কোণায় সবুজ প্লেয়িং ইকুয়ালাইজার
                         if (isCurrent) {
                             EqualizerBarsIcon(
                                 modifier = Modifier
