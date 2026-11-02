@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.util.Log
 import android.widget.Toast
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 data class AdVerificationStatus(
     val isVerifying: Boolean = false,
     val targetEpisodeNumber: Int = 1,
-    val totalRequiredSeconds: Int = 4,
+    val totalRequiredSeconds: Int = 10,
     val remainingSeconds: Int = 0,
     val isFulfilled: Boolean = false
 )
@@ -31,7 +30,7 @@ object AdVerificationHelper {
     private var adVisitStartTimeMs: Long = 0L
 
     @Volatile
-    private var requiredDurationSeconds: Int = 4
+    private var requiredDurationSeconds: Int = 10
 
     @Volatile
     private var targetEpisodeNumber: Int = 1
@@ -39,7 +38,6 @@ object AdVerificationHelper {
     private val _verificationState = MutableStateFlow(AdVerificationStatus())
     val verificationState: StateFlow<AdVerificationStatus> = _verificationState.asStateFlow()
 
-    // 🎯 লাইভ টোস্ট আপডেটার ভেরিয়েবল
     private var activeToast: Toast? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -49,7 +47,6 @@ object AdVerificationHelper {
                 if (activeToast == null) {
                     activeToast = Toast.makeText(context, message, Toast.LENGTH_SHORT)
                 } else {
-                    // একই টোস্টের টেক্সট আপডেট করবে, বারবার নতুন টোস্ট স্ক্রিনে জমবে না
                     activeToast?.setText(message)
                     activeToast?.duration = Toast.LENGTH_SHORT
                 }
@@ -63,17 +60,17 @@ object AdVerificationHelper {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
             if (vibrator != null && vibrator.hasVibrator()) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                    vibrator.vibrate(VibrationEffect.createOneShot(250, VibrationEffect.DEFAULT_AMPLITUDE))
                 } else {
                     @Suppress("DEPRECATION")
-                    vibrator.vibrate(300)
+                    vibrator.vibrate(250)
                 }
             }
         } catch (_: Exception) {}
     }
 
     /**
-     * 🚀 ১. ব্রাউজারে যাওয়ার সময় অ্যান্টি-চিট ট্র্যাকার ও লাইভ টোস্ট কাউন্টডাউন শুরু করা
+     * 🚀 অ্যাড ভিজিট শুরু করার মেথড
      */
     fun startAdVerification(
         context: Context,
@@ -83,7 +80,7 @@ object AdVerificationHelper {
     ) {
         val appContext = context.applicationContext
         val safeDuration = durationSeconds.coerceAtLeast(3)
-        
+
         adVisitStartTimeMs = System.currentTimeMillis()
         requiredDurationSeconds = safeDuration
         targetEpisodeNumber = episodeNumber
@@ -101,39 +98,37 @@ object AdVerificationHelper {
         verificationJob = helperScope.launch {
             var secondsLeft = safeDuration
 
-            // প্রতি সেকেন্ডে স্ক্রিনের নিচে টোস্ট আপডেট হবে (লাইভ কাউন্টডাউন)
             while (isActive && secondsLeft > 0) {
                 _verificationState.value = _verificationState.value.copy(
                     isVerifying = true,
                     remainingSeconds = secondsLeft,
                     isFulfilled = false
                 )
-
-                // ⏳ লাইভ টোস্ট শো করা
                 showLiveToast(appContext, "⏳ Verifying sponsor visit: ${secondsLeft}s...")
-
                 delay(1000L)
                 secondsLeft--
             }
 
-            // ০ সেকেন্ডে পৌঁছালে: টোস্ট ও ভাইব্রেশন দিয়ে ব্যাক করতে বলা
             if (isActive) {
                 _verificationState.value = _verificationState.value.copy(
                     isVerifying = false,
                     remainingSeconds = 0,
                     isFulfilled = true
                 )
-
-                showLiveToast(appContext, "🎉 Verification Complete! Please return to app.")
+                showLiveToast(appContext, "🎉 Verification Complete! Return to app.")
                 triggerSuccessVibration(appContext)
-
                 onComplete?.invoke()
             }
         }
     }
 
     /**
-     * 🛡️ ২. কঠোর অ্যান্টি-চিট চেকার (প্রতারণা রোধ)
+     * 🎯 কোনো অ্যাক্টিভ ভেরিফিকেশন সেশন আছে কি না যাচাই
+     */
+    fun hasPendingSession(): Boolean = adVisitStartTimeMs > 0L
+
+    /**
+     * 🛡️ অ্যান্টি-চিট চেকার: ব্রাউজার থেকে অ্যাপে ফিরলে এটি ১০০% সফলভাবে আনলক করবে
      */
     fun checkAndFulfillVisit(): VerificationResult {
         if (adVisitStartTimeMs == 0L) {
@@ -141,43 +136,37 @@ object AdVerificationHelper {
         }
 
         val elapsedMs = System.currentTimeMillis() - adVisitStartTimeMs
-        val requiredMs = requiredDurationSeconds * 1000L
+        val requiredMs = (requiredDurationSeconds - 1) * 1000L // ১ সেকেন্ডের নেটওয়ার্ক ল্যাগ মার্জিন
 
-        return if (elapsedMs >= requiredMs) {
-            // পুরো সময় পূরণ হয়েছে
+        return if (elapsedMs >= requiredMs || _verificationState.value.isFulfilled) {
             verificationJob?.cancel()
             _verificationState.value = _verificationState.value.copy(isVerifying = false, isFulfilled = true)
-            
-            // 🎯 টোস্টটি মুছে ফেলা
+            adVisitStartTimeMs = 0L // সেশন সম্পন্ন
+
             mainHandler.post { activeToast?.cancel(); activeToast = null }
-            
+
             VerificationResult(
                 isSuccess = true,
                 remainingSeconds = 0,
-                message = "✓ Verification completed! Unlocking Episode $targetEpisodeNumber."
+                message = "✓ Verification completed! Episode $targetEpisodeNumber unlocked."
             )
         } else {
-            // ইউজার খুব দ্রুত ব্যাক করে চলে এসেছে (চিট প্রতিরোধ)
-            val secondsLeft = ((requiredMs - elapsedMs) / 1000L).toInt().coerceAtLeast(1)
+            val secondsLeft = (((requiredDurationSeconds * 1000L) - elapsedMs) / 1000L).toInt().coerceAtLeast(1)
             VerificationResult(
                 isSuccess = false,
                 remainingSeconds = secondsLeft,
-                // 🎯 সম্পূর্ণ ইংরেজিতে মেসেজ
-                message = "⚠️ You came back too fast! Please stay on the ad for $secondsLeft more seconds."
+                message = "⚠️ Please browse the ad page for $secondsLeft more seconds to unlock!"
             )
         }
     }
 
-    /**
-     * 🧹 ট্র্যাকার রিসেট
-     */
     fun resetVerification(context: Context) {
         verificationJob?.cancel()
         verificationJob = null
         adVisitStartTimeMs = 0L
-        requiredDurationSeconds = 4
+        requiredDurationSeconds = 10
         _verificationState.value = AdVerificationStatus()
-        
+
         mainHandler.post {
             try {
                 activeToast?.cancel()
