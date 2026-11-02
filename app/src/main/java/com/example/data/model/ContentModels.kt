@@ -2,6 +2,7 @@ package com.example.data.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import java.util.Locale
 
 @JsonClass(generateAdapter = true)
 data class ContentResponse(
@@ -92,7 +93,6 @@ data class ContentItemDto(
             else -> 0L
         }
 
-    // 🎯 ফিক্স: ViewModel এর জন্য viewsCount প্রোপার্টি
     val viewsCount: Long get() = numericViews
 
     val categories: List<String>
@@ -176,10 +176,13 @@ data class ServerDto(
     val type: String get() = if (serverType == "hls" || url.endsWith(".m3u8")) "hls" else "embed"
 }
 
+/**
+ * 🎬 EpisodeDto: ০১-১০ বা ১-১০ মার্জড রেঞ্জ সাপোর্ট সহ ১০০% ক্র্যাশ-প্রুফ মডেল
+ */
 @JsonClass(generateAdapter = true)
 data class EpisodeDto(
     @Json(name = "episode_id") val rawEpisodeId: Any? = null,
-    @Json(name = "episode_number") val episodeNumber: Int = 1,
+    @Json(name = "episode_number") val rawEpisodeNumber: Any? = null,
     @Json(name = "title") val rawTitle: String? = null,
     @Json(name = "ep_title") val epTitle: String? = null,
     @Json(name = "season_number") val seasonNumber: Int = 1,
@@ -193,10 +196,60 @@ data class EpisodeDto(
     @Json(name = "download_url") val downloadUrl: String? = null,
     @Json(name = "is_locked") val isLocked: Boolean = false,
     @Json(name = "ads_count") val adsCount: Int = 0,
-    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = null
+    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = null,
+    val defaultEpisodeNumber: Int = 0
 ) {
-    val episodeId: String get() = rawEpisodeId?.toString() ?: episodeNumber.toString()
-    val displayTitle: String get() = rawTitle?.takeIf { it.isNotBlank() } ?: epTitle?.takeIf { it.isNotBlank() } ?: "Episode $episodeNumber"
+    // ম্যানুয়ালি ইনস্ট্যান্স করার জন্য সেকেন্ডারি কনস্ট্রাক্টর
+    constructor(
+        episodeNumber: Int,
+        isLocked: Boolean = false,
+        rawTitle: String? = null,
+        streamUrl: String? = null
+    ) : this(
+        rawEpisodeNumber = episodeNumber,
+        defaultEpisodeNumber = episodeNumber,
+        isLocked = isLocked,
+        rawTitle = rawTitle,
+        directStreamUrl = streamUrl
+    )
+
+    // ট্র্যাকিং ও ইন্টারনাল লজিকের জন্য মূল এপিসোড নম্বর (01-10 হলে প্রথম নম্বর ১ রিটার্ন করবে)
+    val episodeNumber: Int
+        get() {
+            val target = rawEpisodeNumber ?: (if (defaultEpisodeNumber > 0) defaultEpisodeNumber else null) ?: rawEpisodeId
+            return when (target) {
+                is Number -> target.toInt()
+                is String -> {
+                    val digits = target.substringBefore("-").substringBefore("–").filter { it.isDigit() }
+                    digits.toIntOrNull() ?: 1
+                }
+                else -> 1
+            }
+        }
+
+    // 🎯 বাটন ও ইউআই-তে দেখানোর জন্য ডায়নামিক রেঞ্জ বা ফরম্যাটেড টেক্সট (যেমন: "01-10", "1-10" বা "01")
+    val formattedEpisodeRange: String
+        get() {
+            // ১. rawEpisodeNumber যদি রেঞ্জ ধারণ করে (e.g. "01-10", "1-10")
+            val rawStr = rawEpisodeNumber?.toString()?.trim()
+            if (!rawStr.isNullOrBlank() && (rawStr.contains("-") || rawStr.contains("–"))) {
+                return rawStr
+            }
+
+            // ২. টাইটেল বা ep_title-এ যদি "01-10" বা "1-10" থাকে
+            val titleStr = rawTitle?.takeIf { it.isNotBlank() } ?: epTitle ?: ""
+            val rangeRegex = Regex("""(\d+)\s*[-–]\s*(\d+)""")
+            val match = rangeRegex.find(titleStr)
+            if (match != null) {
+                return match.value.replace(" ", "")
+            }
+
+            // ৩. সাধারণ একক পর্ব হলে ২ ডিজিট (e.g. "01")
+            return String.format(Locale.US, "%02d", episodeNumber)
+        }
+
+    val episodeId: String get() = rawEpisodeId?.toString()?.takeIf { it.isNotBlank() } ?: formattedEpisodeRange
+    val displayTitle: String get() = rawTitle?.takeIf { it.isNotBlank() } ?: epTitle?.takeIf { it.isNotBlank() } ?: "Episode $formattedEpisodeRange"
 
     fun resolveR2StreamUrl(dramaSlug: String): String {
         return directStreamUrl?.takeIf { it.isNotBlank() }
