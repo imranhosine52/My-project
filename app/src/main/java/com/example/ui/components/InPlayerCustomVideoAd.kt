@@ -9,7 +9,6 @@ import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,18 +21,14 @@ import androidx.compose.material.icons.filled.AdsClick
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Storefront
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -46,7 +41,6 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.example.ads.UnifiedAdManager
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.TrackAdEventRequest
 import com.example.data.remote.ApiClient
@@ -57,7 +51,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val YouTubeAdYellow = Color(0xFFFFCC00)
-private val YouTubeSkipButtonBg = Color(0xDD111111)
+private val YouTubeSkipButtonBg = Color(0xDD141414)
 
 private fun formatAdTime(millis: Long): String {
     if (millis <= 0L) return "00:00"
@@ -68,7 +62,7 @@ private fun formatAdTime(millis: Long): String {
 }
 
 /**
- * ⏱️ ১. ইউটিউব স্টাইল ৩-সেকেন্ড ওয়ার্নিং কাউন্টডাউন নোটিশ (প্লেয়ারের নিচে কোণায়)
+ * ⏱️ ১. কাউন্টডাউন নোটিশ (ছবি ২ অনুযায়ী: হলুদ লাইন ছাড়া, ঘড়ি ছাড়া ও নিচে অবস্থিত)
  */
 @Composable
 fun InPlayerAdCountdownNotice(
@@ -77,24 +71,16 @@ fun InPlayerAdCountdownNotice(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = Color.Black.copy(alpha = 0.85f),
-        border = BorderStroke(1.dp, YouTubeAdYellow.copy(alpha = 0.9f)),
-        shadowElevation = 8.dp,
+        shape = RoundedCornerShape(20.dp),
+        color = Color.Black.copy(alpha = 0.88f),
+        shadowElevation = 4.dp,
         modifier = modifier
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Timer,
-                contentDescription = null,
-                tint = YouTubeAdYellow,
-                modifier = Modifier.size(15.dp)
-            )
-
             Text(
                 text = if (isDirectLink) "Sponsor ad in ${secondsLeft}s..." else "Ad in ${secondsLeft}s...",
                 color = Color.White,
@@ -104,7 +90,7 @@ fun InPlayerAdCountdownNotice(
 
             Box(
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(20.dp)
                     .clip(CircleShape)
                     .background(YouTubeAdYellow),
                 contentAlignment = Alignment.Center
@@ -121,7 +107,7 @@ fun InPlayerAdCountdownNotice(
 }
 
 /**
- * 🎬 ২. ইন-প্লেয়ার কাস্টম ভিডিও অ্যাড ভিউ (প্লেয়ার বক্সের ভেতরে ইউটিউবের মতো স্কিপ ও CTA বাটনসহ)
+ * 🎬 ২. ইন-প্লেয়ার কাস্টম ভিডিও অ্যাড ভিউ (ছবি ১ অনুযায়ী: VIP বাটন রিমুভড ও Skip বাটনের বর্ডার রিমুভড)
  */
 @Composable
 fun InPlayerCustomVideoAdView(
@@ -141,7 +127,7 @@ fun InPlayerCustomVideoAdView(
     var remainingSecondsToSkip by remember { mutableIntStateOf(skipThresholdSec) }
     val isSkipButtonUnlocked = (remainingSecondsToSkip <= 0 && canBeSkipped)
 
-    // ভিউ ট্র্যাকিং (সার্ভারে)
+    // ভিউ ট্র্যাকিং
     LaunchedEffect(ad.id) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -236,7 +222,6 @@ fun InPlayerCustomVideoAdView(
     }
 
     fun handleCtaClick() {
-        // ১. ক্লিক ইভেন্ট ট্র্যাক
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 ApiClient.apiService.trackCustomAdEvent(
@@ -244,7 +229,6 @@ fun InPlayerCustomVideoAdView(
                 )
             } catch (_: Exception) {}
         }
-        // ২. ইউজারকে টার্গেট ইউআরএল/পেজে নিয়ে যাওয়া
         onOpenAdTarget(ad.destinationTarget.ifBlank { "https://playdramaflix.com" })
     }
 
@@ -259,7 +243,6 @@ fun InPlayerCustomVideoAdView(
                 if (adExoPlayer.isPlaying) adExoPlayer.pause() else adExoPlayer.play()
             }
     ) {
-        // ১. প্লেয়ার ভিউ (ইন-প্লেয়ার ফিট)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -276,37 +259,36 @@ fun InPlayerCustomVideoAdView(
             modifier = Modifier.fillMaxSize()
         )
 
-        // ২. উপরে ডানে: [ Visit advertiser ↗ ]
+        // ১. উপরে ডানে: [ Visit advertiser ↗ ] (বর্ডার ছাড়া ক্লিন ডিজাইন)
         Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Black.copy(alpha = 0.70f),
-            border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.4f)),
+            shape = RoundedCornerShape(16.dp),
+            color = Color.Black.copy(alpha = 0.65f),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 10.dp, end = 10.dp)
                 .clickable { handleCtaClick() }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = "Visit advertiser",
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(13.dp)
                 )
             }
         }
 
-        // ৩. নিচে বাঁয়ে: [ Ad ] হলুদ ব্যাজ ও টাইমলাইন
+        // ২. নিচে বাঁয়ে: [ Ad ] হলুদ ব্যাজ ও টাইমলাইন
         Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -337,7 +319,7 @@ fun InPlayerCustomVideoAdView(
             )
         }
 
-        // ৪. নিচে ডানে: [ Skip Ad ❯| ] বাটন
+        // ৩. নিচে ডানে: [ Skip Ad ❯| ] বাটন (বর্ডার লাইন সম্পূর্ণ রিমুভ করা হয়েছে)
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -346,33 +328,32 @@ fun InPlayerCustomVideoAdView(
             if (canBeSkipped) {
                 if (isSkipButtonUnlocked) {
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = RoundedCornerShape(6.dp),
                         color = YouTubeSkipButtonBg,
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.85f)),
                         modifier = Modifier.clickable { onAdFinishedOrSkipped() }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Text(
                                 text = "Skip Ad",
                                 color = Color.White,
-                                fontSize = 12.5.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "Skip",
                                 tint = Color.White,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                 } else {
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = RoundedCornerShape(6.dp),
                         color = YouTubeSkipButtonBg
                     ) {
                         Text(
@@ -380,43 +361,14 @@ fun InPlayerCustomVideoAdView(
                             color = Color.White,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
                     }
                 }
             }
         }
 
-        // ৫. উপরে বাঁয়ে: স্পনসর CTA বাটন (Install / Learn More)
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = ad.parsedCtaColor,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 10.dp, start = 10.dp)
-                .clickable { handleCtaClick() }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Storefront,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(13.dp)
-                )
-                Text(
-                    text = ad.ctaText.ifBlank { "Learn More" },
-                    color = Color.Black,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // ৬. নিচের হলুদ প্রোগ্রেস বার (YouTube Style)
+        // ৪. নিচের হলুদ প্রোগ্রেস বার (YouTube Style)
         val progressFraction = if (totalAdDurationMs > 0) {
             (currentAdPositionMs.toFloat() / totalAdDurationMs.toFloat()).coerceIn(0f, 1f)
         } else 0f
@@ -434,7 +386,7 @@ fun InPlayerCustomVideoAdView(
 }
 
 /**
- * 🔒 ৩. ডাইরেক্ট লিংক ক্লিক অ্যাড ওভারলে (নন-স্কিপেবল: ইউজারকে ক্লিক করে ভিজিট করতে হবে)
+ * 🔒 ৩. ডাইরেক্ট লিংক ক্লিক অ্যাড ওভারলে (নন-স্কিপেবল)
  */
 @Composable
 fun InPlayerDirectLinkRequirementOverlay(
@@ -452,10 +404,9 @@ fun InPlayerDirectLinkRequirementOverlay(
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = Color(0xFF141720),
-            border = BorderStroke(1.2.dp, YouTubeAdYellow),
             shadowElevation = 10.dp,
             modifier = Modifier
-                .fillMaxWidth(0.92f)
+                .fillMaxWidth(0.90f)
                 .wrapContentHeight()
         ) {
             Column(
