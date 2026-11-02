@@ -167,7 +167,6 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     val isUserLoggedIn = authState.isLoggedIn
-
     val isUserVip = playerState.isVip ||
             authState.isVip ||
             (authState.userProfile?.isVip == true) ||
@@ -210,9 +209,15 @@ fun PlayerScreen(
         return
     }
 
-    val content = playerState.content
-        ?: homeState.popularDramas.find { it.slug == slug }
-        ?: ContentItemDto(title = "Loading...", slug = slug)
+    // 🎯 স্লাগ গার্ড: বর্তমান লোড করা ড্রামাটি ঠিক এই ড্রামা কিনা তা চেক করা
+    val isCurrentDramaLoaded = playerState.content?.slug == slug
+
+    val content = if (isCurrentDramaLoaded) {
+        playerState.content!!
+    } else {
+        homeState.popularDramas.find { it.slug == slug }
+            ?: ContentItemDto(title = "Loading...", slug = slug)
+    }
 
     val cleanShortTitle = remember(content) {
         content.displayName
@@ -259,52 +264,45 @@ fun PlayerScreen(
 
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
-
     var showFireworksCelebration by remember { mutableStateOf(false) }
 
     val lastWatchedEpPrefs = remember {
         context.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
     }
 
-    // =========================================================================
-    // 🎯 শেষ দেখা পর্ব মেমোরি থেকে নিরাপদভাবে রিড করা (ওভাররাইট প্রতিরোধ সহ)
-    // =========================================================================
-    val savedEpisodeNumber = remember(slug) {
-        lastWatchedEpPrefs.getInt("last_ep_$slug", 1)
-    }
-
     val freeEpisodesCount = remember(adConfig.rules) {
         UnifiedAdManager.getFreeUnlockedEpisodesCount()
     }
 
-    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes, activeUnlockedEpisodeNumber, isUserVip, freeEpisodesCount) {
-        val baseList = if (playerState.episodes.isNotEmpty()) playerState.episodes else {
+    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes, activeUnlockedEpisodeNumber, isUserVip, freeEpisodesCount, isCurrentDramaLoaded) {
+        if (isCurrentDramaLoaded && playerState.episodes.isNotEmpty()) {
+            val baseList = playerState.episodes
+            if (isUserVip) {
+                baseList.map { it.copy(isLocked = false) }
+            } else {
+                baseList.map { ep ->
+                    val isDefaultFree = ep.episodeNumber <= freeEpisodesCount
+                    val isCurrentlyActiveUnlocked = (ep.episodeNumber == activeUnlockedEpisodeNumber)
+                    val locked = !isDefaultFree && !isCurrentlyActiveUnlocked
+                    ep.copy(isLocked = locked)
+                }
+            }
+        } else {
+            // ডামি লিস্ট যতক্ষণ না সার্ভার ডাটা লোড হয়
             (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
                 EpisodeDto(episodeNumber = num, isLocked = num > freeEpisodesCount)
             }
         }
-
-        if (isUserVip) {
-            baseList.map { it.copy(isLocked = false) }
-        } else {
-            baseList.map { ep ->
-                val isDefaultFree = ep.episodeNumber <= freeEpisodesCount
-                val isCurrentlyActiveUnlocked = (ep.episodeNumber == activeUnlockedEpisodeNumber)
-                val locked = !isDefaultFree && !isCurrentlyActiveUnlocked
-                ep.copy(isLocked = locked)
-            }
-        }
     }
 
-    // 🎯 কারেন্ট এপিসোড সিলেকশন: সংরক্ষিত শেষ দেখা পর্বকে প্রাধান্য দেওয়া হচ্ছে
-    val currentEp = remember(playerState.currentEpisode, effectiveEpisodes, savedEpisodeNumber) {
-        val targetNum = when {
-            playerState.currentEpisode != null && playerState.currentEpisode?.episodeNumber != 1 -> playerState.currentEpisode!!.episodeNumber
-            savedEpisodeNumber > 1 -> savedEpisodeNumber
-            playerState.currentEpisode != null -> playerState.currentEpisode!!.episodeNumber
-            else -> 1
+    // 🎯 স্লাগ গার্ড: আগের ড্রামার ডাটা যাতে নতুন ড্রামায় ওভাররাইড না করতে পারে
+    val currentEp = remember(playerState.currentEpisode, effectiveEpisodes, isCurrentDramaLoaded) {
+        if (isCurrentDramaLoaded) {
+            val targetNum = playerState.currentEpisode?.episodeNumber ?: 1
+            effectiveEpisodes.find { it.episodeNumber == targetNum } ?: effectiveEpisodes.firstOrNull()
+        } else {
+            null // ড্রামা লোড না হওয়া পর্যন্ত currentEp Null থাকবে, ফলে ভুল সেভ হবে না
         }
-        effectiveEpisodes.find { it.episodeNumber == targetNum } ?: effectiveEpisodes.firstOrNull()
     }
 
     val exoPlayer = remember {
@@ -363,7 +361,6 @@ fun PlayerScreen(
         if (shouldLockEpisodes && !isDefaultFree && activeUnlockedEpisodeNumber != targetEp.episodeNumber) {
             viewModel.showEpisodeUnlockModal(targetEp.copy(isLocked = true))
         } else {
-            // 🎯 ইউজার নিজে পর্ব বদলালে সংরক্ষিত নম্বরটি আপডেট হবে
             if (targetEp.episodeNumber > 0) {
                 lastWatchedEpPrefs.edit().putInt("last_ep_$slug", targetEp.episodeNumber).apply()
             }
@@ -452,11 +449,13 @@ fun PlayerScreen(
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // 🎯 ইউজার ভিডিও দেখতে শুরু করলে তবেই স্টোরেজে পর্বটি সংরক্ষিত থাকবে
-    LaunchedEffect(currentEp?.episodeNumber) {
-        val epNum = currentEp?.episodeNumber ?: 0
-        if (slug.isNotBlank() && epNum > 0) {
-            lastWatchedEpPrefs.edit().putInt("last_ep_$slug", epNum).apply()
+    // 🎯 ਸ্লাগ গার্ড: অন্য ড্রামার ডাটা যাতে ভুল করে সেভ না হয়
+    LaunchedEffect(currentEp?.episodeNumber, slug, isCurrentDramaLoaded) {
+        if (isCurrentDramaLoaded) {
+            val epNum = currentEp?.episodeNumber ?: 0
+            if (slug.isNotBlank() && epNum > 0) {
+                lastWatchedEpPrefs.edit().putInt("last_ep_$slug", epNum).apply()
+            }
         }
     }
 
@@ -647,7 +646,7 @@ fun PlayerScreen(
         currentEp?.episodeId,
         slug
     ) {
-        if (currentEp != null) {
+        if (currentEp != null && isCurrentDramaLoaded) { // 👈 ড্রামা লোড না হওয়া পর্যন্ত প্লেয়ার ইউআরএল ধরবে না
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
                 viewModel.showEpisodeUnlockModal(currentEp)
@@ -1259,7 +1258,7 @@ fun PlayerScreen(
 
                                     item {
                                         StartAppBanner(
-                                            isUserVip,
+                                            isVip = isUserVip,
                                             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
                                         )
                                     }
