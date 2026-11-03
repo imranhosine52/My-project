@@ -19,10 +19,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -77,7 +75,7 @@ fun PrivateInboxScreen(
     val inboxState by viewModel.inboxUiState.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
 
-    var activeFilter by remember { mutableStateOf("All") } // "All", "Unread", "Find by ID"
+    var activeFilter by remember { mutableStateOf("All") }
     var showMenuDropdown by remember { mutableStateOf(false) }
 
     LaunchedEffect(myUserId) {
@@ -162,7 +160,7 @@ fun PrivateInboxScreen(
                                 ) {
                                     DropdownMenuItem(
                                         text = { Text("Open Community Group", color = WaTextPrimary, fontSize = 14.sp) },
-                                        leadingIcon = { Icon(Icons.Outlined.Groups, contentDescription = null, tint = WaGreen, modifier = Modifier.size(18.dp)) },
+                                        leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, tint = WaGreen, modifier = Modifier.size(18.dp)) },
                                         onClick = {
                                             showMenuDropdown = false
                                             onOpenCommunityChat()
@@ -184,7 +182,7 @@ fun PrivateInboxScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // =========================================================================
-                    // 🔍 ২. স্ক্রিনশটের হুবহু ফ্রস্টেড ডার্ক Search Bar Pill
+                    // 🔍 ২. ফ্রস্টেড ডার্ক Search Bar Pill
                     // =========================================================================
                     Row(
                         modifier = Modifier
@@ -249,7 +247,7 @@ fun PrivateInboxScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // =========================================================================
-                    // 📑 ৩. আধুনিক WhatsApp ফিল্টার চিপস ([All], [Unread], [🔍 Find by ID])
+                    // 📑 ৩. WhatsApp ফিল্টার চিপস ([All], [Unread], [🔍 Find by ID])
                     // =========================================================================
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -453,7 +451,7 @@ fun PrivateInboxScreen(
                         contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
                         // =============================================================
-                        // 📌 ১. সবার উপরে পিন করা কমিউনিটি গ্রুপ (Pinned Group Banner)
+                        // 📌 ১. সবার উপরে পিন করা কমিউনিটি গ্রুপ
                         // =============================================================
                         if (activeFilter == "All" && inboxState.searchQuery.isEmpty()) {
                             item {
@@ -510,7 +508,7 @@ fun PrivateInboxScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.ChatBubbleOutline,
+                                                imageVector = Icons.Default.ChatBubble,
                                                 contentDescription = null,
                                                 tint = WaTextMuted,
                                                 modifier = Modifier.size(32.dp)
@@ -535,7 +533,7 @@ fun PrivateInboxScreen(
                                 }
                             }
                         } else {
-                            // ৪. চ্যাট রোগুলো (স্ক্রিনশটের হুবহু লুক)
+                            // ৪. চ্যাট রোগুলো
                             items(
                                 items = displayList,
                                 key = { it.chatRoomId }
@@ -562,7 +560,7 @@ fun PrivateInboxScreen(
 }
 
 // =============================================================================
-// 👑 ১. স্ক্রিনশটের হুবহু পিন করা কমিউনিটি গ্রুপ (Pinned WhatsApp Row)
+// 👑 ১. পিন করা কমিউনিটি গ্রুপ ব্যানার
 // =============================================================================
 @Composable
 private fun WhatsAppCommunityGroupRow(
@@ -582,7 +580,7 @@ private fun WhatsAppCommunityGroupRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // হোয়াটসঅ্যাপ গ্রিন গ্রুপ আইকন
+                // গ্রিন গ্রুপ আইকন
                 Box(
                     modifier = Modifier
                         .size(52.dp)
@@ -591,7 +589,7 @@ private fun WhatsAppCommunityGroupRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Groups,
+                        imageVector = Icons.Default.Groups,
                         contentDescription = null,
                         tint = WaGreen,
                         modifier = Modifier.size(30.dp)
@@ -639,9 +637,9 @@ private fun WhatsAppCommunityGroupRow(
                             modifier = Modifier.weight(1f)
                         )
 
-                        // 📌 পিন আইকন
+                        // 📌 ফিক্সড পিন আইকন (Icons.Default.PushPin)
                         Icon(
-                            imageVector = Icons.Outlined.PushPin,
+                            imageVector = Icons.Default.PushPin,
                             contentDescription = "Pinned",
                             tint = WaTextMuted,
                             modifier = Modifier.size(16.dp)
@@ -660,7 +658,7 @@ private fun WhatsAppCommunityGroupRow(
 }
 
 // =============================================================================
-// 📱 ২. স্ক্রিনশটের হুবহু চ্যাট রো (WhatsApp Style Chat Row)
+// 📱 ২. চ্যাট রো
 // =============================================================================
 @Composable
 private fun WhatsAppStyleChatRow(
@@ -754,7 +752,6 @@ private fun WhatsAppStyleChatRow(
                             }
                         }
 
-                        // সময়
                         Text(
                             text = item.timeFormatted.ifBlank { "Recent" },
                             color = if (item.unreadCount > 0) WaGreen else WaTextMuted,
@@ -773,7 +770,6 @@ private fun WhatsAppStyleChatRow(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            // স্ক্রিনশটের মতো ডাবল-টিক্স
                             Text(
                                 text = "✓✓",
                                 color = if (item.unreadCount == 0) WaBlueTick else WaTextMuted,
@@ -790,21 +786,21 @@ private fun WhatsAppStyleChatRow(
                             )
                         }
 
-                        // ৩. ডানপাশের আনরিড ব্যাজ ও পিন
+                        // ৩. আনরিড ব্যাজ ও পিন
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             if (item.isPinned) {
                                 Icon(
-                                    imageVector = Icons.Outlined.PushPin,
+                                    imageVector = Icons.Default.PushPin,
                                     contentDescription = "Pinned",
                                     tint = WaTextMuted,
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
 
-                            // 🟢 সিগনেচার WhatsApp নিয়ন গ্রিন আনরিড ব্যাজ
+                            // 🟢 WhatsApp নিয়ন গ্রিন আনরিড ব্যাজ
                             if (item.unreadCount > 0) {
                                 Box(
                                     modifier = Modifier
@@ -826,7 +822,6 @@ private fun WhatsAppStyleChatRow(
                 }
             }
 
-            // পাতলা ডিভাইডার (হোয়াটসঅ্যাপ স্টাইল ইনডেন্টেশন)
             HorizontalDivider(
                 color = WaDivider,
                 thickness = 0.6.dp,
