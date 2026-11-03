@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -91,7 +92,6 @@ fun LocalGalleryScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // 🚪 সাইডবার ড্রয়ার স্টেট
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     var activeTab by remember { mutableStateOf(MediaTabType.VIDEOS) }
@@ -259,9 +259,6 @@ fun LocalGalleryScreen(
         return
     }
 
-    // =========================================================================
-    // 🚪 সাইডবার ন্যাভিগেশন ড্রয়ার (Sidebar Drawer)
-    // =========================================================================
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = selectedFolder == null && specialView == SpecialViewType.NONE,
@@ -424,7 +421,7 @@ fun LocalGalleryScreen(
                             BasicTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                                textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
                                 cursorBrush = SolidColor(ElectricBlue),
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
@@ -630,7 +627,7 @@ fun LocalGalleryScreen(
             }
 
             // =============================================================
-            // 🎵 ৪. ছবি ২ এবং ৩ এর মতো প্রিমিয়াম অডিও মিনি-প্লেয়ার
+            // 🎵 ৪. মিনি অডিও প্লেয়ার
             // =============================================================
             AnimatedVisibility(
                 visible = currentlyPlayingItem != null,
