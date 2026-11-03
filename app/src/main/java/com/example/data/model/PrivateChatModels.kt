@@ -19,6 +19,7 @@ data class InboxResponse(
 data class InboxItemDto(
     @Json(name = "chat_room_id") val chatRoomId: String = "",
     @Json(name = "peer_id") val peerId: String = "",
+    @Json(name = "account_id") val accountId: String? = null, // 👈 ৮ ডিজিটের ইউনিক অ্যাকাউন্ট আইডি
     @Json(name = "peer_name") val peerName: String = "User",
     @Json(name = "peer_avatar") val peerAvatar: String? = null,
     @Json(name = "is_vip") val isVip: Boolean = false,
@@ -120,3 +121,30 @@ data class GenericChatActionResponse(
     @Json(name = "status") val status: Int = 200,
     @Json(name = "message") val message: String = ""
 )
+
+// =============================================================================
+// 🔍 ৪. ৮-ডিজিট আইডি দিয়ে ইউজার সার্চ রেসপন্স মডেল (User Search Models)
+// =============================================================================
+
+@JsonClass(generateAdapter = true)
+data class UserSearchResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "status") val status: Int = 200,
+    @Json(name = "message") val message: String? = null,
+    @Json(name = "user") val user: SearchedUserDto? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SearchedUserDto(
+    @Json(name = "peer_id") val peerId: String = "",
+    @Json(name = "account_id") val accountId: String = "", // 👈 ৮ ডিজিটের আইডি
+    @Json(name = "peer_name") val peerName: String = "User",
+    @Json(name = "peer_avatar") val peerAvatar: String? = null,
+    @Json(name = "is_vip") val isVip: Boolean = false,
+    @Json(name = "is_online") val isOnline: Boolean = false,
+    @Json(name = "bio") val bio: String? = null
+) {
+    val displayAvatar: String
+        get() = peerAvatar?.takeIf { it.isNotBlank() }
+            ?: "https://ui-avatars.com/api/?name=${peerName}&background=1E293B&color=FACC15&bold=true"
+}
