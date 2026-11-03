@@ -1,4 +1,4 @@
-@file:OptIn(
+@file:kotlin.OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.media3.common.util.UnstableApi::class
 )
@@ -12,7 +12,6 @@ import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -31,7 +30,6 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +73,6 @@ private fun formatAudioTime(millis: Long): String {
     return String.format(Locale.US, "%d:%02d", minutes, seconds)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalAudioPlayerScreen(
     initialAudio: LocalVideoItem,
@@ -95,7 +92,7 @@ fun LocalAudioPlayerScreen(
     var showEqualizerSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
 
-    // 🎚️ সাউন্ড এফএক্স স্টেটসমূহ (ইকুয়ালাইজার, বেস বুস্ট, ভলিউম বুস্টার)
+    // 🎚️ সাউন্ড এফএক্স স্টেটসমূহ
     var isEqEnabled by remember { mutableStateOf(true) }
     var bassBoostLevel by remember { mutableFloatStateOf(0.4f) }
     var volumeBoostGain by remember { mutableFloatStateOf(0.2f) }
