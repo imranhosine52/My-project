@@ -1,9 +1,11 @@
-@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -21,6 +23,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -78,11 +82,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val PureBlack = Color(0xFF000000)
-private val FolderDarkGrey = Color(0xFF384356)
+// 🎨 প্রিমিয়াম সফট ডার্ক কালার প্যালেট (কালো মাঝে হালকা আভা)
+private val GalleryBackgroundBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF141926), // সফট ডিপ চারকোল
+        Color(0xFF0C0F17),
+        Color(0xFF07090E)
+    )
+)
+private val FolderDarkGrey = Color(0xFF333E50)
 private val ElectricBlue = Color(0xFF2979FF)
 private val BadgeRed = Color(0xFFFF2A4B)
-private val CardSurface = Color(0xFF12151C)
+private val CardSurface = Color(0xFF131722)
+private val CardBorderColor = Color(0xFF1F2636)
 
 enum class MediaTabType(val label: String, val index: Int) {
     VIDEOS("Videos", 0),
@@ -103,6 +115,9 @@ fun LocalGalleryScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // 🌟 সাইডবার ড্রয়ার স্টেট
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     var activeTab by remember { mutableStateOf(MediaTabType.VIDEOS) }
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
@@ -237,7 +252,9 @@ fun LocalGalleryScreen(
     }
 
     BackHandler {
-        if (showPinScreen) {
+        if (drawerState.isOpen) {
+            coroutineScope.launch { drawerState.close() }
+        } else if (showPinScreen) {
             showPinScreen = false
         } else if (viewingImageInitialIndex != -1) {
             viewingImageInitialIndex = -1
@@ -267,173 +284,100 @@ fun LocalGalleryScreen(
         return
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(PureBlack)
-            .statusBarsPadding()
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-
-            // 🔝 ১. টপ হেডার বার
-            Row(
+    // =========================================================================
+    // 🚪 সাইডবার ন্যাভিগেশন ড্রয়ার (Sidebar Navigation Drawer)
+    // =========================================================================
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = selectedFolder == null && specialView == SpecialViewType.NONE,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = Color(0xFF10141F),
+                drawerShape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .width(290.dp)
+                    .fillMaxHeight()
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.horizontalGradient(listOf(Color(0xFF222B3D), Color.Transparent)),
+                        shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
+                    )
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (selectedFolder != null || specialView != SpecialViewType.NONE) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color.White,
+                    // ড্রয়ার হেডার
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp, top = 6.dp)
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .size(24.dp)
-                                .clickable {
-                                    if (specialView != SpecialViewType.NONE) specialView = SpecialViewType.NONE
-                                    else selectedFolder = null
-                                    loadSelectedCategoryData()
-                                }
-                        )
-                    }
-                    Text(
-                        text = when {
-                            specialView == SpecialViewType.STARRED -> "Starred"
-                            specialView == SpecialViewType.SAFE_FOLDER -> "Safe Folder"
-                            specialView == SpecialViewType.TRASH -> "Recycle Bin"
-                            selectedFolder != null -> selectedFolder!!.folderName
-                            else -> activeTab.label
-                        },
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CreateNewFolder,
-                        contentDescription = "New Folder",
-                        tint = ElectricBlue,
-                        modifier = Modifier
-                            .size(23.dp)
-                            .clickable { showCreateFolderDialog = true }
-                    )
-
-                    Icon(
-                        imageVector = Icons.Outlined.Folder,
-                        contentDescription = "Documents & Files",
-                        tint = if (activeTab == MediaTabType.FILES && specialView == SpecialViewType.NONE) ElectricBlue else Color.White,
-                        modifier = Modifier
-                            .size(23.dp)
-                            .clickable {
-                                specialView = SpecialViewType.NONE
-                                selectedFolder = null
-                                activeTab = MediaTabType.FILES
-                            }
-                    )
-
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = if (isSearchActive) ElectricBlue else Color.White,
-                        modifier = Modifier
-                            .size(23.dp)
-                            .clickable { isSearchActive = !isSearchActive }
-                    )
-
-                    Icon(
-                        imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                        contentDescription = "Toggle View",
-                        tint = ElectricBlue,
-                        modifier = Modifier
-                            .size(23.dp)
-                            .clickable { isGridView = !isGridView }
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = isSearchActive) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1C202B))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (searchQuery.isEmpty()) {
-                            Text("Search in files...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Brush.linearGradient(listOf(Color(0xFF007AFF), Color(0xFF00E5FF)))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VideoLibrary,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                            cursorBrush = SolidColor(ElectricBlue),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+
+                        Column {
+                            Text("Media Gallery", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text("Fast & Offline Media", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+                        }
                     }
 
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Voice Search",
-                        tint = ElectricBlue,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clickable {
-                                try {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to search files...")
-                                    }
-                                    voiceSearchLauncher.launch(intent)
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "Voice Search not available", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                    )
-                }
-            }
+                    HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
 
-            // 🎛️ ২. টপ টুল ক্যারোজেল
-            if (selectedFolder == null && specialView == SpecialViewType.NONE) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ToolCircleIconItem(
-                        label = "Music",
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text("QUICK TOOLS", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+
+                    // ১. Music
+                    DrawerMenuItemRow(
+                        label = "Music & Audios",
                         icon = Icons.Default.Headphones,
-                        gradientColors = listOf(Color(0xFFFF8A00), Color(0xFFFF3D00)),
-                        onClick = { activeTab = MediaTabType.MUSIC }
+                        iconColor = Color(0xFFFF8A00),
+                        onClick = {
+                            coroutineScope.launch { drawerState.close() }
+                            specialView = SpecialViewType.NONE
+                            selectedFolder = null
+                            activeTab = MediaTabType.MUSIC
+                        }
                     )
 
-                    ToolCircleIconItem(
-                        label = "Starred",
+                    // ২. Starred
+                    DrawerMenuItemRow(
+                        label = "Starred Items",
                         icon = Icons.Default.Star,
-                        gradientColors = listOf(Color(0xFFFFB300), Color(0xFFFF8F00)),
-                        onClick = { specialView = SpecialViewType.STARRED }
+                        iconColor = Color(0xFFFFB300),
+                        onClick = {
+                            coroutineScope.launch { drawerState.close() }
+                            selectedFolder = null
+                            specialView = SpecialViewType.STARRED
+                        }
                     )
 
-                    ToolCircleIconItem(
+                    // ৩. Safe Folder
+                    DrawerMenuItemRow(
                         label = "Safe Folder",
                         icon = Icons.Default.Lock,
-                        gradientColors = listOf(Color(0xFF00C6FF), Color(0xFF0072FF)),
+                        iconColor = Color(0xFF00C6FF),
                         onClick = {
+                            coroutineScope.launch { drawerState.close() }
+                            selectedFolder = null
                             if (isSafeFolderUnlocked) {
                                 specialView = SpecialViewType.SAFE_FOLDER
                             } else {
@@ -442,85 +386,304 @@ fun LocalGalleryScreen(
                         }
                     )
 
-                    ToolCircleIconItem(
-                        label = "Trash",
+                    // ৪. Trash / Recycle Bin
+                    DrawerMenuItemRow(
+                        label = "Recycle Bin",
                         icon = Icons.Default.Delete,
-                        gradientColors = listOf(Color(0xFFFF416C), Color(0xFFFF4B2B)),
-                        onClick = { specialView = SpecialViewType.TRASH }
+                        iconColor = Color(0xFFFF416C),
+                        onClick = {
+                            coroutineScope.launch { drawerState.close() }
+                            selectedFolder = null
+                            specialView = SpecialViewType.TRASH
+                        }
                     )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    Text("PlayDramaFlix Gallery v2.0", color = Color(0xFF4A5568), fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
-
-                Spacer(modifier = Modifier.height(4.dp))
             }
+        }
+    ) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(GalleryBackgroundBrush)
+                .statusBarsPadding()
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
 
-            // 📂 ৩. "Folders" ক্যাটাগরি সুইচ
-            if (selectedFolder == null && specialView == SpecialViewType.NONE) {
+                // =============================================================
+                // 🔝 ১. টপ হেডার বার (মেনু আইকন ☰ সহ)
+                // =============================================================
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = "Folders",
-                        color = ElectricBlue,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MediaTabType.entries.forEach { tab ->
-                            val isSel = tab == activeTab
-                            Text(
-                                text = tab.label,
-                                color = if (isSel) ElectricBlue else Color(0xFF6B7280),
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (selectedFolder != null || specialView != SpecialViewType.NONE) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
                                 modifier = Modifier
-                                    .clickable { activeTab = tab }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    .size(24.dp)
+                                    .clickable {
+                                        if (specialView != SpecialViewType.NONE) specialView = SpecialViewType.NONE
+                                        else selectedFolder = null
+                                        loadSelectedCategoryData()
+                                    }
                             )
+                        } else {
+                            // 🌟 হ্যামবার্গার মেনু বাটন
+                            IconButton(
+                                onClick = {
+                                    coroutineScope.launch { drawerState.open() }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "Menu Drawer",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = when {
+                                specialView == SpecialViewType.STARRED -> "Starred"
+                                specialView == SpecialViewType.SAFE_FOLDER -> "Safe Folder"
+                                specialView == SpecialViewType.TRASH -> "Recycle Bin"
+                                selectedFolder != null -> selectedFolder!!.folderName
+                                else -> activeTab.label
+                            },
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CreateNewFolder,
+                            contentDescription = "New Folder",
+                            tint = ElectricBlue,
+                            modifier = Modifier
+                                .size(23.dp)
+                                .clickable { showCreateFolderDialog = true }
+                        )
+
+                        Icon(
+                            imageVector = Icons.Outlined.Folder,
+                            contentDescription = "Documents & Files",
+                            tint = if (activeTab == MediaTabType.FILES && specialView == SpecialViewType.NONE) ElectricBlue else Color.White,
+                            modifier = Modifier
+                                .size(23.dp)
+                                .clickable {
+                                    specialView = SpecialViewType.NONE
+                                    selectedFolder = null
+                                    activeTab = MediaTabType.FILES
+                                }
+                        )
+
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = if (isSearchActive) ElectricBlue else Color.White,
+                            modifier = Modifier
+                                .size(23.dp)
+                                .clickable { isSearchActive = !isSearchActive }
+                        )
+
+                        Icon(
+                            imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                            contentDescription = "Toggle View",
+                            tint = ElectricBlue,
+                            modifier = Modifier
+                                .size(23.dp)
+                                .clickable { isGridView = !isGridView }
+                        )
+                    }
+                }
+
+                AnimatedVisibility(visible = isSearchActive) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF19202E))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text("Search files...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                                cursorBrush = SolidColor(ElectricBlue),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice Search",
+                            tint = ElectricBlue,
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clickable {
+                                    try {
+                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to search files...")
+                                        }
+                                        voiceSearchLauncher.launch(intent)
+                                    } catch (_: Exception) {
+                                        Toast.makeText(context, "Voice Search not available", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                        )
+                    }
+                }
+
+                // 📂 ২. "Folders" ও ক্যাটাগরি সুইচ রো (৪টি বড় গোল আইকন ড্রয়ারে স্থানান্তরের পর এটি ক্লিনভাবে বসবে)
+                if (selectedFolder == null && specialView == SpecialViewType.NONE) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Folders",
+                            color = ElectricBlue,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MediaTabType.entries.forEach { tab ->
+                                val isSel = tab == activeTab
+                                Text(
+                                    text = tab.label,
+                                    color = if (isSel) ElectricBlue else Color(0xFF8E95A5),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clickable { activeTab = tab }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            // 📁 ৪. মূল ফাইল এবং ফোল্ডার তালিকা
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = {
-                    coroutineScope.launch {
-                        isRefreshing = true
-                        loadSelectedCategoryData()
-                        delay(400)
-                        isRefreshing = false
-                    }
-                },
-                state = pullRefreshState,
-                modifier = Modifier.weight(1f).fillMaxWidth()
-            ) {
-                when {
-                    specialView != SpecialViewType.NONE -> {
-                        val displayList = specialItems.filter { it.title.contains(searchQuery, ignoreCase = true) }
-                        if (displayList.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("No files found in this section", color = Color(0xFF6B7280), fontSize = 13.sp)
+                // 📁 ৩. মূল ফাইল এবং ফোল্ডার তালিকা
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        coroutineScope.launch {
+                            isRefreshing = true
+                            loadSelectedCategoryData()
+                            delay(400)
+                            isRefreshing = false
+                        }
+                    },
+                    state = pullRefreshState,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                ) {
+                    when {
+                        specialView != SpecialViewType.NONE -> {
+                            val displayList = specialItems.filter { it.title.contains(searchQuery, ignoreCase = true) }
+                            if (displayList.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("No files found in this section", color = Color(0xFF6B7280), fontSize = 13.sp)
+                                }
+                            } else {
+                                if (isGridView) {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(3),
+                                        contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 100.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        items(displayList, key = { it.id }) { item ->
+                                            Screenshot2GridItem(
+                                                item = item,
+                                                onClick = {
+                                                    handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                        viewingImageList = list
+                                                        viewingImageInitialIndex = idx
+                                                    }
+                                                },
+                                                onMenuClick = { selectedFileInfoItem = item }
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 100.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(displayList, key = { it.id }) { item ->
+                                            Screenshot3ListItem(
+                                                item = item,
+                                                onClick = {
+                                                    handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                        viewingImageList = list
+                                                        viewingImageInitialIndex = idx
+                                                    }
+                                                },
+                                                onMenuClick = { selectedFileInfoItem = item }
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                        } else {
-                            if (isGridView) {
+                        }
+
+                        selectedFolder != null -> {
+                            val folderMedia = currentItems
+                                .filter { it.bucketId == selectedFolder!!.bucketId }
+                                .filter { it.title.contains(searchQuery, ignoreCase = true) }
+
+                            if (folderMedia.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("Folder is empty", color = Color(0xFF6B7280), fontSize = 13.sp)
+                                }
+                            } else if (isGridView) {
+                                val columns = if (activeTab == MediaTabType.IMAGES) 3 else 2
                                 LazyVerticalGrid(
-                                    columns = GridCells.Fixed(3),
-                                    contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 80.dp),
+                                    columns = GridCells.Fixed(columns),
+                                    contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 100.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
-                                    items(displayList, key = { it.id }) { item ->
+                                    items(folderMedia, key = { it.id }) { item ->
                                         Screenshot2GridItem(
                                             item = item,
                                             onClick = {
-                                                handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
                                                     viewingImageList = list
                                                     viewingImageInitialIndex = idx
                                                 }
@@ -532,14 +695,14 @@ fun LocalGalleryScreen(
                             } else {
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
+                                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 100.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    items(displayList, key = { it.id }) { item ->
+                                    items(folderMedia, key = { it.id }) { item ->
                                         Screenshot3ListItem(
                                             item = item,
                                             onClick = {
-                                                handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
                                                     viewingImageList = list
                                                     viewingImageInitialIndex = idx
                                                 }
@@ -550,359 +713,364 @@ fun LocalGalleryScreen(
                                 }
                             }
                         }
-                    }
 
-                    selectedFolder != null -> {
-                        val folderMedia = currentItems
-                            .filter { it.bucketId == selectedFolder!!.bucketId }
-                            .filter { it.title.contains(searchQuery, ignoreCase = true) }
-
-                        if (folderMedia.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Folder is empty", color = Color(0xFF6B7280), fontSize = 13.sp)
-                            }
-                        } else if (isGridView) {
-                            val columns = if (activeTab == MediaTabType.IMAGES) 3 else 2
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(columns),
-                                contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 80.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(folderMedia, key = { it.id }) { item ->
-                                    Screenshot2GridItem(
-                                        item = item,
-                                        onClick = {
-                                            handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
-                                                viewingImageList = list
-                                                viewingImageInitialIndex = idx
-                                            }
-                                        },
-                                        onMenuClick = { selectedFileInfoItem = item }
-                                    )
+                        else -> {
+                            val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
+                            if (filteredFolders.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("No folders found", color = Color(0xFF6B7280), fontSize = 13.5.sp)
                                 }
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(folderMedia, key = { it.id }) { item ->
-                                    Screenshot3ListItem(
-                                        item = item,
-                                        onClick = {
-                                            handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
-                                                viewingImageList = list
-                                                viewingImageInitialIndex = idx
-                                            }
-                                        },
-                                        onMenuClick = { selectedFileInfoItem = item }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    else -> {
-                        val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
-                        if (filteredFolders.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("No folders found", color = Color(0xFF6B7280), fontSize = 13.5.sp)
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(filteredFolders, key = { it.bucketId }) { folder ->
-                                    ScreenshotStyleFolderItem(
-                                        folder = folder,
-                                        onClick = { selectedFolder = folder }
-                                    )
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 100.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(filteredFolders, key = { it.bucketId }) { folder ->
+                                        ScreenshotStyleFolderItem(
+                                            folder = folder,
+                                            onClick = { selectedFolder = folder }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // 🔵 FAB Play Button
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 84.dp)
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(ElectricBlue)
-                .clickable {
-                    currentItems.firstOrNull()?.let {
-                        currentlyPlayingItem = it
-                        onVideoClick(it)
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Play",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-
-        // 🎵 ডকড মিনি প্লেয়ার
-        currentlyPlayingItem?.let { playing ->
-            Surface(
-                color = CardSurface,
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(0.8.dp, Color(0xFF222836)),
+            // =============================================================
+            // 🎵 ৪. ছবি ২ এবং ৩ এর মতো প্রিমিয়াম অডিও মিনি-প্লেয়ার
+            // (বটম ন্যাভিগেশন বারের ঠিক ওপরে অবস্থান করবে)
+            // =============================================================
+            AnimatedVisibility(
+                visible = currentlyPlayingItem != null,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                ) + fadeIn(tween(220)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+                ) + fadeOut(tween(180)),
                 modifier = Modifier
-                    .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
-                    .clickable { onVideoClick(playing) }
+                    .padding(horizontal = 12.dp, bottom = 52.dp) // 👈 বটম বারের ঠিক উপরে
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
+                currentlyPlayingItem?.let { playing ->
+                    Surface(
+                        color = Color(0xF0121722),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF232D40)),
+                        shadowElevation = 10.dp,
                         modifier = Modifier
-                            .size(42.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFE8DEF8)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .clickable { onVideoClick(playing) }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = null,
-                            tint = Color(0xFF6750A4),
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // কভার আর্ট থাম্বনেইল
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF1E2638)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                VideoThumbnailPreview(item = playing, modifier = Modifier.fillMaxSize())
+                            }
+
+                            // গানের নাম
+                            Text(
+                                text = playing.title,
+                                color = Color.White,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            // প্লে/পজ বাটন
+                            IconButton(
+                                onClick = { isMiniPlayerPlaying = !isMiniPlayerPlaying },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isMiniPlayerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // ✕ ক্লোজ বাটন (ছবি ২ অনুযায়ী)
+                            IconButton(
+                                onClick = { currentlyPlayingItem = null },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close Player",
+                                    tint = Color(0xFF8E95A5),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
-
-                    Text(
-                        text = playing.title,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Icon(
-                        imageVector = if (isMiniPlayerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play/Pause",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clickable { isMiniPlayerPlaying = !isMiniPlayerPlaying }
-                    )
                 }
             }
-        }
 
-        // 📁 Android 11+ All Files Access Permission Dialog
-        if (showStoragePermissionDialog) {
-            Dialog(onDismissRequest = { showStoragePermissionDialog = false }) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+            // 📁 Android 11+ All Files Access Permission Dialog
+            if (showStoragePermissionDialog) {
+                Dialog(onDismissRequest = { showStoragePermissionDialog = false }) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
                     ) {
-                        Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(40.dp))
-                        Text("All Files Permission Required", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = "To access all documents, zip, apk and files on Android 11+, please grant 'All Files Access' in system settings.",
-                            color = Color(0xFF8E95A5),
-                            fontSize = 12.5.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { showStoragePermissionDialog = false }) {
-                                Text("Cancel", color = Color(0xFF8E95A5))
-                            }
-                            Button(
-                                onClick = {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                        try {
-                                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                                                data = Uri.parse("package:${context.packageName}")
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(40.dp))
+                            Text("All Files Permission Required", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "To access all documents, zip, apk and files on Android 11+, please grant 'All Files Access' in system settings.",
+                                color = Color(0xFF8E95A5),
+                                fontSize = 12.5.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = { showStoragePermissionDialog = false }) {
+                                    Text("Cancel", color = Color(0xFF8E95A5))
+                                }
+                                Button(
+                                    onClick = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            try {
+                                                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                                    data = Uri.parse("package:${context.packageName}")
+                                                }
+                                                manageStorageLauncher.launch(intent)
+                                            } catch (_: Exception) {
+                                                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                                manageStorageLauncher.launch(intent)
                                             }
-                                            manageStorageLauncher.launch(intent)
-                                        } catch (_: Exception) {
-                                            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                            manageStorageLauncher.launch(intent)
                                         }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
-                            ) {
-                                Text("Grant Permission", color = Color.White)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
+                                ) {
+                                    Text("Grant Permission", color = Color.White)
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // ℹ️ ফাইল মেনু বটম শীট
-        selectedFileInfoItem?.let { item ->
-            FileActionMenuSheet(
-                item = item,
-                isSafeFolderItem = specialView == SpecialViewType.SAFE_FOLDER,
-                isTrashItem = specialView == SpecialViewType.TRASH,
-                onDismiss = { selectedFileInfoItem = null },
-                onShare = {
-                    shareSingleFile(context, item)
-                    selectedFileInfoItem = null
-                },
-                onRename = {
-                    renamingItem = item
-                    selectedFileInfoItem = null
-                },
-                onMove = {
-                    movingItem = item
-                    selectedFileInfoItem = null
-                },
-                onToggleStar = {
-                    LocalMediaScanner.toggleStarred(context, item.path)
-                    selectedFileInfoItem = null
-                    loadSelectedCategoryData()
-                },
-                onMoveToSafe = {
-                    LocalMediaScanner.moveToSafeFolder(context, item.path)
-                    Toast.makeText(context, "Moved to Safe Folder (Hidden)", Toast.LENGTH_SHORT).show()
-                    selectedFileInfoItem = null
-                    loadSelectedCategoryData()
-                },
-                onRestoreFromSafe = {
-                    LocalMediaScanner.restoreFromSafeFolder(context, item.path)
-                    Toast.makeText(context, "Unhidden from Safe Folder", Toast.LENGTH_SHORT).show()
-                    selectedFileInfoItem = null
-                    loadSelectedCategoryData()
-                },
-                onMoveToTrash = {
-                    LocalMediaScanner.moveToTrash(context, item.path)
-                    Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
-                    selectedFileInfoItem = null
-                    loadSelectedCategoryData()
-                },
-                onRestore = {
-                    LocalMediaScanner.restoreFromTrash(context, item.path)
-                    Toast.makeText(context, "Restored successfully", Toast.LENGTH_SHORT).show()
-                    selectedFileInfoItem = null
-                    loadSelectedCategoryData()
-                },
-                onDeletePermanently = {
-                    LocalMediaScanner.deletePermanently(context, item.path)
-                    Toast.makeText(context, "Deleted permanently", Toast.LENGTH_SHORT).show()
-                    selectedFileInfoItem = null
-                    loadSelectedCategoryData()
-                }
-            )
-        }
+            // ℹ️ ফাইল মেনু বটম শীট
+            selectedFileInfoItem?.let { item ->
+                FileActionMenuSheet(
+                    item = item,
+                    isSafeFolderItem = specialView == SpecialViewType.SAFE_FOLDER,
+                    isTrashItem = specialView == SpecialViewType.TRASH,
+                    onDismiss = { selectedFileInfoItem = null },
+                    onShare = {
+                        shareSingleFile(context, item)
+                        selectedFileInfoItem = null
+                    },
+                    onRename = {
+                        renamingItem = item
+                        selectedFileInfoItem = null
+                    },
+                    onMove = {
+                        movingItem = item
+                        selectedFileInfoItem = null
+                    },
+                    onToggleStar = {
+                        LocalMediaScanner.toggleStarred(context, item.path)
+                        selectedFileInfoItem = null
+                        loadSelectedCategoryData()
+                    },
+                    onMoveToSafe = {
+                        LocalMediaScanner.moveToSafeFolder(context, item.path)
+                        Toast.makeText(context, "Moved to Safe Folder (Hidden)", Toast.LENGTH_SHORT).show()
+                        selectedFileInfoItem = null
+                        loadSelectedCategoryData()
+                    },
+                    onRestoreFromSafe = {
+                        LocalMediaScanner.restoreFromSafeFolder(context, item.path)
+                        Toast.makeText(context, "Unhidden from Safe Folder", Toast.LENGTH_SHORT).show()
+                        selectedFileInfoItem = null
+                        loadSelectedCategoryData()
+                    },
+                    onMoveToTrash = {
+                        LocalMediaScanner.moveToTrash(context, item.path)
+                        Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
+                        selectedFileInfoItem = null
+                        loadSelectedCategoryData()
+                    },
+                    onRestore = {
+                        LocalMediaScanner.restoreFromTrash(context, item.path)
+                        Toast.makeText(context, "Restored successfully", Toast.LENGTH_SHORT).show()
+                        selectedFileInfoItem = null
+                        loadSelectedCategoryData()
+                    },
+                    onDeletePermanently = {
+                        LocalMediaScanner.deletePermanently(context, item.path)
+                        Toast.makeText(context, "Deleted permanently", Toast.LENGTH_SHORT).show()
+                        selectedFileInfoItem = null
+                        loadSelectedCategoryData()
+                    }
+                )
+            }
 
-        // ➕ নতুন ফোল্ডার তৈরি ডায়ালগ
-        if (showCreateFolderDialog) {
-            var newName by remember { mutableStateOf("") }
-            Dialog(onDismissRequest = { showCreateFolderDialog = false }) {
-                Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))) {
-                    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Create New Folder", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = newName,
-                            onValueChange = { newName = it },
-                            placeholder = { Text("Folder Name") },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ElectricBlue, unfocusedBorderColor = Color(0xFF222638), focusedTextColor = Color.White, unfocusedTextColor = Color.White),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel", color = Color(0xFF8E95A5)) }
-                            Button(
-                                onClick = {
-                                    if (newName.isNotBlank()) {
-                                        coroutineScope.launch {
-                                            val path = LocalMediaScanner.createNewFolderAtRoot(newName.trim())
-                                            Toast.makeText(context, if (path != null) "Folder Created" else "Failed", Toast.LENGTH_SHORT).show()
-                                            showCreateFolderDialog = false
-                                            loadSelectedCategoryData()
+            // ➕ নতুন ফোল্ডার তৈরি ডায়ালগ
+            if (showCreateFolderDialog) {
+                var newName by remember { mutableStateOf("") }
+                Dialog(onDismissRequest = { showCreateFolderDialog = false }) {
+                    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))) {
+                        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Create New Folder", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = newName,
+                                onValueChange = { newName = it },
+                                placeholder = { Text("Folder Name") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ElectricBlue, unfocusedBorderColor = Color(0xFF222638), focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel", color = Color(0xFF8E95A5)) }
+                                Button(
+                                    onClick = {
+                                        if (newName.isNotBlank()) {
+                                            coroutineScope.launch {
+                                                val path = LocalMediaScanner.createNewFolderAtRoot(newName.trim())
+                                                Toast.makeText(context, if (path != null) "Folder Created" else "Failed", Toast.LENGTH_SHORT).show()
+                                                showCreateFolderDialog = false
+                                                loadSelectedCategoryData()
+                                            }
                                         }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
-                            ) {
-                                Text("Create", color = Color.White)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
+                                ) {
+                                    Text("Create", color = Color.White)
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // 📂 যেকোনো ফোল্ডারে মুভ ডায়ালগ
-        movingItem?.let { itemToMove ->
-            MoveToFolderDialog(
-                folders = currentFolders,
-                onDismiss = { movingItem = null },
-                onMoveToExisting = { folder ->
-                    coroutineScope.launch {
-                        val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, folder.folderPath)
-                        Toast.makeText(context, if (success) "Moved to ${folder.folderName}" else "Move failed", Toast.LENGTH_SHORT).show()
-                        movingItem = null
-                        loadSelectedCategoryData()
-                    }
-                },
-                onCreateAndMove = { newFolderName ->
-                    coroutineScope.launch {
-                        val createdPath = LocalMediaScanner.createNewFolderAtRoot(newFolderName)
-                        if (createdPath != null) {
-                            val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, createdPath)
-                            Toast.makeText(context, if (success) "Moved to $newFolderName" else "Move failed", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Could not create folder", Toast.LENGTH_SHORT).show()
+            // 📂 ফোল্ডারে মুভ ডায়ালগ
+            movingItem?.let { itemToMove ->
+                MoveToFolderDialog(
+                    folders = currentFolders,
+                    onDismiss = { movingItem = null },
+                    onMoveToExisting = { folder ->
+                        coroutineScope.launch {
+                            val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, folder.folderPath)
+                            Toast.makeText(context, if (success) "Moved to ${folder.folderName}" else "Move failed", Toast.LENGTH_SHORT).show()
+                            movingItem = null
+                            loadSelectedCategoryData()
                         }
-                        movingItem = null
+                    },
+                    onCreateAndMove = { newFolderName ->
+                        coroutineScope.launch {
+                            val createdPath = LocalMediaScanner.createNewFolderAtRoot(newFolderName)
+                            if (createdPath != null) {
+                                val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, createdPath)
+                                Toast.makeText(context, if (success) "Moved to $newFolderName" else "Move failed", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Could not create folder", Toast.LENGTH_SHORT).show()
+                            }
+                            movingItem = null
+                            loadSelectedCategoryData()
+                        }
+                    }
+                )
+            }
+
+            // ✏️ রিনেম ডায়ালগ
+            renamingItem?.let { item ->
+                RenameFileDialog(
+                    currentName = item.displayName.substringBeforeLast("."),
+                    onDismiss = { renamingItem = null },
+                    onSave = { newName ->
+                        val success = LocalMediaScanner.renameFile(context, item.path, newName)
+                        Toast.makeText(context, if (success) "Renamed successfully" else "Rename failed", Toast.LENGTH_SHORT).show()
+                        renamingItem = null
                         loadSelectedCategoryData()
                     }
-                }
-            )
-        }
+                )
+            }
 
-        // ✏️ রিনেম ডায়ালগ
-        renamingItem?.let { item ->
-            RenameFileDialog(
-                currentName = item.displayName.substringBeforeLast("."),
-                onDismiss = { renamingItem = null },
-                onSave = { newName ->
-                    val success = LocalMediaScanner.renameFile(context, item.path, newName)
-                    Toast.makeText(context, if (success) "Renamed successfully" else "Rename failed", Toast.LENGTH_SHORT).show()
-                    renamingItem = null
-                    loadSelectedCategoryData()
-                }
-            )
+            // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
+            if (viewingImageInitialIndex != -1 && viewingImageList.isNotEmpty()) {
+                FullscreenImageViewer(
+                    images = viewingImageList,
+                    initialIndex = viewingImageInitialIndex,
+                    onClose = { viewingImageInitialIndex = -1 },
+                    onImageUpdated = { loadSelectedCategoryData() }
+                )
+            }
         }
+    }
+}
 
-        // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
-        if (viewingImageInitialIndex != -1 && viewingImageList.isNotEmpty()) {
-            FullscreenImageViewer(
-                images = viewingImageList,
-                initialIndex = viewingImageInitialIndex,
-                onClose = { viewingImageInitialIndex = -1 },
-                onImageUpdated = { loadSelectedCategoryData() }
+// =============================================================================
+// 🌟 ড্রয়ারের একক মেনু আইটেম কম্পোনেন্ট
+// =============================================================================
+@Composable
+private fun DrawerMenuItemRow(
+    label: String,
+    icon: ImageVector,
+    iconColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF161B28),
+        border = BorderStroke(0.8.dp, Color(0xFF232D40)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(iconColor.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = iconColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
@@ -928,9 +1096,6 @@ private suspend fun loadCategoryDataDirect(
     onLoaded(items, folders, specials)
 }
 
-// -------------------------------------------------------------
-// 🎬 নির্ভরযোগ্য ভিডিও ও ইমেজ থাম্বনেল প্রিভিউ
-// -------------------------------------------------------------
 @Composable
 fun VideoThumbnailPreview(
     item: LocalVideoItem,
@@ -1002,9 +1167,6 @@ fun VideoThumbnailPreview(
     }
 }
 
-// -------------------------------------------------------------
-// 📄 টেবিল / লিস্ট ভিউ
-// -------------------------------------------------------------
 @Composable
 private fun Screenshot3ListItem(
     item: LocalVideoItem,
@@ -1048,9 +1210,6 @@ private fun Screenshot3ListItem(
     }
 }
 
-// -------------------------------------------------------------
-// 🔲 গ্রিড আইটেম
-// -------------------------------------------------------------
 @Composable
 private fun Screenshot2GridItem(
     item: LocalVideoItem,
@@ -1109,9 +1268,6 @@ private fun Screenshot2GridItem(
     }
 }
 
-// -------------------------------------------------------------
-// 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
-// -------------------------------------------------------------
 @Composable
 fun FullscreenImageViewer(
     images: List<LocalVideoItem>,
@@ -1231,9 +1387,6 @@ fun FullscreenImageViewer(
     }
 }
 
-// -------------------------------------------------------------
-// 🔍 সোয়াইপ এবং জুমযোগ্য ইমেজ কম্পোনেন্ট
-// -------------------------------------------------------------
 @Composable
 fun SwipeableZoomableImage(uri: Any) {
     val context = LocalContext.current
@@ -1284,9 +1437,6 @@ fun SwipeableZoomableImage(uri: Any) {
     }
 }
 
-// -------------------------------------------------------------
-// 🔒 ফুলস্ক্রিন পিন স্ক্রিন
-// -------------------------------------------------------------
 @Composable
 fun FullscreenPinScreen(
     context: Context,
@@ -1487,9 +1637,6 @@ fun CustomNumericKeypad(
     }
 }
 
-// -------------------------------------------------------------
-// 📁 ফোল্ডারে মুভ ডায়ালগ
-// -------------------------------------------------------------
 @Composable
 fun MoveToFolderDialog(
     folders: List<LocalVideoFolder>,
@@ -1582,9 +1729,6 @@ fun MoveToFolderDialog(
     }
 }
 
-// -------------------------------------------------------------
-// ক্লিক হ্যান্ডলার
-// -------------------------------------------------------------
 private fun handleItemClick(
     item: LocalVideoItem,
     allList: List<LocalVideoItem>,
@@ -1619,42 +1763,6 @@ private fun handleItemClick(
 }
 
 @Composable
-private fun ToolCircleIconItem(
-    label: String,
-    icon: ImageVector,
-    gradientColors: List<Color>,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .background(Brush.linearGradient(gradientColors)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(26.dp)
-            )
-        }
-
-        Text(
-            text = label,
-            color = Color(0xFFD1D5DB),
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
 private fun ScreenshotStyleFolderItem(
     folder: LocalVideoFolder,
     onClick: () -> Unit
@@ -1678,7 +1786,7 @@ private fun ScreenshotStyleFolderItem(
                 Icon(
                     imageVector = if (folder.folderName.contains("movie", true)) Icons.Default.Movie else Icons.Default.Folder,
                     contentDescription = null,
-                    tint = Color(0xFF5B6B82),
+                    tint = Color(0xFF6B7B96),
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -1715,7 +1823,7 @@ private fun ScreenshotStyleFolderItem(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "${folder.videoCount} items • ${folder.formattedTotalSize}",
-                color = Color(0xFF6B7280),
+                color = Color(0xFF8E95A5),
                 fontSize = 12.sp
             )
         }
