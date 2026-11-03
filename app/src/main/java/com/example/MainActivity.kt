@@ -14,10 +14,10 @@ import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -47,7 +47,7 @@ import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
-import com.example.ui.screens.chat.PeerProfileScreen       // 👈 পাবলিক প্রোফাইল স্ক্রিন
+import com.example.ui.screens.chat.PeerProfileScreen
 import com.example.ui.screens.chat.PrivateChatRoomScreen
 import com.example.ui.screens.chat.PrivateInboxScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
@@ -96,7 +96,6 @@ sealed class Screen {
         val isPeerOnline: Boolean = false,
         val isPeerVip: Boolean = false
     ) : Screen()
-    // 👤 নতুন: পাবলিক ইউজার প্রোফাইল স্ক্রিন
     data class PeerProfile(
         val peerId: String,
         val peerName: String,
@@ -647,7 +646,9 @@ private fun MainAppContent(
     }
 
     val currentMyUserId = remember(authState.userProfile) {
-        authState.userProfile?.id?.filter { it.isDigit() }?.ifBlank { "1" } ?: "1"
+        authState.userProfile?.id?.takeIf { it.isNotBlank() }
+            ?: authState.userProfile?.effectiveAccountId
+            ?: "1"
     }
 
     LaunchedEffect(currentScreen) {
@@ -704,7 +705,7 @@ private fun MainAppContent(
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
             currentScreen is Screen.PrivateChatRoom ||
-            currentScreen is Screen.PeerProfile || // 👈 প্রোফাইলে বটম বার লুকানো থাকবে
+            currentScreen is Screen.PeerProfile ||
             currentScreen is Screen.NotFound
 
     Box(
@@ -826,7 +827,6 @@ private fun MainAppContent(
                                 }
                             )
                         }
-                        // 👥 গ্রুপ চ্যাট স্ক্রিন (ছবি বা নামে ক্লিক করলে পাবলিক প্রোফাইল ওপেন হবে)
                         is Screen.CommunityChat -> {
                             CommunityChatScreen(
                                 viewModel = viewModel,
@@ -867,6 +867,10 @@ private fun MainAppContent(
                                         ),
                                         null
                                     )
+                                },
+                                onOpenCommunityChat = {
+                                    // 🌟 ইনবক্সের শীর্ষ ব্যানার থেকে সরাসরি কমিউনিটি গ্রুপ ওপেন
+                                    navigateTo(Screen.CommunityChat, null)
                                 }
                             )
                         }
@@ -877,9 +881,6 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
-                        // =============================================================
-                        // 👤 নতুন: পাবলিক ইউজার প্রোফাইল স্ক্রিন
-                        // =============================================================
                         is Screen.PeerProfile -> {
                             PeerProfileScreen(
                                 peerId = targetScreen.peerId,
@@ -890,7 +891,6 @@ private fun MainAppContent(
                                 peerBio = targetScreen.peerBio,
                                 onBackClick = { handleBackNavigation() },
                                 onOpenMessageClick = {
-                                    // 💬 Message বাটনে ক্লিক করলে সরাসরি ১-টু-১ চ্যাট রুম ওপেন হবে
                                     privateChatViewModel.openChatRoom(
                                         myUserId = currentMyUserId,
                                         peerId = targetScreen.peerId,
