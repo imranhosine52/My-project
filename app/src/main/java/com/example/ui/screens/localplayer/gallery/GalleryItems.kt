@@ -12,11 +12,15 @@ import android.media.ThumbnailUtils
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,13 +50,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val FolderDarkGrey = Color(0xFF333E50)
+private val FolderDarkGrey = Color(0xFF262E3B)
 private val ElectricBlue = Color(0xFF2979FF)
 private val BadgeRed = Color(0xFFFF2A4B)
+private val BadgeGreen = Color(0xFF00E676)
 private val CardSurface = Color(0xFF131722)
+private val DarkItemBg = Color(0xFF0C0F17)
 
 /**
- * 🎬 ভিডিও ও ইমেজ দ্রুত প্রিভিউ করার জন্য থাম্বনেইল কম্পোনেন্ট
+ * 🎬 ফাস্ট ও স্মুথ থাম্বনেইল প্রিভিউ কম্পোনেন্ট
  */
 @Composable
 fun VideoThumbnailPreview(
@@ -62,7 +69,8 @@ fun VideoThumbnailPreview(
     var bitmapThumbnail by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     val isVideo = item.mimeType?.startsWith("video") == true ||
             item.path.endsWith(".mp4", true) ||
-            item.path.endsWith(".mkv", true)
+            item.path.endsWith(".mkv", true) ||
+            item.path.endsWith(".webm", true)
 
     LaunchedEffect(item.path) {
         if (isVideo) {
@@ -71,7 +79,11 @@ fun VideoThumbnailPreview(
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val file = File(item.path)
                         if (file.exists()) {
-                            val bmp = context.contentResolver.loadThumbnail(item.contentUri, Size(250, 250), null)
+                            val bmp = context.contentResolver.loadThumbnail(
+                                item.contentUri,
+                                Size(320, 200),
+                                null
+                            )
                             bitmapThumbnail = bmp
                         }
                     } else {
@@ -87,7 +99,10 @@ fun VideoThumbnailPreview(
         }
     }
 
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier.background(Color(0xFF1A1F2C)),
+        contentAlignment = Alignment.Center
+    ) {
         if (bitmapThumbnail != null) {
             Image(
                 bitmap = bitmapThumbnail!!.asImageBitmap(),
@@ -106,20 +121,166 @@ fun VideoThumbnailPreview(
                 modifier = Modifier.fillMaxSize()
             )
         }
+    }
+}
 
-        if (isVideo) {
+/**
+ * 🔲 ২ নম্বর স্ক্রিনশটের মতো নিখুঁত ৩-কলাম গ্রিড আইটেম (3-Column Grid Item)
+ */
+@Composable
+fun Screenshot2GridItem(
+    item: LocalVideoItem,
+    onClick: () -> Unit,
+    onMenuClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isAudio = item.mimeType?.startsWith("audio") == true
+    val isNew = remember(item.dateAdded) {
+        // ৭ দিনের মধ্যে যুক্ত হওয়া ভিডিওতে 'NEW' ব্যাজ
+        (System.currentTimeMillis() / 1000) - item.dateAdded < (7 * 24 * 3600)
+    }
+    val hasSubtitle = remember(item.path) {
+        // একই নামের .srt ফাইল রয়েছে কিনা চেক করা
+        val srtPath = item.path.substringBeforeLast(".") + ".srt"
+        File(srtPath).exists()
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onMenuClick
+            )
+            .padding(bottom = 6.dp)
+    ) {
+        // ১. থাম্বনেইল বক্স (16:10 রেশিও - ছবির মতো পরিষ্কার ও ফ্ল্যাট)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 10.5f)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF161A24))
+        ) {
+            if (!isAudio) {
+                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF261D36), Color(0xFF161124))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = ElectricBlue,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+            }
+
+            // ২ নম্বর স্ক্রিনশট অনুযায়ী টপ-লেফটে 'NEW' ব্যাজ
+            if (isNew && !isAudio) {
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = BadgeRed,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(5.dp)
+                ) {
+                    Text(
+                        text = "NEW",
+                        color = Color.White,
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            // ডানদিকের নিচে সময়সীমা (Duration) ও SRT ব্যাজ রো (স্ক্রিনশট ২ অনুযায়ী)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (hasSubtitle) {
+                    Surface(
+                        shape = RoundedCornerShape(2.5.dp),
+                        color = BadgeGreen,
+                        modifier = Modifier.height(14.dp)
+                    ) {
+                        Text(
+                            text = "SRT",
+                            color = Color.Black,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                        )
+                    }
+                }
+
+                if (item.formattedDuration.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(3.dp),
+                        color = Color.Black.copy(alpha = 0.78f)
+                    ) {
+                        Text(
+                            text = item.formattedDuration,
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(5.dp))
+
+        // ২. থাম্বনেইলের নিচের টাইটেল ও থ্রি-ডট মেনু রো (স্ক্রিনশট ২ অনুযায়ী নিখুঁত প্লেসমেন্ট)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = item.displayName.ifBlank { item.title },
+                color = Color(0xFFE6EBF5),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 14.5.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 1.dp, top = 2.dp)
+            )
+
+            // ৩-ডট বাটন
             Box(
                 modifier = Modifier
                     .size(24.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f)),
-                contentAlignment = Alignment.Center
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(bounded = false, radius = 14.dp)
+                    ) { onMenuClick() },
+                contentAlignment = Alignment.TopCenter
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = Color(0xFF8E95A5),
+                    modifier = Modifier.size(17.dp)
                 )
             }
         }
@@ -138,8 +299,9 @@ fun ScreenshotStyleFolderItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
             .clickable { onClick() }
-            .padding(vertical = 6.dp),
+            .padding(vertical = 7.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -154,7 +316,7 @@ fun ScreenshotStyleFolderItem(
                 Icon(
                     imageVector = if (folder.folderName.contains("movie", true)) Icons.Default.Movie else Icons.Default.Folder,
                     contentDescription = null,
-                    tint = Color(0xFF6B7B96),
+                    tint = Color(0xFF7E8EA6),
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -183,7 +345,7 @@ fun ScreenshotStyleFolderItem(
             Text(
                 text = folder.folderName,
                 color = if (folder.folderName.contains("movie", true)) ElectricBlue else Color.White,
-                fontSize = 15.sp,
+                fontSize = 14.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -192,79 +354,7 @@ fun ScreenshotStyleFolderItem(
             Text(
                 text = "${folder.videoCount} items • ${folder.formattedTotalSize}",
                 color = Color(0xFF8E95A5),
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-/**
- * 🔲 গ্রিড ভিউ কার্ড
- */
-@Composable
-fun Screenshot2GridItem(
-    item: LocalVideoItem,
-    onClick: () -> Unit,
-    onMenuClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val isAudio = item.mimeType?.startsWith("audio") == true
-
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF141722)),
-        border = BorderStroke(0.6.dp, Color(0xFF222638)),
-        modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(0.9f)
-            .combinedClickable(onClick = onClick, onLongClick = onMenuClick)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (!isAudio) {
-                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF221A30)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = ElectricBlue,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-            ) {
-                Text(
-                    text = item.formattedSize,
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
-
-            Text(
-                text = item.title,
-                color = Color.White,
-                fontSize = 9.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                fontSize = 11.5.sp
             )
         }
     }
@@ -287,13 +377,13 @@ fun Screenshot3ListItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .clickable { onClick() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = 5.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(68.dp, 48.dp)
+                .size(72.dp, 48.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(CardSurface),
             contentAlignment = Alignment.Center
@@ -312,9 +402,9 @@ fun Screenshot3ListItem(
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = item.title,
+                text = item.displayName.ifBlank { item.title },
                 color = Color.White,
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -323,7 +413,7 @@ fun Screenshot3ListItem(
             Text(
                 text = "${item.formattedSize} • ${item.formattedDate}",
                 color = Color(0xFF8E95A5),
-                fontSize = 11.5.sp
+                fontSize = 11.sp
             )
         }
 
@@ -339,7 +429,7 @@ fun Screenshot3ListItem(
 }
 
 /**
- * ⚙️ ফাইল অ্যাকশন বটম শীট
+ * ⚙️ ফাইল অ্যাকশন বটম শীট (রিসাইকেল বিন ও ডিলিট অপশনসহ)
  */
 @Composable
 fun FileActionMenuSheet(
@@ -359,16 +449,18 @@ fun FileActionMenuSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF141722)
+        containerColor = Color(0xFF141722),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0xFF333E50)) }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = item.title,
+                text = item.displayName.ifBlank { item.title },
                 color = Color.White,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
@@ -383,7 +475,7 @@ fun FileActionMenuSheet(
                 overflow = TextOverflow.Ellipsis
             )
 
-            HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp, modifier = Modifier.padding(vertical = 6.dp))
+            HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp, modifier = Modifier.padding(vertical = 8.dp))
 
             when {
                 isSafeFolderItem -> {
@@ -392,7 +484,7 @@ fun FileActionMenuSheet(
                 }
                 isTrashItem -> {
                     SheetActionRow(Icons.Default.Restore, "Restore File", Color(0xFF00E676), onRestore)
-                    SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently", Color(0xFFFF5252), onDeletePermanently)
+                    SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently from Storage", Color(0xFFFF5252), onDeletePermanently)
                 }
                 else -> {
                     SheetActionRow(Icons.Default.Share, "Share", Color.White, onShare)
@@ -405,25 +497,32 @@ fun FileActionMenuSheet(
                         onClick = onToggleStar
                     )
                     SheetActionRow(Icons.Default.Lock, "Move to Safe Folder", Color.White, onMoveToSafe)
-                    SheetActionRow(Icons.Default.Delete, "Move to Trash", Color(0xFFFF5252), onMoveToTrash)
+                    SheetActionRow(Icons.Default.Delete, "Move to Recycle Bin", Color(0xFFFF5252), onMoveToTrash)
                 }
             }
+            Spacer(modifier = Modifier.height(10.dp))
         }
     }
 }
 
 @Composable
-private fun SheetActionRow(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
+private fun SheetActionRow(
+    icon: ImageVector,
+    label: String,
+    color: Color,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
             .clickable { onClick() }
-            .padding(vertical = 12.dp, horizontal = 6.dp),
+            .padding(vertical = 11.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
-        Text(label, color = color, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(21.dp))
+        Text(label, color = color, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
     }
 }
 
