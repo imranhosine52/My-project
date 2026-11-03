@@ -1,82 +1,42 @@
-@file:OptIn(UnstableApi::class)
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
 
 package com.example.ui.screens
 
 import android.app.Activity
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.pm.PackageManager
-import android.media.AudioManager
+import android.content.res.Configuration
 import android.os.Build
-import android.provider.Settings
-import android.util.Rational
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.NotificationCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
-import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import com.example.data.model.LocalVideoItem
+import com.example.ui.screens.localplayer.components.LocalPlayerFolderPlaylist
+import com.example.ui.screens.localplayer.components.LocalPlayerVideoBox
 import com.example.util.LocalMediaScanner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.util.Locale
-import kotlin.math.roundToInt
+import kotlinx.coroutines.withContext
 
 private fun findActivity(context: Context): Activity? {
     var ctx = context
@@ -87,196 +47,6 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
-private fun formatTime(millis: Long): String {
-    if (millis <= 0) return "00:00"
-    val totalSeconds = millis / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format(Locale.US, "%02d:%02d", minutes, seconds)
-    }
-}
-
-@Composable
-fun SleekSkipIcon(
-    isForward: Boolean,
-    modifier: Modifier = Modifier,
-    color: Color = Color.White
-) {
-    Box(
-        modifier = modifier.size(42.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.size(34.dp)) {
-            val strokeWidth = 1.6.dp.toPx()
-            val diameter = size.minDimension - strokeWidth
-            val arcSize = Size(diameter, diameter)
-            val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
-
-            if (isForward) {
-                drawArc(
-                    color = color,
-                    startAngle = -60f,
-                    sweepAngle = 290f,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-            } else {
-                drawArc(
-                    color = color,
-                    startAngle = 240f,
-                    sweepAngle = -290f,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-            }
-        }
-        Text(
-            text = "10",
-            color = color,
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-fun SleekVideoTimeline(
-    currentPositionMs: Long,
-    totalDurationMs: Long,
-    onSeekStarted: () -> Unit,
-    onSeeking: (Long) -> Unit,
-    onSeekFinished: (Long) -> Unit,
-    modifier: Modifier = Modifier,
-    activeColor: Color = Color(0xFF00E5FF),
-    inactiveColor: Color = Color.White.copy(alpha = 0.28f)
-) {
-    val progress = if (totalDurationMs > 0) {
-        (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-    } else 0f
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .pointerInput(totalDurationMs) {
-                detectTapGestures { offset ->
-                    val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    val newTarget = (newProgress * totalDurationMs).toLong()
-                    onSeekFinished(newTarget)
-                }
-            }
-            .pointerInput(totalDurationMs) {
-                detectHorizontalDragGestures(
-                    onDragStart = { onSeekStarted() },
-                    onDragEnd = {
-                        val currentTarget = (progress * totalDurationMs).toLong()
-                        onSeekFinished(currentTarget)
-                    },
-                    onDragCancel = {
-                        val currentTarget = (progress * totalDurationMs).toLong()
-                        onSeekFinished(currentTarget)
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        val newProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        val newTarget = (newProgress * totalDurationMs).toLong()
-                        onSeeking(newTarget)
-                    }
-                )
-            },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
-            val centerY = size.height / 2f
-            val trackHeight = 2.8.dp.toPx()
-            val thumbRadius = 5.2.dp.toPx()
-            val trackWidth = size.width
-
-            drawLine(
-                color = inactiveColor,
-                start = Offset(0f, centerY),
-                end = Offset(trackWidth, centerY),
-                strokeWidth = trackHeight,
-                cap = StrokeCap.Round
-            )
-
-            val activeEnd = trackWidth * progress
-            if (activeEnd > 0) {
-                drawLine(
-                    color = activeColor,
-                    start = Offset(0f, centerY),
-                    end = Offset(activeEnd, centerY),
-                    strokeWidth = trackHeight,
-                    cap = StrokeCap.Round
-                )
-            }
-
-            drawCircle(
-                color = activeColor,
-                radius = thumbRadius,
-                center = Offset(activeEnd.coerceIn(0f, trackWidth), centerY)
-            )
-        }
-    }
-}
-
-private const val NOTIFICATION_CHANNEL_ID = "media_playback_channel"
-private const val NOTIFICATION_ID = 1001
-
-private fun showAudioNotification(
-    context: Context,
-    title: String,
-    isPlaying: Boolean
-) {
-    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            "Audio Playback",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Controls for background media playback"
-            setShowBadge(false)
-        }
-        notificationManager.createNotificationChannel(channel)
-    }
-
-    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-    val pendingIntent = PendingIntent.getActivity(
-        context, 0, intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.ic_media_play)
-        .setContentTitle(title)
-        .setContentText(if (isPlaying) "Playing Audio" else "Paused")
-        .setContentIntent(pendingIntent)
-        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        .setOnlyAlertOnce(true)
-        .setOngoing(isPlaying)
-        .build()
-
-    try {
-        notificationManager.notify(NOTIFICATION_ID, notification)
-    } catch (_: Exception) {}
-}
-
-private fun hideAudioNotification(context: Context) {
-    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    try {
-        notificationManager.cancel(NOTIFICATION_ID)
-    } catch (_: Exception) {}
-}
-
 @Composable
 fun LocalPlayerScreen(
     videoItem: LocalVideoItem,
@@ -285,70 +55,68 @@ fun LocalPlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivity(context) }
-    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    val isInitiallyAudio = remember(videoItem) {
-        videoItem.mimeType?.startsWith("audio") == true || videoItem.path.endsWith(".mp3", ignoreCase = true)
-    }
-    var isAudioMode by rememberSaveable { mutableStateOf(isInitiallyAudio) }
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // 🔽 নিচে সোয়াইপ করে মিনি প্লেয়ারে নামানোর ড্র্যাগ অফসেট
-    var swipeOffsetY by remember { mutableFloatStateOf(0f) }
+    // 🎬 বর্তমান চলমান ভিডিও আইটেম
+    var activeVideoItem by remember(videoItem.id) { mutableStateOf(videoItem) }
 
-    var isControlsVisible by remember { mutableStateOf(true) }
-    var isScreenLocked by rememberSaveable { mutableStateOf(false) }
+    // 📂 একই ফোল্ডারের অন্যান্য ভিডিওগুলোর প্লেলিস্ট
+    var folderVideos by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
+
     var isPlaying by remember { mutableStateOf(true) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    var isUserSeeking by remember { mutableStateOf(false) }
-    var seekPosition by remember { mutableLongStateOf(0L) }
-
     // =========================================================================
-    // 🎯 ১. ডিফল্ট 0 = RESIZE_MODE_FIT (ভিডিওর আসল সাইজ, জোর করে ফুলস্ক্রিন হবে না)
+    // 🚀 হাই-পারফরম্যান্স ExoPlayer ইঞ্জিন
     // =========================================================================
-    var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
-    var videoWidth by remember { mutableIntStateOf(0) }
-    var videoHeight by remember { mutableIntStateOf(0) }
-    var isVerticalVideo by remember { mutableStateOf(false) }
-
-    val speedOptions = remember { listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f) }
-    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val playbackSpeed by remember { derivedStateOf { speedOptions[currentSpeedIndex] } }
-
-    var brightnessLevel by remember {
-        mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
-    }
-    var showBrightnessOverlay by remember { mutableStateOf(false) }
-    var volumeLevel by remember { mutableFloatStateOf(0.5f) }
-    var showVolumeOverlay by remember { mutableStateOf(false) }
-
-    var isRewindActive by remember { mutableStateOf(false) }
-    var isForwardActive by remember { mutableStateOf(false) }
-    val rewindRotation = remember { Animatable(0f) }
-    val forwardRotation = remember { Animatable(0f) }
-
-    val rewindAlpha by animateFloatAsState(targetValue = if (isRewindActive) 1f else 0f, label = "rewindAlpha")
-    val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
-
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-            repeatMode = Player.REPEAT_MODE_OFF
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(),
-                true
-            )
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(30_000, 120_000, 250, 600)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .build().apply {
+                playWhenReady = true
+                repeatMode = Player.REPEAT_MODE_OFF
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    true
+                )
+            }
+    }
+
+    // একই ফোল্ডারের ভিডিওগুলো ব্যাকগ্রাউন্ড থ্রেডে স্ক্যান করা
+    LaunchedEffect(activeVideoItem.bucketId) {
+        withContext(Dispatchers.IO) {
+            val allVideos = LocalMediaScanner.getAllVideos(context)
+            val filtered = allVideos.filter { it.bucketId == activeVideoItem.bucketId }
+            folderVideos = if (filtered.isNotEmpty()) filtered else allVideos
         }
     }
 
-    LaunchedEffect(videoItem.id) {
-        val lastPos = LocalMediaScanner.getLastPlaybackPosition(context, videoItem.id)
-        val mediaItem = MediaItem.fromUri(videoItem.contentUri)
+    // ⏭️ পরবর্তী ভিডিও প্লে করার লজিক
+    fun playNextVideo() {
+        val currentIndex = folderVideos.indexOfFirst { it.id == activeVideoItem.id }
+        if (currentIndex != -1 && currentIndex < folderVideos.size - 1) {
+            activeVideoItem = folderVideos[currentIndex + 1]
+        } else if (folderVideos.isNotEmpty()) {
+            activeVideoItem = folderVideos.first()
+        }
+    }
+
+    // ভিডিও পরিবর্তন হলে ExoPlayer-এ লোড করা
+    LaunchedEffect(activeVideoItem.id) {
+        val lastPos = LocalMediaScanner.getLastPlaybackPosition(context, activeVideoItem.id)
+        val mediaItem = MediaItem.fromUri(activeVideoItem.contentUri)
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         if (lastPos > 0) {
@@ -357,20 +125,72 @@ fun LocalPlayerScreen(
         exoPlayer.play()
     }
 
-    LaunchedEffect(isAudioMode, isPlaying, videoItem.title) {
-        if (isAudioMode) {
-            showAudioNotification(context, videoItem.title, isPlaying)
-        } else {
-            hideAudioNotification(context)
+    // প্লেয়ার স্টেট ও শেষ হওয়া হ্যান্ডলার
+    DisposableEffect(exoPlayer, folderVideos, activeVideoItem) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) {
+                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                } else if (state == Player.STATE_ENDED) {
+                    // ভিডিও শেষ হলে স্বয়ংক্রিয়ভাবে পরের ভিডিও চালু হবে
+                    playNextVideo()
+                }
+            }
+
+            override fun onIsPlayingChanged(playingState: Boolean) {
+                isPlaying = playingState
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
+
+    // টাইম ট্র্যাকার ও পজিশন সেভার
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+            delay(400L)
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            if (currentPositionMs > 1000) {
-                LocalMediaScanner.saveLastPlaybackPosition(context, videoItem.id, currentPositionMs)
+    // ফুলস্ক্রিন ও সিস্টেম বার কন্ট্রোল
+    DisposableEffect(isLandscape) {
+        activity?.let { act ->
+            val window = act.window
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+
+            if (isLandscape) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
             }
-            hideAudioNotification(context)
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose { }
+    }
+
+    // লাইফসাইকেল ও রিসোর্স রিলিজ
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> {
+                    if (exoPlayer.playbackState == Player.STATE_READY) exoPlayer.play()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (currentPositionMs > 1000) {
+                LocalMediaScanner.saveLastPlaybackPosition(context, activeVideoItem.id, currentPositionMs)
+            }
             exoPlayer.release()
 
             activity?.let { act ->
@@ -384,638 +204,121 @@ fun LocalPlayerScreen(
         }
     }
 
-    DisposableEffect(isAudioMode) {
-        activity?.let { act ->
-            val window = act.window
-            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-
-            if (!isAudioMode) {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            } else {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
-            }
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-        onDispose { }
-    }
-
-    // =========================================================================
-    // 🎯 ২. ভিডিও সাইজ ডিটেকশন (TikTok vs YouTube Aspect Ratio)
-    // =========================================================================
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                val w = videoSize.width
-                val h = videoSize.height
-                if (w > 0 && h > 0) {
-                    videoWidth = w
-                    videoHeight = h
-                    isVerticalVideo = (h > w) // টিকটক/ভার্টিক্যাল ভিডিও শনাক্তকরণ
-                }
-            }
-
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                }
-            }
-
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
-    }
-
-    LaunchedEffect(isPlaying, isUserSeeking) {
-        while (isPlaying && !isUserSeeking) {
-            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            delay(300L)
-        }
-    }
-
-    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
-        if (isControlsVisible && isPlaying && !isScreenLocked && !isAudioMode) {
-            delay(4000L)
-            isControlsVisible = false
-        }
-    }
-
-    fun handleSeek(seconds: Int) {
-        val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
-        exoPlayer.seekTo(target)
-        currentPositionMs = target
-
-        scope.launch {
-            if (seconds < 0) {
-                isRewindActive = true
-                rewindRotation.snapTo(0f)
-                rewindRotation.animateTo(-360f, animationSpec = tween(400, easing = LinearEasing))
-                delay(600)
-                isRewindActive = false
-            } else {
-                isForwardActive = true
-                forwardRotation.snapTo(0f)
-                forwardRotation.animateTo(360f, animationSpec = tween(400, easing = LinearEasing))
-                delay(600)
-                isForwardActive = false
-            }
-        }
-    }
-
-    fun enterPiPMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-                activity?.let { act ->
-                    try {
-                        isControlsVisible = false
-                        // 🎯 ভিডিওর আসল অনুপাত দিয়ে PiP ওপেন হবে
-                        val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
-                            val ratio = (videoWidth.toFloat() / videoHeight.toFloat()).coerceIn(0.41841f, 2.39f)
-                            Rational((ratio * 1000).toInt(), 1000)
-                        } else if (isVerticalVideo) {
-                            Rational(9, 16)
-                        } else {
-                            Rational(16, 9)
-                        }
-
-                        val pipParams = PictureInPictureParams.Builder()
-                            .setAspectRatio(aspectRatio)
-                            .build()
-                        act.enterPictureInPictureMode(pipParams)
-                    } catch (_: Exception) {
-                        Toast.makeText(context, "PiP not available on this device", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } else {
-                Toast.makeText(context, "PiP is not supported", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
+    // ব্যাক বাটন লজিক (ল্যান্ডস্কেপে থাকলে প্রথমে পোর্ট্রেটে ফিরবে)
     BackHandler {
-        if (isScreenLocked) {
-            isScreenLocked = false
+        if (isLandscape) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
             onBackClick()
         }
     }
 
     // =========================================================================
-    // 🎵 ১. অডিও প্লেয়ার মোড
+    // 📱 মূল ইউআই লেআউট (পোর্ট্রেট বনাম ল্যান্ডস্কেপ)
     // =========================================================================
-    if (isAudioMode) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .offset { IntOffset(0, swipeOffsetY.roundToInt()) }
-                .background(Color(0xFF140F1D))
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 16.dp)
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragEnd = {
-                            if (swipeOffsetY > 160f) {
-                                onBackClick()
-                            } else {
-                                swipeOffsetY = 0f
-                            }
-                        },
-                        onDragCancel = { swipeOffsetY = 0f },
-                        onVerticalDrag = { _, dragAmount ->
-                            if (dragAmount > 0 || swipeOffsetY > 0) {
-                                swipeOffsetY = (swipeOffsetY + dragAmount).coerceAtLeast(0f)
-                            }
-                        }
-                    )
-                }
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Top Action Bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Minimize", tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-                    Button(
-                        onClick = { isAudioMode = false },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF281C38))
-                    ) {
-                        Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Video Mode", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // Center Music Art Box
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(Color(0xFF241930)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = "Music Art",
-                        tint = Color(0xFF5A4470),
-                        modifier = Modifier.size(110.dp)
-                    )
-                }
-
-                // Title + Timeline
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = videoItem.title,
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    SleekVideoTimeline(
-                        currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
-                        totalDurationMs = totalDurationMs,
-                        onSeekStarted = { isUserSeeking = true },
-                        onSeeking = { seekPosition = it },
-                        onSeekFinished = {
-                            exoPlayer.seekTo(it)
-                            currentPositionMs = it
-                            isUserSeeking = false
-                        },
-                        activeColor = Color.White,
-                        inactiveColor = Color.White.copy(alpha = 0.2f)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(formatTime(if (isUserSeeking) seekPosition else currentPositionMs), color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
-                        Text(formatTime(totalDurationMs), color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
-                    }
-                }
-
-                // Bottom Controls
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth(0.75f)
-                        .padding(bottom = 20.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { handleSeek(-10) }, modifier = Modifier.size(48.dp)) {
-                        SleekSkipIcon(isForward = false, color = Color.White)
-                    }
-
-                    IconButton(
-                        onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                        modifier = Modifier.size(68.dp).clip(CircleShape).background(Color.White)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = Color(0xFF16101E),
-                            modifier = Modifier.size(38.dp)
-                        )
-                    }
-
-                    IconButton(onClick = { handleSeek(10) }, modifier = Modifier.size(48.dp)) {
-                        SleekSkipIcon(isForward = true, color = Color.White)
-                    }
-                }
-            }
-        }
-    } else {
-        // =========================================================================
-        // 🎬 ২. ভিডিও প্লেয়ার মোড (প্রাকৃতিক রেশিও অনুযায়ী ফিট)
-        // =========================================================================
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(isScreenLocked) {
-                    detectTapGestures(
-                        onTap = { isControlsVisible = !isControlsVisible },
-                        onDoubleTap = { offset ->
-                            if (!isScreenLocked) {
-                                if (offset.x < size.width / 2) handleSeek(-10) else handleSeek(10)
-                            }
-                        }
-                    )
-                }
-                .pointerInput(isScreenLocked) {
-                    if (!isScreenLocked) {
-                        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-                        detectVerticalDragGestures(
-                            onDragStart = { offset ->
-                                if (offset.x < size.width / 2) showBrightnessOverlay = true else showVolumeOverlay = true
-                            },
-                            onDragEnd = {
-                                showBrightnessOverlay = false
-                                showVolumeOverlay = false
-                            },
-                            onVerticalDrag = { change, dragAmount ->
-                                val isLeft = change.position.x < size.width / 2
-                                val delta = -dragAmount / 550f
-
-                                if (isLeft) {
-                                    brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
-                                    activity?.window?.let { win ->
-                                        val lp = win.attributes
-                                        lp.screenBrightness = brightnessLevel
-                                        win.attributes = lp
-                                    }
-                                } else {
-                                    val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                    val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                                    volumeLevel = newVol / maxVol
-                                }
-                            }
-                        )
-                    }
-                }
-        ) {
-            // 🎯 ডিফল্ট RESIZE_MODE_FIT অনুযায়ী ভিডিও প্লে হবে (জোর করে ফুলস্ক্রিন হবে না)
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        resizeMode = when (resizeModeIndex) {
-                            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 👈 প্রাকৃতিক মাপ
-                        }
-                    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        if (isLandscape) {
+            // =============================================================
+            // 🔄 ১. ল্যান্ডস্কেপ মোড (সম্পূর্ণ ফুলস্ক্রিন ওটিটি প্লেয়ার)
+            // =============================================================
+            LocalPlayerVideoBox(
+                exoPlayer = exoPlayer,
+                currentVideo = activeVideoItem,
+                folderVideos = folderVideos,
+                isLandscape = true,
+                isPlaying = isPlaying,
+                currentPositionMs = currentPositionMs,
+                totalDurationMs = totalDurationMs,
+                onBackClick = {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 },
-                update = { view ->
-                    view.resizeMode = when (resizeModeIndex) {
-                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 👈 প্রাকৃতিক মাপ
-                    }
+                onPlayPauseClick = {
+                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                },
+                onSeek = { seconds ->
+                    val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
+                    exoPlayer.seekTo(target)
+                    currentPositionMs = target
+                },
+                onSeekFinished = { pos ->
+                    exoPlayer.seekTo(pos)
+                    currentPositionMs = pos
+                },
+                onSelectVideo = { selected ->
+                    activeVideoItem = selected
+                },
+                onNextVideoClick = { playNextVideo() },
+                onToggleFullscreen = {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 },
                 modifier = Modifier.fillMaxSize()
             )
-
-            AnimatedVisibility(
-                visible = showBrightnessOverlay,
-                enter = fadeIn(animationSpec = tween(150)),
-                exit = fadeOut(animationSpec = tween(200)),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 70.dp)
+        } else {
+            // =============================================================
+            // 📱 ২. পোর্ট্রেট মোড (উপরে প্লেয়ার + নিচে ফোল্ডার ভিডিও তালিকা)
+            // =============================================================
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
             ) {
-                Row(
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Box(
-                        modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                    ) {
-                        Box(modifier = Modifier.fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                    }
-                }
-            }
-
-            AnimatedVisibility(
-                visible = showVolumeOverlay,
-                enter = fadeIn(animationSpec = tween(150)),
-                exit = fadeOut(animationSpec = tween(200)),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 70.dp)
-            ) {
-                Row(
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Box(
-                        modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                    ) {
-                        Box(modifier = Modifier.fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                    }
-                }
-            }
-
-            AnimatedVisibility(
-                visible = isControlsVisible,
-                enter = fadeIn(animationSpec = tween(150)),
-                exit = fadeOut(animationSpec = tween(200)),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
-                    if (!isScreenLocked) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopCenter)
-                                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
-                                .statusBarsPadding()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                                }
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = videoItem.title,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = Color.White.copy(alpha = 0.15f),
-                                        modifier = Modifier
-                                            .height(26.dp)
-                                            .clickable {
-                                                currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
-                                                val newSpeed = speedOptions[currentSpeedIndex]
-                                                exoPlayer.setPlaybackSpeed(newSpeed)
-                                                Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
-                                            }
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
-                                            Text(
-                                                text = if (playbackSpeed == 1.0f) "1X" else "${playbackSpeed}X",
-                                                color = Color(0xFF00E5FF),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-
-                                    // 🎯 অ্যাসপেক্ট রেশিও সুইচ বাটন
-                                    IconButton(
-                                        onClick = {
-                                            resizeModeIndex = (resizeModeIndex + 1) % 3
-                                            val modeName = when (resizeModeIndex) {
-                                                0 -> "Original Fit (প্রাকৃতিক রেশিও)"
-                                                1 -> "Crop to Fill (জুম)"
-                                                else -> "Stretch (১০০% স্ক্রিন)"
-                                            }
-                                            Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.size(30.dp)
-                                    ) {
-                                        Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
-                                    }
-
-                                    IconButton(onClick = { isAudioMode = true }, modifier = Modifier.size(30.dp)) {
-                                        Icon(Icons.Default.Headphones, contentDescription = "Audio Mode", tint = Color.White, modifier = Modifier.size(18.dp))
-                                    }
-
-                                    IconButton(
-                                        onClick = {
-                                            activity?.let { act ->
-                                                act.requestedOrientation = if (act.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
-                                                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                                } else {
-                                                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(30.dp)
-                                    ) {
-                                        Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            try {
-                                                val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                                context.startActivity(intent)
-                                            } catch (_: Exception) {
-                                                Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        modifier = Modifier.size(30.dp)
-                                    ) {
-                                        Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
-                                    }
-
-                                    IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
-                                        Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
-                                    }
-
-                                    IconButton(onClick = { isScreenLocked = true; isControlsVisible = false }, modifier = Modifier.size(30.dp)) {
-                                        Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(48.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "-10s",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .offset(y = (-32).dp)
-                                        .alpha(rewindAlpha)
-                                )
-
-                                IconButton(
-                                    onClick = { handleSeek(-10) },
-                                    modifier = Modifier.size(46.dp).rotate(rewindRotation.value)
-                                ) {
-                                    SleekSkipIcon(isForward = false, color = Color.White)
-                                }
-                            }
-
-                            IconButton(
-                                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                            }
-
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "+10s",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .offset(y = (-32).dp)
-                                        .alpha(forwardAlpha)
-                                )
-
-                                IconButton(
-                                    onClick = { handleSeek(10) },
-                                    modifier = Modifier.size(46.dp).rotate(forwardRotation.value)
-                                ) {
-                                    SleekSkipIcon(isForward = true, color = Color.White)
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                                .navigationBarsPadding()
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
-                                color = Color.White,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            SleekVideoTimeline(
-                                currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
-                                totalDurationMs = totalDurationMs,
-                                onSeekStarted = { isUserSeeking = true },
-                                onSeeking = { seekPosition = it },
-                                onSeekFinished = {
-                                    exoPlayer.seekTo(it)
-                                    currentPositionMs = it
-                                    isUserSeeking = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            Text(
-                                text = formatTime(totalDurationMs),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            IconButton(
-                                onClick = { resizeModeIndex = (resizeModeIndex + 1) % 3 },
-                                modifier = Modifier.size(26.dp)
-                            ) {
-                                Icon(Icons.Default.Fullscreen, contentDescription = "Resize", tint = Color.White, modifier = Modifier.size(19.dp))
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (isScreenLocked) {
-                IconButton(
-                    onClick = { isScreenLocked = false; isControlsVisible = true },
+                // ২.১) উপরের ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp)
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.7f))
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black)
                 ) {
-                    Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
+                    LocalPlayerVideoBox(
+                        exoPlayer = exoPlayer,
+                        currentVideo = activeVideoItem,
+                        folderVideos = folderVideos,
+                        isLandscape = false,
+                        isPlaying = isPlaying,
+                        currentPositionMs = currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        onBackClick = onBackClick,
+                        onPlayPauseClick = {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        },
+                        onSeek = { seconds ->
+                            val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
+                            exoPlayer.seekTo(target)
+                            currentPositionMs = target
+                        },
+                        onSeekFinished = { pos ->
+                            exoPlayer.seekTo(pos)
+                            currentPositionMs = pos
+                        },
+                        onSelectVideo = { selected ->
+                            activeVideoItem = selected
+                        },
+                        onNextVideoClick = { playNextVideo() },
+                        onToggleFullscreen = {
+                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
+
+                // ২.২) নিচের স্ক্রোলেবল ফোল্ডার ভিডিও প্লেলিস্ট (লং ভিডিওর মতো)
+                LocalPlayerFolderPlaylist(
+                    folderName = activeVideoItem.folderName,
+                    videos = folderVideos,
+                    currentVideoId = activeVideoItem.id,
+                    onSelectVideo = { selected ->
+                        activeVideoItem = selected
+                    },
+                    onNextVideoClick = { playNextVideo() },
+                    isLandscapeDrawer = false,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
             }
         }
     }
