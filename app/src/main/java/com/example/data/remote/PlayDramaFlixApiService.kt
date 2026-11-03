@@ -48,6 +48,7 @@ interface PlayDramaFlixApiService {
     // =========================================================================
     // 👑 SUBSCRIPTION & VIP PAYMENTS
     // =========================================================================
+
     @GET("subscription/plans")
     suspend fun getSubscriptionPlans(): Response<SubscriptionPlansResponse>
 
@@ -125,21 +126,26 @@ interface PlayDramaFlixApiService {
     // =========================================================================
     // 💬 POST ENGAGEMENT & INTERACTION ENDPOINTS
     // =========================================================================
+
+    // 1. Video View Increment (POST /api/v1/interaction/view)
     @POST("interaction/view")
     suspend fun recordVideoView(
         @Body request: ViewIncrementRequest
     ): Response<ViewIncrementResponse>
 
+    // 2. Like / Unlike Toggle (POST /api/v1/interaction/like)
     @POST("interaction/like")
     suspend fun toggleInteractionLike(
         @Body request: LikeToggleRequest
     ): Response<LikeToggleResponse>
 
+    // 🌟 3. Multi-Emoji Reaction Toggle (POST /api/v1/interaction/react)
     @POST("interaction/react")
     suspend fun toggleReaction(
         @Body request: ReactionToggleRequest
     ): Response<ReactionToggleResponse>
 
+    // 4. Fetch Live Interaction Status (GET /api/v1/interaction/status)
     @GET("interaction/status")
     suspend fun getInteractionStatus(
         @Query("content_id") contentId: Any,
@@ -147,6 +153,7 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: Any? = null
     ): Response<InteractionStatusResponse>
 
+    // 5. Fetch Comments List (GET /api/v1/comments)
     @GET("comments")
     suspend fun getComments(
         @Query("content_id") contentId: Any,
@@ -161,6 +168,7 @@ interface PlayDramaFlixApiService {
         @Query("episode_id") episodeId: Any? = null
     ): Response<CommentsListResponse>
 
+    // 6. Add New Comment (POST /api/v1/comments/add)
     @POST("comments/add")
     suspend fun postComment(
         @Body request: AddCommentApiRequest
@@ -178,21 +186,25 @@ interface PlayDramaFlixApiService {
         @Field("comment_text") commentText: String
     ): Response<AddCommentResponse>
 
+    // 7. Toggle Comment Like (POST /api/v1/comments/like)
     @POST("comments/like")
     suspend fun toggleCommentLike(
         @Body request: CommentLikeApiRequest
     ): Response<CommentLikeApiResponse>
 
+    // 8. Record Comment Share (POST /api/v1/comments/share)
     @POST("comments/share")
     suspend fun recordCommentShare(
         @Body request: CommentShareApiRequest
     ): Response<CommentShareApiResponse>
 
+    // 9. Remote Version Check (GET /api/v1/app/version-check)
     @GET("app/version-check")
     suspend fun checkAppVersion(
         @Query("current_version") currentVersion: String
     ): Response<AppVersionCheckResponse>
 
+    // 10. Unified User Auth & Profile APIs
     @POST("auth/google")
     suspend fun authenticateGoogle(
         @Body request: GoogleAuthRequest
@@ -218,12 +230,14 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: String
     ): Response<UserProfileResponse>
 
+    // 11. Remote Ad Configuration (GET /api/v1/ads-config)
     @GET("ads-config")
     suspend fun getAdsConfig(): Response<AdsConfigResponse>
 
     @GET("https://www.playdramaflix.com/api/v1/ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 
+    // 12. User Activity (Likes & Comments)
     @GET("activity")
     suspend fun getUserActivity(
         @Query("user_id") userId: Any,
@@ -236,6 +250,7 @@ interface PlayDramaFlixApiService {
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
+    // 13. কাস্টম ভিডিও বিজ্ঞাপন কনফিগারেশন ও ইভেন্ট ট্র্যাকিং
     @GET("custom-ads")
     suspend fun getCustomAdsConfig(): Response<CustomAdsConfigResponse>
 
@@ -244,42 +259,9 @@ interface PlayDramaFlixApiService {
         @Body request: TrackAdEventRequest
     ): Response<Map<String, Any>>
 
+    // =========================================================================
+    // ⚡ 14. রিয়েল-টাইম পাবলিক অ্যানালিটিক্স API (Redis Powered)
+    // =========================================================================
     @GET("analytics/public-live")
     suspend fun getPublicLiveAnalytics(): Response<PublicLiveAnalyticsResponse>
-
-    // =========================================================================
-    // 💬 15. TELEGRAM-STYLE 1-TO-1 PRIVATE CHAT & INBOX ENDPOINTS
-    // =========================================================================
-
-    // ১. ইনবক্স তালিকা ফেচ
-    @GET("chat/inbox")
-    suspend fun getPrivateInbox(
-        @Query("user_id") userId: String
-    ): Response<InboxResponse>
-
-    // ২. নির্দিষ্ট চ্যাটরুমের মেসেজ ডেল্টা সিঙ্ক (last_id দিয়ে অফলাইন-ফার্স্ট সিঙ্ক)
-    @GET("chat/messages")
-    suspend fun getPrivateMessages(
-        @Query("chat_room_id") chatRoomId: String,
-        @Query("last_id") lastId: Long = 0L,
-        @Query("limit") limit: Int = 50
-    ): Response<PrivateMessagesResponse>
-
-    // ৩. মেসেজ পাঠানো (টেক্সট, মিডিয়া বা ভয়েস)
-    @POST("chat/send")
-    suspend fun sendPrivateMessage(
-        @Body request: SendPrivateMessageRequest
-    ): Response<SendPrivateMessageResponse>
-
-    // ৪. মেসেজ রিড / সিন (ডাবল ব্লু-টিক কনফার্মেশন)
-    @POST("chat/seen")
-    suspend fun markChatAsSeen(
-        @Body request: MarkSeenRequest
-    ): Response<GenericChatActionResponse>
-
-    // ৫. 🔍 নতুন: ৮-ডিজিট একাউন্ট আইডি বা কুয়েরি দিয়ে ইউজার সার্চ
-    @GET("chat/search-user")
-    suspend fun searchUser(
-        @Query("account_id") accountId: String
-    ): Response<UserSearchResponse>
 }
