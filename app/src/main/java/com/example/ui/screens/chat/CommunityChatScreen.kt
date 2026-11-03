@@ -114,7 +114,7 @@ private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
 fun CommunityChatScreen(
     viewModel: DramaFlixViewModel,
     onBackClick: () -> Unit,
-    onNavigateToUserProfile: ((userId: String, userName: String, userAvatar: String?) -> Unit)? = null, // 👈 প্রোফাইলে যাওয়ার কলব্যাক
+    onNavigateToUserProfile: ((userId: String, userName: String, userAvatar: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -465,7 +465,7 @@ fun CommunityChatScreen(
                             senderName = currentUserName,
                             senderEmail = currentUserEmail,
                             senderAvatar = currentUserAvatar,
-                            isVip = isUserVip,
+                            isVip = isUserVip, // 👈 ফিক্সড: isUserVip
                             replyToMessage = replyingToMessage,
                             onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                         )
@@ -516,7 +516,7 @@ fun CommunityChatScreen(
                 senderName = currentUserName,
                 senderEmail = currentUserEmail,
                 senderAvatar = currentUserAvatar,
-                isVip = isVip,
+                isVip = isUserVip, // 👈 ফিক্সড: isUserVip
                 replyToMessage = replyTarget
             )
         }
@@ -560,7 +560,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        isVip = isUserVip, // 👈 ফিক্সড: isUserVip
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onProgress = { pct, sec ->
@@ -579,19 +579,18 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        isVip = isUserVip, // 👈 ফিক্সড: isUserVip
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                     )
                 } else {
-                    // 🎯 শুধু টেক্সট মেসেজ পাঠানোর অংশ
                     val ok = FirebaseChatManager.sendTextMessage(
                         senderId = currentUserId,
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip, // 👈 এখানে isUserVip দেওয়া হয়েছে
+                        isVip = isUserVip, // 👈 ফিক্সড: isUserVip
                         text = textToSend,
                         replyToMessage = replyTarget
                     )
@@ -830,7 +829,7 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // 💬 মেসেজ লিস্ট (যেখানে অবতার ও নামে ক্লিক করলে প্রোফাইল ওপেন হবে)
+        // 💬 মেসেজ লিস্ট
         // =========================================================================
         LazyColumn(
             state = listState,
@@ -907,7 +906,6 @@ fun CommunityChatScreen(
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Forward Voice"))
                     },
-                    // 🎯 ইউজারের ছবি বা নামে ক্লিক করলে প্রোফাইল ওপেন হবে
                     onUserClick = { clickedUid, clickedName, clickedAvatar ->
                         onNavigateToUserProfile?.invoke(clickedUid, clickedName, clickedAvatar)
                     }
