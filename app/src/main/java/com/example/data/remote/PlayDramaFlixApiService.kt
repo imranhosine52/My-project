@@ -276,4 +276,10 @@ interface PlayDramaFlixApiService {
     suspend fun markChatAsSeen(
         @Body request: MarkSeenRequest
     ): Response<GenericChatActionResponse>
+
+    // ৫. 🔍 নতুন: ৮-ডিজিট একাউন্ট আইডি বা কুয়েরি দিয়ে ইউজার সার্চ
+    @GET("chat/search-user")
+    suspend fun searchUser(
+        @Query("account_id") accountId: String
+    ): Response<UserSearchResponse>
 }
