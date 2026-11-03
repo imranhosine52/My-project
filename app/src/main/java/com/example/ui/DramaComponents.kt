@@ -50,7 +50,6 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.BottomNavTab
-import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -239,41 +238,6 @@ fun ShortTvCustomStackedIcon(
 }
 
 @Composable
-fun DownloadsCustomTrayIcon(
-    tint: Color,
-    modifier: Modifier = Modifier.size(20.dp)
-) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val strokeWidth = 1.8.dp.toPx()
-
-        drawLine(
-            color = tint,
-            start = Offset(w * 0.50f, h * 0.14f),
-            end = Offset(w * 0.50f, h * 0.58f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
-
-        val arrowHead = Path().apply {
-            moveTo(w * 0.35f, h * 0.44f)
-            lineTo(w * 0.50f, h * 0.59f)
-            lineTo(w * 0.65f, h * 0.44f)
-        }
-        drawPath(arrowHead, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-        val trayPath = Path().apply {
-            moveTo(w * 0.22f, h * 0.68f)
-            lineTo(w * 0.22f, h * 0.84f)
-            lineTo(w * 0.78f, h * 0.84f)
-            lineTo(w * 0.78f, h * 0.68f)
-        }
-        drawPath(trayPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
-    }
-}
-
-@Composable
 fun MeCustomUserIcon(
     tint: Color,
     modifier: Modifier = Modifier.size(20.dp)
@@ -318,15 +282,15 @@ fun VipCrownBadge(
 }
 
 // =========================================================================
-// 🔝 আল্ট্রা-স্লিম টপ ন্যাভিগেশন বার (🟢 আসল লাইভ কাউন্টার ব্যাজ সহ)
+// 🔝 আল্ট্রা-স্লিম টপ ন্যাভিগেশন বার
 // =========================================================================
 @Composable
 fun TopNavigationBar(
     categories: List<String>,
     selectedCategoryIndex: Int,
     onCategorySelected: (Int) -> Unit,
-    liveOnlineFormatted: String = "1", // 👈 কোনো ডামি সংখ্যা নেই, সরাসরি সার্ভার থেকে আসা রিয়েল সংখ্যা
-    onLiveAnalyticsClick: () -> Unit = {}, // 👈 ক্লিক করলে সাইডবার ড্যাশবোর্ড ওপেন হবে
+    liveOnlineFormatted: String = "1",
+    onLiveAnalyticsClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onVoiceSearchClick: () -> Unit = {},
     onVipClick: () -> Unit = {},
@@ -351,7 +315,6 @@ fun TopNavigationBar(
         }
     }
 
-    // 🟢 আসল লাইভ পালসিং ডট অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "top_bar_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.35f,
@@ -384,9 +347,6 @@ fun TopNavigationBar(
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // =============================================================
-            // 🎯 স্ক্রিনশটের চিহ্নিত অংশে: রিয়েল-টাইম লাইভ অনলাইন ব্যাজ
-            // =============================================================
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -414,7 +374,6 @@ fun TopNavigationBar(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // সার্চ বার
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -532,7 +491,7 @@ fun TopNavigationBar(
 }
 
 // =========================================================================
-// 🌟 হিরো স্পটলাইট কার্ড (Display Name সহ)
+// 🌟 হিরো স্পটলাইট কার্ড
 // =========================================================================
 @Composable
 fun HotSpotlightHeroCard(
@@ -730,9 +689,6 @@ fun HorizontalDramaRow(
     }
 }
 
-// =========================================================================
-// 🖼️ কমপ্যাক্ট কার্ড (ডাইনামিক ডাবিং ব্যাজ ও Display Name সহ)
-// =========================================================================
 @Composable
 fun DramaPosterCardHorizontal(
     drama: ContentItemDto,
@@ -793,16 +749,15 @@ fun DramaPosterCardHorizontal(
 
 // =========================================================================
 // 🧭 ফ্রস্টেড গ্লাস ৫-ট্যাব বটম ন্যাভিগেশন বার
+// 🎯 VIP -> Gallery এবং Downloads -> Inbox (আনরিড ব্যাজ সহ)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
     selectedTab: BottomNavTab,
     onTabSelected: (BottomNavTab) -> Unit,
+    unreadInboxCount: Int = 0, // 👈 লাইভ আনরিড মেসেজ সংখ্যা
     modifier: Modifier = Modifier
 ) {
-    val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
-    val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
-
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -829,17 +784,8 @@ fun PlayDramaFlixBottomNav(
             for (tab in BottomNavTab.entries) {
                 val isSelected = (tab == selectedTab)
 
-                val iconTint = when {
-                    tab == BottomNavTab.VIP -> Color(0xFFFFB300)
-                    isSelected -> Color(0xFFFFFFFF)
-                    else -> Color(0xFF8E95A5)
-                }
-
-                val textColor = when {
-                    tab == BottomNavTab.VIP -> Color(0xFFFFB300)
-                    isSelected -> Color(0xFFFFFFFF)
-                    else -> Color(0xFF8E95A5)
-                }
+                val iconTint = if (isSelected) Color(0xFFFFFFFF) else Color(0xFF8E95A5)
+                val textColor = if (isSelected) Color(0xFFFFFFFF) else Color(0xFF8E95A5)
 
                 Box(
                     modifier = Modifier
@@ -860,6 +806,7 @@ fun PlayDramaFlixBottomNav(
                             contentAlignment = Alignment.Center
                         ) {
                             when (tab) {
+                                // ১. Home
                                 BottomNavTab.HOME -> {
                                     Icon(
                                         imageVector = if (isSelected) Icons.Default.Home else Icons.Outlined.Home,
@@ -868,41 +815,54 @@ fun PlayDramaFlixBottomNav(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
+                                // ২. Short TV
                                 BottomNavTab.SHORT_TV -> {
                                     ShortTvCustomStackedIcon(
                                         tint = iconTint,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                BottomNavTab.VIP -> {
-                                    VipCrownIllustratedIcon(
-                                        modifier = Modifier.size(24.dp, 20.dp)
-                                    )
-                                }
-                                BottomNavTab.DOWNLOADS -> {
-                                    DownloadsCustomTrayIcon(
+                                // ৩. 🎬 VIP-এর পরিবর্তে Gallery (Local Video Player)
+                                BottomNavTab.GALLERY -> {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
+                                        contentDescription = "Gallery",
                                         tint = iconTint,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    if (activeDownloadCount > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = 5.dp, y = (-4).dp)
-                                                .size(12.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF00E676)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
-                                                color = Color.Black,
-                                                fontSize = 7.5.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
+                                }
+                                // ৪. 💬 Downloads-এর পরিবর্তে Inbox (টেলিগ্রাম চ্যাট ও লাল আনরিড ব্যাজ)
+                                BottomNavTab.INBOX -> {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Default.ChatBubble else Icons.Outlined.ChatBubbleOutline,
+                                            contentDescription = "Inbox",
+                                            tint = iconTint,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+
+                                        // 🔴 আনরিড নোটিফিকেশন ব্যাজ
+                                        if (unreadInboxCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .offset(x = 6.dp, y = (-4).dp)
+                                                    .size(13.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFFF2A4B)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = if (unreadInboxCount > 9) "9+" else unreadInboxCount.toString(),
+                                                    color = Color.White,
+                                                    fontSize = 7.5.sp,
+                                                    fontWeight = FontWeight.Black
+                                                )
+                                            }
                                         }
                                     }
                                 }
+                                // ৫. Me (Profile)
                                 BottomNavTab.ME -> {
                                     MeCustomUserIcon(
                                         tint = iconTint,
