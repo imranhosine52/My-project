@@ -47,8 +47,8 @@ import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
-import com.example.ui.screens.chat.PrivateChatRoomScreen // 👈 ১-টু-১ চ্যাট রুম
-import com.example.ui.screens.chat.PrivateInboxScreen    // 👈 ইনবক্স স্ক্রিন
+import com.example.ui.screens.chat.PrivateChatRoomScreen
+import com.example.ui.screens.chat.PrivateInboxScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
@@ -87,8 +87,8 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
-    object PrivateInbox : Screen() // 👈 নতুন: প্রাইভেট ইনবক্স
-    data class PrivateChatRoom(    // 👈 নতুন: ১-টু-১ চ্যাট রুম
+    object PrivateInbox : Screen() // 👈 প্রাইভেট ইনবক্স
+    data class PrivateChatRoom(    // 👈 ১-টু-১ চ্যাট রুম
         val peerId: String,
         val peerName: String,
         val peerAvatar: String?,
@@ -254,7 +254,6 @@ class MainActivity : ComponentActivity() {
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
 
-        // 🎯 ১. প্রাইভেট চ্যাট পুশ নোটিফিকেশন ডিটেকশন
         val isPrivateChat = intent.getBooleanExtra("EXTRA_OPEN_PRIVATE_CHAT", false) ||
                 intent.getStringExtra("type") == "private_chat" ||
                 dataUriString.contains("private_chat", ignoreCase = true)
@@ -466,10 +465,16 @@ private fun MainAppContent(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val isVip = authState.isVip
 
-    // 💬 নতুন প্রাইভেট চ্যাট ভিউমডেল ইনস্ট্যান্স
+    // 💬 প্রাইভেট চ্যাট ভিউমডেল
     val privateChatViewModel: PrivateChatViewModel = viewModel(
         factory = PrivateChatViewModelFactory(viewModel.repository)
     )
+
+    // 🔴 লাইভ আনরিড ইনবক্স মেসেজ কাউন্টার হিসাব
+    val inboxUiState by privateChatViewModel.inboxUiState.collectAsStateWithLifecycle()
+    val totalUnreadCount = remember(inboxUiState.rawInbox) {
+        inboxUiState.rawInbox.sumOf { it.unreadCount }
+    }
 
     var currentScreen by remember {
         mutableStateOf<Screen>(
@@ -490,6 +495,7 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
+    // 🎯 ৫টি ট্যাবের সাথে স্ক্রিনগুলোর নির্ভুল ম্যাপিং (Gallery ও Inbox সহ)
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> {
@@ -497,17 +503,16 @@ private fun MainAppContent(
                 else BottomNavTab.HOME
             }
             is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
-            is Screen.Vip -> BottomNavTab.VIP
-            is Screen.Downloads -> BottomNavTab.DOWNLOADS
-            is Screen.Profile -> BottomNavTab.ME
-            is Screen.NotFound -> BottomNavTab.HOME
+            is Screen.LocalGallery -> BottomNavTab.GALLERY  // 👈 Gallery ট্যাব
+            is Screen.PrivateInbox -> BottomNavTab.INBOX   // 👈 Inbox ট্যাব
+            is Screen.Profile -> BottomNavTab.ME           // 👈 Me ট্যাব
             else -> BottomNavTab.HOME
         }
     }
 
     var selectedTab by remember {
         mutableStateOf(
-            if (pendingOpenVipScreen) BottomNavTab.VIP
+            if (pendingOpenPrivateInbox) BottomNavTab.INBOX
             else if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
             else BottomNavTab.HOME
         )
@@ -532,7 +537,8 @@ private fun MainAppContent(
 
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
-            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home || newScreen is Screen.NotFound || newScreen is Screen.PrivateInbox) {
+            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home ||
+                newScreen is Screen.NotFound || newScreen is Screen.PrivateInbox || newScreen is Screen.LocalGallery) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
 
@@ -540,7 +546,7 @@ private fun MainAppContent(
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
             val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer ||
-                    newScreen is Screen.PrivateChatRoom || newScreen is Screen.PrivateInbox
+                    newScreen is Screen.PrivateChatRoom || newScreen is Screen.PrivateInbox || newScreen is Screen.LocalGallery
 
             if (isExempted) {
                 currentScreen = newScreen
@@ -683,14 +689,12 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
-    // চ্যাটরুম বা ইনবক্সে বটম ন্যাভিগেশন বার লুকানো থাকবে
+    // 🎯 ইনবক্স এবং গ্যালারিতে বটম বার দৃশ্যমান থাকবে যাতে ইউজার সহজে সুইচ করতে পারে
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
-            currentScreen is Screen.LocalGallery ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
-            currentScreen is Screen.PrivateInbox ||
             currentScreen is Screen.PrivateChatRoom ||
             currentScreen is Screen.NotFound
 
@@ -703,8 +707,12 @@ private fun MainAppContent(
             modifier = Modifier.fillMaxSize().background(BackgroundDark),
             bottomBar = {
                 if (!shouldHideBottomNav) {
+                    // =============================================================
+                    // 🧭 আপডেটেড ৫-ট্যাব বটম বার (Home, Short, Gallery, Inbox, Me)
+                    // =============================================================
                     PlayDramaFlixBottomNav(
                         selectedTab = selectedTab,
+                        unreadInboxCount = totalUnreadCount, // 👈 লাইভ লাল ব্যাজ কাউন্টার
                         onTabSelected = { tab ->
                             if (selectedTab != tab) {
                                 when (tab) {
@@ -717,8 +725,13 @@ private fun MainAppContent(
                                         HomeNavHelper.activeCategory = "Short TV"
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
-                                    BottomNavTab.VIP -> navigateTo(Screen.Vip, tab)
-                                    BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
+                                    // 🎬 ৩য় ট্যাব: Gallery (Local Video Player)
+                                    BottomNavTab.GALLERY -> navigateTo(Screen.LocalGallery, tab)
+
+                                    // 💬 ৪র্থ ট্যাব: Inbox (Private Chat List)
+                                    BottomNavTab.INBOX -> navigateTo(Screen.PrivateInbox, tab)
+
+                                    // 👤 ৫ম ট্যাব: Me (Profile)
                                     BottomNavTab.ME -> navigateTo(Screen.Profile, tab)
                                 }
                             }
@@ -742,7 +755,7 @@ private fun MainAppContent(
                                 viewModel = viewModel,
                                 initialCategory = targetScreen.category,
                                 onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
-                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                onNavigateToVip = { navigateTo(Screen.Vip, null) },
                                 onNavigateToSearch = { navigateTo(Screen.Search, null) }
                             )
                         }
@@ -751,7 +764,7 @@ private fun MainAppContent(
                                 slug = targetScreen.slug,
                                 viewModel = viewModel,
                                 onBackClick = { handleBackNavigation() },
-                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) }
+                                onNavigateToVip = { navigateTo(Screen.Vip, null) }
                             )
                         }
                         is Screen.Player -> {
@@ -759,9 +772,9 @@ private fun MainAppContent(
                                 slug = targetScreen.slug,
                                 viewModel = viewModel,
                                 onBackClick = { handleBackNavigation() },
-                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                onNavigateToVip = { navigateTo(Screen.Vip, null) },
                                 onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
-                                onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
+                                onNavigateToDownloads = { navigateTo(Screen.Downloads, null) }
                             )
                         }
                         is Screen.Search -> {
@@ -786,12 +799,13 @@ private fun MainAppContent(
                         is Screen.Profile -> {
                             ProfileScreen(
                                 viewModel = viewModel,
-                                onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                onNavigateToVip = { navigateTo(Screen.Vip, null) },
                                 onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
-                                onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
+                                onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, BottomNavTab.GALLERY) },
                                 onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) }
                             )
                         }
+                        // 🎬 ৩য় ট্যাব: লোকাল গ্যালারি স্ক্রিন
                         is Screen.LocalGallery -> {
                             LocalGalleryScreen(
                                 onBackClick = { handleBackNavigation() },
@@ -818,7 +832,7 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
-                        // 💬 নতুন ১: প্রাইভেট ইনবক্স স্ক্রিন
+                        // 💬 ৪র্থ ট্যাব: প্রাইভেট ইনবক্স স্ক্রিন
                         is Screen.PrivateInbox -> {
                             PrivateInboxScreen(
                                 viewModel = privateChatViewModel,
@@ -846,7 +860,7 @@ private fun MainAppContent(
                                 }
                             )
                         }
-                        // 💬 নতুন ২: ১-টু-১ প্রাইভেট চ্যাট রুম স্ক্রিন
+                        // 💬 ১-টু-১ প্রাইভেট চ্যাট রুম স্ক্রিন
                         is Screen.PrivateChatRoom -> {
                             PrivateChatRoomScreen(
                                 viewModel = privateChatViewModel,
