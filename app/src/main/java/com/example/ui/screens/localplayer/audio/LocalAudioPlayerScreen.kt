@@ -1,5 +1,5 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.media3.common.util.UnstableApi::class
 )
 
@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +75,7 @@ private fun formatAudioTime(millis: Long): String {
     return String.format(Locale.US, "%d:%02d", minutes, seconds)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalAudioPlayerScreen(
     initialAudio: LocalVideoItem,
@@ -95,8 +97,8 @@ fun LocalAudioPlayerScreen(
 
     // 🎚️ সাউন্ড এফএক্স স্টেটসমূহ (ইকুয়ালাইজার, বেস বুস্ট, ভলিউম বুস্টার)
     var isEqEnabled by remember { mutableStateOf(true) }
-    var bassBoostLevel by remember { mutableFloatStateOf(0.4f) } // 0f to 1f
-    var volumeBoostGain by remember { mutableFloatStateOf(0.2f) } // 0f to 1f (+200% পর্যন্ত)
+    var bassBoostLevel by remember { mutableFloatStateOf(0.4f) }
+    var volumeBoostGain by remember { mutableFloatStateOf(0.2f) }
     var selectedPresetName by remember { mutableStateOf("Pop") }
 
     // সাউন্ড ইঞ্জিন অবজেক্ট
@@ -104,7 +106,7 @@ fun LocalAudioPlayerScreen(
     var bassBoostInstance by remember { mutableStateOf<BassBoost?>(null) }
     var loudnessEnhancerInstance by remember { mutableStateOf<LoudnessEnhancer?>(null) }
 
-    // 🚀 হাই-পারফরম্যান্স ExoPlayer ইঞ্জিন
+    // 🚀 ExoPlayer ইঞ্জিন
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = true
@@ -119,7 +121,6 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // পরবর্তী ও পূর্ববর্তী গান প্লে করার লজিক
     fun playNextTrack() {
         val currentIndex = playlist.indexOfFirst { it.id == currentAudio.id }
         if (currentIndex != -1 && currentIndex < playlist.size - 1) {
@@ -138,7 +139,6 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // অডিও লোড ও সেশন আইডি বাইন্ডিং
     LaunchedEffect(currentAudio.id) {
         val mediaItem = MediaItem.fromUri(currentAudio.contentUri)
         exoPlayer.setMediaItem(mediaItem)
@@ -146,7 +146,6 @@ fun LocalAudioPlayerScreen(
         exoPlayer.play()
     }
 
-    // অডিও ইফেক্ট ইনিশিয়ালাইজেশন
     fun attachAudioEffects(audioSessionId: Int) {
         if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId != 0) {
             try {
@@ -154,13 +153,11 @@ fun LocalAudioPlayerScreen(
                 bassBoostInstance?.release()
                 loudnessEnhancerInstance?.release()
 
-                // ১. Equalizer
                 val eq = Equalizer(0, audioSessionId).apply {
                     enabled = isEqEnabled
                 }
                 equalizerInstance = eq
 
-                // ২. Bass Boost
                 val bb = BassBoost(0, audioSessionId).apply {
                     enabled = isEqEnabled
                     if (strengthSupported) {
@@ -169,11 +166,10 @@ fun LocalAudioPlayerScreen(
                 }
                 bassBoostInstance = bb
 
-                // ৩. Loudness Enhancer (Vidmate স্টাইল এক্সট্রা সাউন্ড বুস্ট)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                     val le = LoudnessEnhancer(audioSessionId).apply {
                         enabled = isEqEnabled
-                        setTargetGain((volumeBoostGain * 1000).toInt()) // up to 1000 mB gain
+                        setTargetGain((volumeBoostGain * 1000).toInt())
                     }
                     loudnessEnhancerInstance = le
                 }
@@ -181,7 +177,6 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // প্লেয়ার লিসেনার
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -208,7 +203,6 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // পজিশন ট্র্যাকার
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             if (!isUserSeeking) {
@@ -235,9 +229,7 @@ fun LocalAudioPlayerScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // =============================================================
-            // 🔝 ১. টপ বার (ব্যাক বাটন ও টাইটেল)
-            // =============================================================
+            // ১. টপ বার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -276,9 +268,7 @@ fun LocalAudioPlayerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // =============================================================
-            // 🎵 ২. সেন্ট্রাল বড় মিউজিক আর্ট কার্ড (স্ক্রিনশট ১ হুবহু লুক)
-            // =============================================================
+            // ২. সেন্ট্রাল বড় মিউজিক আর্ট কার্ড
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
@@ -288,7 +278,6 @@ fun LocalAudioPlayerScreen(
                     .background(ArtCardBg),
                 contentAlignment = Alignment.Center
             ) {
-                // ওয়াটারমার্ক ও বড় মিউজিক নোট
                 Icon(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
@@ -299,9 +288,7 @@ fun LocalAudioPlayerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // =============================================================
-            // 📄 ৩. ট্র্যাক টাইটেল ও সাবটাইটেল (স্ক্রিনশট ১ অনুযায়ী)
-            // =============================================================
+            // ৩. ট্র্যাক টাইটেল
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start
@@ -326,9 +313,7 @@ fun LocalAudioPlayerScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // =============================================================
-            // ⏱️ ৪. সিকবার ও টাইমলাইন (০:০৩ / ০:৩৩)
-            // =============================================================
+            // ৪. সিকবার ও টাইমলাইন
             Column(modifier = Modifier.fillMaxWidth()) {
                 Slider(
                     value = if (isUserSeeking) scrubPositionMs.toFloat() else currentPositionMs.toFloat(),
@@ -371,9 +356,7 @@ fun LocalAudioPlayerScreen(
                 }
             }
 
-            // =============================================================
-            // ⏯️ ৫. মেইন প্লেব্যাক কন্ট্রোলস (<< , ▶/⏸ , >>)
-            // =============================================================
+            // ৫. প্লেব্যাক কন্ট্রোলস
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -381,7 +364,6 @@ fun LocalAudioPlayerScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // পূর্ববর্তী ট্র্যাক বা রিওয়াইন্ড বাটন (<<)
                 IconButton(
                     onClick = { playPreviousTrack() },
                     modifier = Modifier.size(54.dp)
@@ -394,7 +376,6 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
-                // বড় প্লে/পজ বাটন (সেন্টার)
                 Box(
                     modifier = Modifier
                         .size(68.dp)
@@ -416,7 +397,6 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
-                // পরবর্তী ট্র্যাক বা ফাস্ট-ফরোয়ার্ড বাটন (>>)
                 IconButton(
                     onClick = { playNextTrack() },
                     modifier = Modifier.size(54.dp)
@@ -430,9 +410,7 @@ fun LocalAudioPlayerScreen(
                 }
             }
 
-            // =============================================================
-            // 🎚️ ৬. বটম বার (ইকুয়ালাইজার ও প্লেলিস্ট আইকন)
-            // =============================================================
+            // ৬. বটম বার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -440,7 +418,6 @@ fun LocalAudioPlayerScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // বামে: সাউন্ড মিক্সার ও ইকুয়ালাইজার বাটন (🎚️)
                 IconButton(
                     onClick = { showEqualizerSheet = true },
                     modifier = Modifier.size(40.dp)
@@ -453,7 +430,6 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
-                // ডানে: ফোল্ডার ট্র্যাক লিস্ট বা কিউ ড্রয়ার
                 IconButton(
                     onClick = { showPlaylistSheet = true },
                     modifier = Modifier.size(40.dp)
@@ -469,9 +445,7 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎛️ ৭. Vidmate স্টাইল সাউন্ড মিক্সার ও ইকুয়ালাইজার বটম শিট
-    // =========================================================================
+    // 🎛️ ৭. সাউন্ড মিক্সার ও ইকুয়ালাইজার বটম শিট
     if (showEqualizerSheet) {
         ModalBottomSheet(
             onDismissRequest = { showEqualizerSheet = false },
@@ -525,7 +499,7 @@ fun LocalAudioPlayerScreen(
 
                 HorizontalDivider(color = Color(0xFF2E1F30), thickness = 0.8.dp)
 
-                // ৭.১) Vidmate স্টাইল অতিরিক্ত ভলিউম বুস্টার (Volume Booster)
+                // ভলিউম বুস্টার
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -546,7 +520,7 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
-                // ৭.২) বেস বুস্ট কন্ট্রোলার (Bass Boost)
+                // বেস বুস্ট
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -567,7 +541,7 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
-                // ৭.৩) ইকুয়ালাইজার প্রিসেটসমূহ (Presets)
+                // প্রিসেটসমূহ
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Presets", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                     val presets = listOf("Normal", "Pop", "Rock", "Heavy Metal", "Jazz", "Classical", "Bass Boost")
@@ -600,9 +574,7 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 📂 ৮. প্লেলিস্ট / কিউ বটম শিট
-    // =========================================================================
+    // 📂 ৮. প্লেলিস্ট বটম শিট
     if (showPlaylistSheet) {
         ModalBottomSheet(
             onDismissRequest = { showPlaylistSheet = false },
