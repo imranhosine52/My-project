@@ -590,7 +590,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        val isVip = isUserVip
                         text = textToSend,
                         replyToMessage = replyTarget
                     )
