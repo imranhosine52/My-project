@@ -5,6 +5,7 @@ package com.example.ui.screens.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -41,12 +42,12 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ui.VipCrown3DIcon
 
-// 🎨 স্ক্রিনশটের হুবহু টেলিগ্রাম কালার প্যালেট
+// 🎨 টেলিগ্রাম ডার্ক কালার প্যালেট
 private val TelegramBg = Color(0xFF0E1621)
 private val TelegramCardBg = Color(0xFF17212B)
 private val TelegramBlue = Color(0xFF2AABEE)
 private val TelegramMuted = Color(0xFF7E8D9F)
-private val TelegramBlockYellow = Color(0xFFE5A93C) // স্ক্রিনশটের হলুদ ব্লক বাটন কালার
+private val TelegramBlockYellow = Color(0xFFE5A93C)
 
 @Composable
 fun PeerProfileScreen(
@@ -55,6 +56,7 @@ fun PeerProfileScreen(
     peerAvatar: String?,
     isPeerOnline: Boolean = true,
     isPeerVip: Boolean = false,
+    peerAccountId: String? = null, // 👈 ৮ ডিজিটের অ্যাকাউন্ট আইডি
     peerBio: String? = null,
     onBackClick: () -> Unit,
     onOpenMessageClick: () -> Unit,
@@ -68,6 +70,22 @@ fun PeerProfileScreen(
 
     var showBlockConfirmDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
+
+    // 🎯 ৮-ডিজিট অ্যাকাউন্ট আইডি হিসাব / জেনারেশন (যাতে কখনই @id_175 না দেখায়)
+    val displayAccountId = remember(peerAccountId, peerId) {
+        if (!peerAccountId.isNullOrBlank() && peerAccountId.length == 8 && peerAccountId.all { it.isDigit() }) {
+            peerAccountId
+        } else {
+            val clean = peerId.trim()
+            if (clean.length == 8 && clean.all { it.isDigit() }) {
+                clean
+            } else {
+                val numericPart = clean.filter { it.isDigit() }.toLongOrNull()
+                    ?: (clean.hashCode().toLong().let { if (it < 0) -it else it } % 999999L)
+                "${77000000L + (numericPart % 999999L)}"
+            }
+        }
+    }
 
     val resolvedAvatar = remember(peerAvatar, peerName) {
         peerAvatar?.takeIf { it.isNotBlank() }
@@ -90,7 +108,7 @@ fun PeerProfileScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             // =========================================================================
-            // 🔝 ১. টপ ব্যাক বাটন ও থ্রি-ডট মেনু
+            // 🔝 ১. টপ ব্যাক বাটন ও শেয়ার বাটন
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -110,11 +128,14 @@ fun PeerProfileScreen(
 
                 IconButton(
                     onClick = {
-                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(android.content.Intent.EXTRA_TEXT, "PlayDramaFlix User: $peerName (ID: $peerId)")
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "PlayDramaFlix User: $peerName\nAccount ID: $displayAccountId"
+                            )
                         }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Contact"))
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Contact"))
                     }
                 ) {
                     Icon(
@@ -129,7 +150,7 @@ fun PeerProfileScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // =========================================================================
-            // 👤 ২. সেন্ট্রাল বড় প্রোফাইল পিকচার ও নাম
+            // 👤 ২. সেন্ট্রাল প্রোফাইল পিকচার ও নাম
             // =========================================================================
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -160,7 +181,7 @@ fun PeerProfileScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // নাম ও ভিআইপি ব্যাজ
+                // নাম ও ভিআইপি ক্রাউন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -193,7 +214,7 @@ fun PeerProfileScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             // =========================================================================
-            // 🔘 ৩. স্ক্রিনশটের হুবহু অ্যাকশন বাটন রো (Message, Mute, Block)
+            // 🔘 ৩. অ্যাকশন বাটন রো (Message, Mute, Block)
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -221,12 +242,16 @@ fun PeerProfileScreen(
                         val newMute = !isMuted
                         isMuted = newMute
                         chatPrefs.edit().putBoolean("mute_$peerId", newMute).apply()
-                        Toast.makeText(context, if (newMute) "🔕 Notifications muted" else "🔔 Notifications unmuted", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (newMute) "🔕 Notifications muted" else "🔔 Notifications unmuted",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
                     modifier = Modifier.weight(1f)
                 )
 
-                // ৩. Block বাটন (স্ক্রিনশটের মতো হলুদ রঙের কার্ড)
+                // ৩. Block বাটন
                 TelegramActionButton(
                     icon = if (isBlocked) Icons.Default.LockOpen else Icons.Default.Block,
                     label = if (isBlocked) "Unblock" else "block",
@@ -249,7 +274,7 @@ fun PeerProfileScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // =========================================================================
-            // 📋 ৪. স্ক্রিনশটের মতো ইনফো কার্ড (Bio / Phone / ID / Add to contacts)
+            // 📋 ৪. ইনফো কার্ড (Bio / ৮-ডিজিট অ্যাকাউন্ট আইডি / Add to contacts)
             // =========================================================================
             Column(
                 modifier = Modifier
@@ -257,7 +282,7 @@ fun PeerProfileScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // ক) বায়ো ও আইডি কার্ড
+                // ক) বায়ো ও ৮-ডিজিট আইডি কার্ড
                 Surface(
                     color = TelegramCardBg,
                     shape = RoundedCornerShape(12.dp),
@@ -269,7 +294,7 @@ fun PeerProfileScreen(
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // বায়ো আইটেম
+                        // বায়ো
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = displayBio,
@@ -286,27 +311,28 @@ fun PeerProfileScreen(
 
                         HorizontalDivider(color = Color(0xFF222B38), thickness = 0.6.dp)
 
-                        // একাউন্ট আইডি ও কপি চিপ
+                        // 🎯 ৮-ডিজিটের ইউনিক অ্যাকাউন্ট আইডি ও ওয়ান-ট্যাপ কপি
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    cm.setPrimaryClip(ClipData.newPlainText("User ID", peerId))
-                                    Toast.makeText(context, "ID copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    cm.setPrimaryClip(ClipData.newPlainText("Account ID", displayAccountId))
+                                    Toast.makeText(context, "Account ID ($displayAccountId) copied!", Toast.LENGTH_SHORT).show()
                                 },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    text = "@id_$peerId",
+                                    text = "@$displayAccountId",
                                     color = TelegramBlue,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
                                 )
                                 Text(
-                                    text = "Account ID (Username)",
+                                    text = "Account ID (8-Digit Contact Number)",
                                     color = TelegramMuted,
                                     fontSize = 11.sp
                                 )
@@ -315,14 +341,14 @@ fun PeerProfileScreen(
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "Copy ID",
-                                tint = TelegramMuted,
-                                modifier = Modifier.size(16.dp)
+                                tint = TelegramBlue,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
 
-                // খ) স্ক্রিনশটের মতো "Add to contacts" বাটন কার্ড
+                // খ) "Add to contacts" কার্ড
                 Surface(
                     color = TelegramCardBg,
                     shape = RoundedCornerShape(12.dp),
@@ -395,7 +421,7 @@ fun PeerProfileScreen(
         }
 
         // =========================================================================
-        // 🖼️ ৬. ফুলস্ক্রিন অবতার প্রিভিউ ডায়ালগ
+        // 🖼️ ৬. ফুলস্ক্রিন অবতার প্রিভিউ
         // =========================================================================
         if (showFullAvatarPreview) {
             Dialog(
@@ -436,10 +462,6 @@ fun PeerProfileScreen(
     }
 }
 
-// =============================================================================
-// 🔘 ৭. টেলিগ্রাম স্টাইল অ্যাকশন বাটন কম্পোনেন্ট (ফিক্সড)
-// =============================================================================
-
 @Composable
 private fun TelegramActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -460,8 +482,8 @@ private fun TelegramActionButton(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,          // 👈 ফিক্সড: Column এর জন্য verticalArrangement
-            horizontalAlignment = Alignment.CenterHorizontally // 👈 ফিক্সড: Column এর জন্য horizontalAlignment
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = icon,
