@@ -82,7 +82,7 @@ sealed class Screen {
     object Profile : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
-    object Downloads : Screen() // 👈 ডাউনলোডস স্ক্রিন
+    object Downloads : Screen()
     object CommunityChat : Screen()
     data class NotFound(val message: String? = null) : Screen()
 }
@@ -663,7 +663,7 @@ private fun MainAppContent(
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
                                     BottomNavTab.GALLERY -> navigateTo(Screen.LocalGallery, tab)
-                                    BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab) // 👈 ডাউনলোডস পেজ ওপেন
+                                    BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
                                     BottomNavTab.ME -> navigateTo(Screen.Profile, tab)
                                 }
                             }
@@ -749,7 +749,6 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
-                        // 📥 ৪ নম্বর ট্যাবের ডাউনলোডস পেজ
                         is Screen.Downloads -> {
                             DownloadsScreen(
                                 onBackClick = { handleBackNavigation() },
@@ -758,7 +757,6 @@ private fun MainAppContent(
                                 }
                             )
                         }
-                        // 👥 গ্লোবাল কমিউনিটি লাইভ চ্যাট
                         is Screen.CommunityChat -> {
                             CommunityChatScreen(
                                 viewModel = viewModel,
@@ -786,12 +784,14 @@ private fun MainAppContent(
 
         // =========================================================================
         // 💬 ফ্লোটিং চ্যাট উইজেট (Community Chat)
+        // 🎯 Screen.LocalGallery যুক্ত করা হয়েছে যাতে এই পেজে হেল্প বাটন না আসে
         // =========================================================================
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         val shouldHideFloatingChat = (currentScreen is Screen.Player && isLandscape) ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
+                currentScreen is Screen.LocalGallery ||
                 currentScreen is Screen.NotFound
 
         if (!shouldHideFloatingChat) {
