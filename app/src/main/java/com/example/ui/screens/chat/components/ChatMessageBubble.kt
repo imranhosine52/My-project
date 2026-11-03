@@ -85,6 +85,7 @@ fun WhatsAppMessageBubble(
     onLongClick: () -> Unit,
     onClick: () -> Unit = {},
     onShareForward: (() -> Unit)? = null,
+    onUserClick: ((userId: String, userName: String, userAvatar: String?) -> Unit)? = null, // 👈 প্রোফাইলে যাওয়ার ক্লিক হ্যান্ডলার
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -274,14 +275,21 @@ fun WhatsAppMessageBubble(
             }
         }
 
-        // 👤 ১. অন্য ইউজারের প্রোফাইল পিকচার
+        // =========================================================================
+        // 👤 ১. অন্য ইউজারের প্রোফাইল পিকচার (ক্লিক করলে প্রোফাইল ওপেন হবে)
+        // =========================================================================
         if (!isMe) {
             ChatUserAvatarCircle(
                 avatarUrl = effectiveAvatar,
                 userName = message.senderName,
                 isVip = isMessageVip,
                 isOwner = isMessageOwner,
-                modifier = Modifier.padding(bottom = 2.dp)
+                modifier = Modifier
+                    .padding(bottom = 2.dp)
+                    .clip(CircleShape)
+                    .clickable {
+                        onUserClick?.invoke(message.senderId, message.senderName, effectiveAvatar)
+                    }
             )
             Spacer(modifier = Modifier.width(6.dp))
         }
@@ -388,12 +396,19 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // 👤 নাম ও ভিআইপি ব্যাজ
+                    // =============================================================
+                    // 👤 নাম ও ভিআইপি ব্যাজ (ক্লিক করলে প্রোফাইল ওপেন হবে)
+                    // =============================================================
                     if (!isMe) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(bottom = 3.dp)
+                            modifier = Modifier
+                                .padding(bottom = 3.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    onUserClick?.invoke(message.senderId, message.senderName, effectiveAvatar)
+                                }
                         ) {
                             Text(
                                 text = message.senderName,
@@ -442,7 +457,7 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(3.dp))
                     }
 
-                    // 🖼️ স্মার্ট ইমেজ ডিসপ্লে (একক ছবিতে অটো TikTok 9:16 বা YouTube 16:9 রেশিও)
+                    // 🖼️ স্মার্ট ইমেজ ডিসপ্লে
                     if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
                         if (allImages.size == 1) {
                             TelegramSmartRatioImage(
@@ -553,8 +568,7 @@ fun WhatsAppMessageBubble(
 }
 
 /**
- * 🎯 স্মার্ট ইমেজ লোডার: ছবির আসল সাইজ মেপে স্বয়ংক্রিয়ভাবে
- * TikTok (9:16) অথবা YouTube (16:9) রেশিওতে সুন্দরভাবে সেট করবে।
+ * 🎯 স্মার্ট ইমেজ লোডার
  */
 @Composable
 fun TelegramSmartRatioImage(
@@ -568,7 +582,7 @@ fun TelegramSmartRatioImage(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(calculatedRatio.coerceIn(0.60f, 1.85f)) // TikTok 9:16 (0.56) থেকে YouTube 16:9 (1.77)
+            .aspectRatio(calculatedRatio.coerceIn(0.60f, 1.85f))
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF151E28))
             .clickable { onImageClick() },
