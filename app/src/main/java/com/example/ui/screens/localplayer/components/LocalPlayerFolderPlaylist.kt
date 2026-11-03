@@ -52,6 +52,39 @@ private val ActiveSlimBorderBrush = Brush.horizontalGradient(
 )
 
 /**
+ * 🏷️ ফাইলের নাম থেকে .my বা ভুয়া ট্যাগ মুছে আসল ফরম্যাট (.mkv/.mp4) যুক্ত করার হেল্পার
+ */
+private fun resolveCleanTitleWithRealFormat(title: String, path: String, mimeType: String?): String {
+    val realExt = when {
+        mimeType?.contains("mkv", true) == true || path.endsWith(".mkv", true) -> ".mkv"
+        mimeType?.contains("mp4", true) == true || path.endsWith(".mp4", true) -> ".mp4"
+        mimeType?.contains("webm", true) == true || path.endsWith(".webm", true) -> ".webm"
+        mimeType?.contains("avi", true) == true || path.endsWith(".avi", true) -> ".avi"
+        mimeType?.contains("mov", true) == true || path.endsWith(".mov", true) -> ".mov"
+        else -> {
+            val rawExt = path.substringAfterLast(".", "")
+            if (rawExt.isNotBlank() && rawExt.length in 2..4 && !rawExt.equals("my", true)) ".$rawExt" else ".mkv"
+        }
+    }
+
+    var baseName = title.trim()
+
+    // .my সাফিক্স ক্লিন করা
+    if (baseName.endsWith(".my", ignoreCase = true)) {
+        baseName = baseName.substring(0, baseName.length - 3).trimEnd('.')
+    }
+
+    // বিদ্যমান এক্সটেনশন ডুপ্লিকেট হওয়া প্রতিরোধ করা
+    listOf(".mkv", ".mp4", ".webm", ".avi", ".mov", ".flv", ".ts").forEach { ext ->
+        if (baseName.endsWith(ext, ignoreCase = true)) {
+            baseName = baseName.removeSuffix(ext)
+        }
+    }
+
+    return "$baseName$realExt"
+}
+
+/**
  * 🎵 প্লেইং ভিডিওতে মাখনের মতো মসৃণ ইকুয়ালাইজার বার্স
  */
 @Composable
@@ -171,7 +204,6 @@ fun LocalPlayerFolderPlaylist(
     isLandscapeDrawer: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // 🎨 ল্যান্ডস্কেপ ড্রয়ারে ব্যাকগ্রাউন্ড স্ক্রিনের সাথে হালকা কালো ট্রান্সলুসেন্ট ব্লেন্ড হবে
     val backgroundModifier = if (isLandscapeDrawer) {
         Modifier.background(
             Brush.horizontalGradient(
@@ -191,70 +223,123 @@ fun LocalPlayerFolderPlaylist(
             .fillMaxSize()
             .then(backgroundModifier)
     ) {
-        // ১. হেডার ও নেক্সট ভিডিও অ্যাকশন
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = folderName.ifBlank { "Folder Videos" },
-                    color = Color.White,
-                    fontSize = if (isLandscapeDrawer) 13.5.sp else 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${videos.size} videos in folder",
-                    color = Color(0xFF8E95A5),
-                    fontSize = 11.5.sp
-                )
-            }
-
-            // পরবর্তী ভিডিও দ্রুত প্লে করার বাটন
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF161F2E),
-                border = BorderStroke(0.8.dp, Color(0xFF23324A)),
-                modifier = Modifier.clickable { onNextVideoClick() }
+        // =============================================================
+        // ১. হেডার সেকশন (ল্যান্ডস্কেপে আল্ট্রা-কম্প্যাক্ট যাতে কোনো জায়গা নষ্ট না হয়)
+        // =============================================================
+        if (isLandscapeDrawer) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Text(
+                    text = "${folderName.ifBlank { "Videos" }} (${videos.size})",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 6.dp)
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF161F2E),
+                    border = BorderStroke(0.6.dp, Color(0xFF23324A)),
+                    modifier = Modifier.clickable { onNextVideoClick() }
                 ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = "Next",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            // পোর্ট্রেট মোডের হেডার
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
                     Text(
-                        text = "Next",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
+                        text = folderName.ifBlank { "Folder Videos" },
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Next Video",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(14.dp)
+                    Text(
+                        text = "${videos.size} videos in folder",
+                        color = Color(0xFF8E95A5),
+                        fontSize = 11.5.sp
                     )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF161F2E),
+                    border = BorderStroke(0.8.dp, Color(0xFF23324A)),
+                    modifier = Modifier.clickable { onNextVideoClick() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Next",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next Video",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
             }
         }
 
         HorizontalDivider(
-            color = if (isLandscapeDrawer) Color(0x26FFFFFF) else Color(0xFF1E2638),
-            thickness = 0.8.dp
+            color = if (isLandscapeDrawer) Color(0x1FFFFFFF) else Color(0xFF1E2638),
+            thickness = 0.5.dp
         )
 
-        // ২. অপ্টিমাইজড প্লেলিস্ট
+        // =============================================================
+        // ২. অপ্টিমাইজড প্লেলিস্ট তালিকা
+        // =============================================================
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            contentPadding = PaddingValues(
+                horizontal = if (isLandscapeDrawer) 8.dp else 12.dp,
+                vertical = 6.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(if (isLandscapeDrawer) 6.dp else 8.dp)
         ) {
             items(
                 items = videos,
@@ -262,22 +347,20 @@ fun LocalPlayerFolderPlaylist(
             ) { videoItem ->
                 val isPlayingThis = (videoItem.id == currentVideoId)
 
-                // 📁 ফাইলের আসল ফরম্যাট এক্সট্রাক্ট করা (MP4, MKV, WEBM ইত্যাদি)
-                val fileExtension = remember(videoItem.path) {
-                    val ext = videoItem.path.substringAfterLast(".", "")
-                    if (ext.isNotBlank() && ext.length <= 5) ext.uppercase() else "MP4"
+                // 🌟 ফাইলের নামের শেষে আসল ফরম্যাট যুক্ত করা (.mkv বা .mp4)
+                val cleanTitle = remember(videoItem.title, videoItem.path, videoItem.mimeType) {
+                    resolveCleanTitleWithRealFormat(videoItem.title, videoItem.path, videoItem.mimeType)
                 }
 
                 Card(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (isPlayingThis) {
-                            Color(0xFF0C1D18) // অ্যাক্টিভ হলে হালকা গ্রিন টিন্ট ব্যাকগ্রাউন্ড
+                            Color(0xFF0C1D18)
                         } else {
-                            if (isLandscapeDrawer) Color(0x80131826) else DeepCardBg
+                            if (isLandscapeDrawer) Color(0x66131826) else DeepCardBg
                         }
                     ),
-                    // 🔥 অ্যাক্টিভ গ্রিন বর্ডার এখন মাত্র ০.৮dp চিকন ও গ্রিন গ্রেডিয়েন্ট কম্বিনেশন
                     border = BorderStroke(
                         width = if (isPlayingThis) 0.8.dp else 0.5.dp,
                         brush = if (isPlayingThis) ActiveSlimBorderBrush else SolidColor(CardBorderColor)
@@ -289,15 +372,15 @@ fun LocalPlayerFolderPlaylist(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(8.dp),
+                            .padding(if (isLandscapeDrawer) 6.dp else 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         // থাম্বনেইল বক্স
                         Box(
                             modifier = Modifier
-                                .width(if (isLandscapeDrawer) 76.dp else 96.dp)
-                                .height(if (isLandscapeDrawer) 48.dp else 56.dp)
+                                .width(if (isLandscapeDrawer) 72.dp else 96.dp)
+                                .height(if (isLandscapeDrawer) 44.dp else 56.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Color(0xFF1A2130))
                         ) {
@@ -321,46 +404,33 @@ fun LocalPlayerFolderPlaylist(
                         // ভিডিও টাইটেল ও মেটাডাটা
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = videoItem.title,
+                                text = cleanTitle,
                                 color = if (isPlayingThis) ActiveGreen else Color.White,
-                                fontSize = if (isLandscapeDrawer) 11.5.sp else 13.sp,
+                                fontSize = if (isLandscapeDrawer) 11.sp else 13.sp,
                                 fontWeight = if (isPlayingThis) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                lineHeight = 16.sp
+                                lineHeight = if (isLandscapeDrawer) 14.5.sp else 16.sp
                             )
 
+                            // মেটাডাটা রো (নিচে অতিরিক্ত কোনো ব্যাজ রাখা হয়নি)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // 🌟 ফাইলের আসল ফরম্যাট ব্যাজ (MP4, MKV ইত্যাদি)
-                                Surface(
-                                    shape = RoundedCornerShape(3.dp),
-                                    color = if (isPlayingThis) Color(0x3300E676) else Color(0x26FFFFFF)
-                                ) {
-                                    Text(
-                                        text = fileExtension,
-                                        color = if (isPlayingThis) ActiveGreen else Color(0xFFC4CBD8),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-
                                 Text(
                                     text = videoItem.formattedSize,
                                     color = Color(0xFF8E95A5),
-                                    fontSize = 11.sp
+                                    fontSize = if (isLandscapeDrawer) 10.sp else 11.sp
                                 )
                                 Text("•", color = Color(0xFF4C5466), fontSize = 10.sp)
                                 Text(
                                     text = videoItem.formattedDate,
                                     color = Color(0xFF8E95A5),
-                                    fontSize = 11.sp
+                                    fontSize = if (isLandscapeDrawer) 10.sp else 11.sp
                                 )
                             }
                         }
