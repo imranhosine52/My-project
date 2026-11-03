@@ -16,6 +16,7 @@ import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -672,12 +673,10 @@ fun LocalGalleryScreen(
                             }
 
                             Text(
-                                text = playing.title,
+                                text = playing.title.toString(),
                                 color = Color.White,
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
 
