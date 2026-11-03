@@ -437,7 +437,7 @@ fun PeerProfileScreen(
 }
 
 // =============================================================================
-// 🔘 ৭. টেলিগ্রাম স্টাইল অ্যাকশন বাটন কম্পোনেন্ট
+// 🔘 ৭. টেলিগ্রাম স্টাইল অ্যাকশন বাটন কম্পোনেন্ট (ফিক্সড)
 // =============================================================================
 
 @Composable
@@ -460,8 +460,8 @@ private fun TelegramActionButton(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,          // 👈 ফিক্সড: Column এর জন্য verticalArrangement
+            horizontalAlignment = Alignment.CenterHorizontally // 👈 ফিক্সড: Column এর জন্য horizontalAlignment
         ) {
             Icon(
                 imageVector = icon,
