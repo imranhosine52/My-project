@@ -19,12 +19,13 @@ class PlayDramaFlixRepository(
     private val apiService: PlayDramaFlixApiService = ApiClient.apiService,
     private val database: AppDatabase = AppDatabase.getInstance(context)
 ) {
-    // 🧱 ৫টি ডেডিকেটেড সাব-রিপোজিটরি ইনস্ট্যান্স
+    // 🧱 ৬টি ডেডিকেটেড সাব-রিপোজিটরি ইনস্ট্যান্স
     val contentRepository = ContentRepository(context, apiService, database)
     val authRepository = AuthRepository(context, apiService)
     val subscriptionRepository = SubscriptionRepository(context, apiService, authRepository)
     val interactionRepository = InteractionRepository(context, apiService, database, authRepository)
     val appConfigRepository = AppConfigRepository(context, apiService)
+    val privateChatRepository = PrivateChatRepository(context, apiService, database) // 👈 নতুন প্রাইভেট চ্যাট রিপোজিটরি
 
     // =========================================================================
     // 📺 1. CONTENT & WATCH PROGRESS DELEGATIONS
@@ -54,7 +55,6 @@ class PlayDramaFlixRepository(
     fun isUserVip(): Boolean = authRepository.isUserVip()
     fun getSavedUserProfile(): UserProfileDto? = authRepository.getSavedUserProfile()
 
-    // ☁️ Cloudflare R2 তে প্রোফাইল পিকচার আপলোড ডেলিগেশন
     suspend fun uploadAvatarToR2(context: Context, avatarUri: Uri): String? =
         authRepository.uploadAvatarToR2(context, avatarUri)
 
@@ -142,7 +142,6 @@ class PlayDramaFlixRepository(
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> =
         interactionRepository.toggleInteractionLike(contentId, episodeId)
 
-    // 🌟 টেলিগ্রাম স্টাইল মাল্টি-ইমোজি রিঅ্যাকশন ডেলিগেশন
     suspend fun toggleReaction(contentId: Any, reaction: String): Result<ReactionToggleResponse> =
         interactionRepository.toggleReaction(contentId, reaction)
 
@@ -206,4 +205,38 @@ class PlayDramaFlixRepository(
             Result.success(emptyList())
         }
     }
+
+    // =========================================================================
+    // 💬 6. TELEGRAM-STYLE PRIVATE CHAT & INBOX DELEGATIONS
+    // =========================================================================
+    val privateInboxFlow: Flow<List<LocalInboxEntity>> = privateChatRepository.inboxFlow
+
+    fun getPrivateChatMessagesFlow(chatRoomId: String): Flow<List<LocalPrivateMessageEntity>> =
+        privateChatRepository.getMessagesFlow(chatRoomId)
+
+    suspend fun syncPrivateInbox(myUserId: String): Result<Boolean> =
+        privateChatRepository.syncInbox(myUserId)
+
+    suspend fun syncPrivateChatMessagesDelta(chatRoomId: String): Result<Int> =
+        privateChatRepository.syncMessagesDelta(chatRoomId)
+
+    suspend fun sendPrivateChatMessage(
+        senderId: String,
+        receiverId: String,
+        messageText: String,
+        mediaUrl: String? = null,
+        mediaType: String = "text",
+        mediaDurationSec: Int = 0,
+        replyToId: String? = null
+    ): Result<LocalPrivateMessageEntity> =
+        privateChatRepository.sendMessage(senderId, receiverId, messageText, mediaUrl, mediaType, mediaDurationSec, replyToId)
+
+    suspend fun markPrivateChatAsSeen(myUserId: String, peerId: String) =
+        privateChatRepository.markChatAsSeen(myUserId, peerId)
+
+    suspend fun clearPrivateChatLocally(chatRoomId: String) =
+        privateChatRepository.clearChatLocally(chatRoomId)
+
+    fun getPrivateChatRoomId(user1Id: String, user2Id: String): String =
+        PrivateChatRepository.getChatRoomId(user1Id, user2Id)
 }
