@@ -114,7 +114,6 @@ private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
 fun CommunityChatScreen(
     viewModel: DramaFlixViewModel,
     onBackClick: () -> Unit,
-    onNavigateToUserProfile: ((userId: String, userName: String, userAvatar: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -123,6 +122,7 @@ fun CommunityChatScreen(
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
 
+    // ডাবল কিবোর্ড প্যাডিং রোধ করতে SOFT_INPUT_ADJUST_NOTHING
     DisposableEffect(activity) {
         val originalMode = activity?.window?.attributes?.softInputMode ?: WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
@@ -465,7 +465,7 @@ fun CommunityChatScreen(
                             senderName = currentUserName,
                             senderEmail = currentUserEmail,
                             senderAvatar = currentUserAvatar,
-                            isVip = isUserVip, // 👈 ফিক্সড: isUserVip
+                            isVip = isUserVip,
                             replyToMessage = replyingToMessage,
                             onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                         )
@@ -516,7 +516,7 @@ fun CommunityChatScreen(
                 senderName = currentUserName,
                 senderEmail = currentUserEmail,
                 senderAvatar = currentUserAvatar,
-                isVip = isUserVip, // 👈 ফিক্সড: isUserVip
+                isVip = isUserVip,
                 replyToMessage = replyTarget
             )
         }
@@ -560,7 +560,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip, // 👈 ফিক্সড: isUserVip
+                        isVip = isUserVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onProgress = { pct, sec ->
@@ -579,7 +579,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip, // 👈 ফিক্সড: isUserVip
+                        isVip = isUserVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
@@ -590,7 +590,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip, // 👈 ফিক্সড: isUserVip
+                        isVip = isUserVip,
                         text = textToSend,
                         replyToMessage = replyTarget
                     )
@@ -612,6 +612,7 @@ fun CommunityChatScreen(
             .background(TelegramScreenBg)
     ) {
         if (isSelectionMode) {
+            // 🔒 শুধুমাত্র ওনার অথবা যদি নির্বাচিত সব মেসেজই নিজের হয়, তবেই ডিলিট অনুমোদন
             val canDelete = isCurrentUserOwner || (
                 selectedMessageIds.isNotEmpty() && selectedMessageIds.all { id ->
                     val msg = messagesList.find { it.id == id }
@@ -666,7 +667,7 @@ fun CommunityChatScreen(
             )
         } else {
             // =========================================================================
-            // 🔝 টেলিগ্রাম ফ্রস্টেড হেডার
+            // 🔝 টেলিগ্রাম ফ্রস্টেড হেডার (সবুজ অনলাইন ডট ও রিয়েল-টাইম মেম্বার কাউন্ট)
             // =========================================================================
             Surface(
                 color = TelegramHeaderBg,
@@ -722,6 +723,7 @@ fun CommunityChatScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
 
+                            // 🟢 উজ্জ্বল সবুজ ডট ও লাইভ অনলাইন ইন্ডিকেটর
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -808,6 +810,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // পিন করা মেসেজ ব্যানার
         pinnedMessageInfo?.let { pinInfo ->
             PinnedMessageBanner(
                 pinnedInfo = pinInfo,
@@ -905,9 +908,6 @@ fun CommunityChatScreen(
                             putExtra(Intent.EXTRA_TEXT, "Voice note from ${msg.senderName} in DramaFlix Community")
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Forward Voice"))
-                    },
-                    onUserClick = { clickedUid, clickedName, clickedAvatar ->
-                        onNavigateToUserProfile?.invoke(clickedUid, clickedName, clickedAvatar)
                     }
                 )
             }
@@ -927,6 +927,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // লাইভ টাইপিং ও অ্যাকশন স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -952,6 +953,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // রিপ্লাই ব্যানার
         AnimatedVisibility(
             visible = replyingToMessage != null,
             enter = expandVertically(tween(200)) + fadeIn(tween(180)),
@@ -992,6 +994,9 @@ fun CommunityChatScreen(
             }
         }
 
+        // =========================================================================
+        // ⌨️ ইনপুট বার কন্টেইনার
+        // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1204,12 +1209,17 @@ fun CommunityChatScreen(
         }
     }
 
+    // =========================================================================
+    // ⚙️ মেসেজে লং-প্রেস বটম শীট (কঠোর ডিলিট পারমিশন ফিল্টার)
+    // =========================================================================
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
 
+        // 🔒 ইউজার কি এই মেসেজের প্রেরক?
         val isMyMessage = (msg.senderId == currentUserId) ||
                 (!currentUserEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true))
 
+        // 🛡️ শুধুমাত্র ওনার অথবা মেসেজের মূল প্রেরক ডিলিট করতে পারবে
         val canDelete = isCurrentUserOwner || isMyMessage
 
         val isSenderNotOwner = msg.senderEmail != FirebaseChatManager.ROOT_ADMIN_EMAIL && msg.senderId != currentUserId
@@ -1355,6 +1365,7 @@ fun CommunityChatScreen(
                     }
                 }
 
+                // 🚫 সাধারণ ইউজার যদি অন্যের মেসেজে লং-প্রেস করে, এই ডিলিট অপশনটি দেখানোই হবে না!
                 if (canDelete) {
                     Row(
                         modifier = Modifier
