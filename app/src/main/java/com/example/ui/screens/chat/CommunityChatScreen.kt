@@ -585,12 +585,13 @@ fun CommunityChatScreen(
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                     )
                 } else {
+                    // 🎯 শুধু টেক্সট মেসেজ পাঠানোর অংশ
                     val ok = FirebaseChatManager.sendTextMessage(
                         senderId = currentUserId,
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        val isVip = isUserVip
+                        isVip = isUserVip, // 👈 এখানে isUserVip দেওয়া হয়েছে
                         text = textToSend,
                         replyToMessage = replyTarget
                     )
