@@ -2,6 +2,7 @@ package com.example.util
 
 import android.content.ContentUris
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -62,7 +63,13 @@ object LocalMediaScanner {
             val trashSet = getTrashPaths(context)
             val starredSet = getStarredPaths(context)
 
-            context.contentResolver.query(collection, projection, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { cursor ->
+            context.contentResolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.Video.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.TITLE)
@@ -145,7 +152,13 @@ object LocalMediaScanner {
             val trashSet = getTrashPaths(context)
             val starredSet = getStarredPaths(context)
 
-            context.contentResolver.query(collection, projection, null, null, "${MediaStore.Audio.Media.DATE_ADDED} DESC")?.use { cursor ->
+            context.contentResolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -220,7 +233,13 @@ object LocalMediaScanner {
             val trashSet = getTrashPaths(context)
             val starredSet = getStarredPaths(context)
 
-            context.contentResolver.query(collection, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { cursor ->
+            context.contentResolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.TITLE)
@@ -274,7 +293,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 📁 ৪. ফিক্সড ডকুমেন্টস ও ফাইল স্ক্যানার (PDF, ZIP, APK, Doc, TXT, Excel etc.)
+    // 📁 ৪. ডকুমেন্টস ও ফাইল স্ক্যানার
     // =========================================================================
     suspend fun getAllDocuments(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -304,7 +323,6 @@ object LocalMediaScanner {
                 MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME
             )
 
-            // ১. MediaStore.Files কুয়েরি
             context.contentResolver.query(
                 collection,
                 projection,
@@ -364,7 +382,6 @@ object LocalMediaScanner {
                 }
             }
 
-            // ২. Download এবং Documents ফোল্ডার ডিরেক্ট স্ক্যান (যদি কিছু মিস হয়ে থাকে)
             val root = Environment.getExternalStorageDirectory()
             val targetFolders = listOf(
                 File(root, Environment.DIRECTORY_DOWNLOADS),
@@ -520,7 +537,7 @@ object LocalMediaScanner {
                 val name = file.name
                 val ext = file.extension.lowercase()
                 val mime = when {
-                    ext in listOf("mp4", "mkv", "avi", "mov") -> "video/mp4"
+                    ext in listOf("mp4", "mkv", "avi", "mov", "webm") -> "video/mp4"
                     ext in listOf("mp3", "m4a", "wav", "aac") -> "audio/mpeg"
                     ext in listOf("jpg", "jpeg", "png", "webp") -> "image/jpeg"
                     else -> getMimeType(ext)
@@ -547,7 +564,46 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🚀 ৭. ফাইল মুভ এবং নতুন ফোল্ডার তৈরি
+    // 🗑️ ৭. রিসাইকেল বিন / ট্র্যাশ ফাইলস (নতুন ডেডিকেটেড মেথড যা শতভাগ কাজ করে)
+    // =========================================================================
+    suspend fun getTrashItems(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
+        val trashPaths = getTrashPaths(context)
+        val result = mutableListOf<LocalVideoItem>()
+
+        for (path in trashPaths) {
+            val file = File(path)
+            if (file.exists() && file.length() > 0) {
+                val name = file.name
+                val ext = file.extension.lowercase()
+                val mime = when {
+                    ext in listOf("mp4", "mkv", "avi", "mov", "webm") -> "video/mp4"
+                    ext in listOf("mp3", "m4a", "wav", "aac", "ogg") -> "audio/mpeg"
+                    ext in listOf("jpg", "jpeg", "png", "webp", "gif") -> "image/jpeg"
+                    else -> getMimeType(ext)
+                }
+
+                result.add(
+                    LocalVideoItem(
+                        id = file.hashCode().toLong(),
+                        title = file.nameWithoutExtension,
+                        displayName = name,
+                        durationMs = 0L,
+                        sizeBytes = file.length(),
+                        path = path,
+                        contentUriString = Uri.fromFile(file).toString(),
+                        folderName = "Recycle Bin",
+                        bucketId = "recycle_bin",
+                        dateAdded = file.lastModified() / 1000,
+                        mimeType = mime
+                    )
+                )
+            }
+        }
+        result
+    }
+
+    // =========================================================================
+    // 🚀 ৮. ফাইল মুভ এবং নতুন ফোল্ডার তৈরি
     // =========================================================================
     suspend fun moveFileToDestination(context: Context, sourcePath: String, destinationFolderPath: String): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -558,7 +614,10 @@ object LocalMediaScanner {
             if (!destDir.exists()) destDir.mkdirs()
 
             val targetFile = File(destDir, src.name)
-            if (src.renameTo(targetFile)) return@withContext true
+            if (src.renameTo(targetFile)) {
+                MediaScannerConnection.scanFile(context, arrayOf(sourcePath, targetFile.absolutePath), null, null)
+                return@withContext true
+            }
 
             val input = FileInputStream(src)
             val output = FileOutputStream(targetFile)
@@ -568,6 +627,7 @@ object LocalMediaScanner {
                 }
             }
             src.delete()
+            MediaScannerConnection.scanFile(context, arrayOf(sourcePath, targetFile.absolutePath), null, null)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Move failed: ${e.message}")
@@ -587,7 +647,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // ⭐ ৮. Starred, Safe Folder ও Custom PIN
+    // ⭐ ৯. Starred, Safe Folder ও Custom PIN
     // =========================================================================
     fun getStarredPaths(context: Context): Set<String> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -606,6 +666,14 @@ object LocalMediaScanner {
         }
         prefs.edit().putStringSet(KEY_STARRED, current).apply()
         return newState
+    }
+
+    private fun removeFromStarred(context: Context, path: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_STARRED, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (current.remove(path)) {
+            prefs.edit().putStringSet(KEY_STARRED, current).apply()
+        }
     }
 
     fun getSafePaths(context: Context): Set<String> {
@@ -646,15 +714,69 @@ object LocalMediaScanner {
         prefs.edit().putStringSet(KEY_TRASH, current).apply()
     }
 
-    fun deletePermanently(context: Context, path: String): Boolean {
+    // =========================================================================
+    // 🔥 ১০. ফোন স্টোরেজ থেকে শতভাগ পারমানেন্ট ডিলিট (MediaStore + Disk)
+    // =========================================================================
+    suspend fun deletePermanently(context: Context, path: String): Boolean = withContext(Dispatchers.IO) {
         restoreFromTrash(context, path)
         restoreFromSafeFolder(context, path)
-        return try {
+        removeFromStarred(context, path)
+
+        var isDeleted = false
+        try {
+            // ১. MediaStore ContentResolver থেকে এন্ট্রি পুরোপুরি রিমুভ করা
+            val mediaUris = listOf(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                } else {
+                    MediaStore.Files.getContentUri("external")
+                }
+            )
+
+            for (collectionUri in mediaUris) {
+                try {
+                    val count = context.contentResolver.delete(
+                        collectionUri,
+                        "${MediaStore.MediaColumns.DATA} = ?",
+                        arrayOf(path)
+                    )
+                    if (count > 0) {
+                        isDeleted = true
+                        break
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // ২. সরাসরি ফাইল সিস্টেম থেকে মুছে ফেলা
             val file = File(path)
-            if (file.exists()) file.delete() else false
-        } catch (_: Exception) {
-            false
+            if (file.exists()) {
+                if (file.delete()) {
+                    isDeleted = true
+                }
+            }
+
+            // ৩. ফোন মেমরির সাথে তাৎক্ষণিক সিঙ্ক যাতে গ্যালারি ও ফাইল ম্যানেজারে আর না দেখায়
+            MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Permanent delete failed for $path: ${e.message}")
         }
+
+        isDeleted
+    }
+
+    // রিসাইকেল বিন এক ক্লিকে সম্পূর্ণ খালি করা
+    suspend fun emptyTrash(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val trashPaths = getTrashPaths(context)
+        for (path in trashPaths) {
+            deletePermanently(context, path)
+        }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_TRASH).apply()
+        true
     }
 
     fun renameFile(context: Context, oldPath: String, newName: String): Boolean {
@@ -663,7 +785,11 @@ object LocalMediaScanner {
             val ext = file.extension
             val newFileName = if (ext.isNotBlank()) "$newName.$ext" else newName
             val newFile = File(file.parentFile, newFileName)
-            file.renameTo(newFile)
+            val success = file.renameTo(newFile)
+            if (success) {
+                MediaScannerConnection.scanFile(context, arrayOf(oldPath, newFile.absolutePath), null, null)
+            }
+            success
         } catch (_: Exception) {
             false
         }
