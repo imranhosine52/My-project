@@ -9,17 +9,12 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -42,9 +38,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val DeepCardBg = Color(0xFF111520)
+private val DeepCardBg = Color(0xFF10141E)
 private val CardBorderColor = Color(0xFF1E2638)
 private val ActiveGreen = Color(0xFF00E676)
+
+// 🌿 প্রিমিয়াম স্লিম গ্রিন ও সায়ান বর্ডার কম্বিনেশন গ্রেডিয়েন্ট
+private val ActiveSlimBorderBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF00E676),
+        Color(0xFF00C853),
+        Color(0xFF00E5FF)
+    )
+)
 
 /**
  * 🎵 প্লেইং ভিডিওতে মাখনের মতো মসৃণ ইকুয়ালাইজার বার্স
@@ -166,10 +171,25 @@ fun LocalPlayerFolderPlaylist(
     isLandscapeDrawer: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    // 🎨 ল্যান্ডস্কেপ ড্রয়ারে ব্যাকগ্রাউন্ড স্ক্রিনের সাথে হালকা কালো ট্রান্সলুসেন্ট ব্লেন্ড হবে
+    val backgroundModifier = if (isLandscapeDrawer) {
+        Modifier.background(
+            Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xD9080B12),
+                    Color(0xF2080B12)
+                )
+            )
+        )
+    } else {
+        Modifier.background(Color(0xFF090C14))
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .then(backgroundModifier)
     ) {
         // ১. হেডার ও নেক্সট ভিডিও অ্যাকশন
         Row(
@@ -223,9 +243,12 @@ fun LocalPlayerFolderPlaylist(
             }
         }
 
-        HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
+        HorizontalDivider(
+            color = if (isLandscapeDrawer) Color(0x26FFFFFF) else Color(0xFF1E2638),
+            thickness = 0.8.dp
+        )
 
-        // ২. মাখনের মতো মসৃণ অপ্টিমাইজড লিস্ট
+        // ২. অপ্টিমাইজড প্লেলিস্ট
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -235,18 +258,29 @@ fun LocalPlayerFolderPlaylist(
         ) {
             items(
                 items = videos,
-                key = { it.id } // 👈 মসৃণ স্ক্রোল ও রি-কম্পোজিশন প্রতিরোধের জন্য আইডি ব্যবহার
+                key = { it.id }
             ) { videoItem ->
                 val isPlayingThis = (videoItem.id == currentVideoId)
+
+                // 📁 ফাইলের আসল ফরম্যাট এক্সট্রাক্ট করা (MP4, MKV, WEBM ইত্যাদি)
+                val fileExtension = remember(videoItem.path) {
+                    val ext = videoItem.path.substringAfterLast(".", "")
+                    if (ext.isNotBlank() && ext.length <= 5) ext.uppercase() else "MP4"
+                }
 
                 Card(
                     shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isPlayingThis) Color(0xFF0F1A24) else DeepCardBg
+                        containerColor = if (isPlayingThis) {
+                            Color(0xFF0C1D18) // অ্যাক্টিভ হলে হালকা গ্রিন টিন্ট ব্যাকগ্রাউন্ড
+                        } else {
+                            if (isLandscapeDrawer) Color(0x80131826) else DeepCardBg
+                        }
                     ),
+                    // 🔥 অ্যাক্টিভ গ্রিন বর্ডার এখন মাত্র ০.৮dp চিকন ও গ্রিন গ্রেডিয়েন্ট কম্বিনেশন
                     border = BorderStroke(
-                        width = if (isPlayingThis) 1.2.dp else 0.8.dp,
-                        color = if (isPlayingThis) ActiveGreen else CardBorderColor
+                        width = if (isPlayingThis) 0.8.dp else 0.5.dp,
+                        brush = if (isPlayingThis) ActiveSlimBorderBrush else SolidColor(CardBorderColor)
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -303,6 +337,20 @@ fun LocalPlayerFolderPlaylist(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                // 🌟 ফাইলের আসল ফরম্যাট ব্যাজ (MP4, MKV ইত্যাদি)
+                                Surface(
+                                    shape = RoundedCornerShape(3.dp),
+                                    color = if (isPlayingThis) Color(0x3300E676) else Color(0x26FFFFFF)
+                                ) {
+                                    Text(
+                                        text = fileExtension,
+                                        color = if (isPlayingThis) ActiveGreen else Color(0xFFC4CBD8),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+
                                 Text(
                                     text = videoItem.formattedSize,
                                     color = Color(0xFF8E95A5),
