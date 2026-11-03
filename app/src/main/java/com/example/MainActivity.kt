@@ -35,7 +35,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.LocalVideoItem
@@ -47,9 +46,6 @@ import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
-import com.example.ui.screens.chat.PeerProfileScreen
-import com.example.ui.screens.chat.PrivateChatRoomScreen
-import com.example.ui.screens.chat.PrivateInboxScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
@@ -86,24 +82,8 @@ sealed class Screen {
     object Profile : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
-    object Downloads : Screen()
+    object Downloads : Screen() // 👈 ডাউনলোডস স্ক্রিন
     object CommunityChat : Screen()
-    object PrivateInbox : Screen()
-    data class PrivateChatRoom(
-        val peerId: String,
-        val peerName: String,
-        val peerAvatar: String?,
-        val isPeerOnline: Boolean = false,
-        val isPeerVip: Boolean = false
-    ) : Screen()
-    data class PeerProfile(
-        val peerId: String,
-        val peerName: String,
-        val peerAvatar: String?,
-        val isPeerOnline: Boolean = true,
-        val isPeerVip: Boolean = false,
-        val peerBio: String? = null
-    ) : Screen()
     data class NotFound(val message: String? = null) : Screen()
 }
 
@@ -121,8 +101,6 @@ class MainActivity : ComponentActivity() {
     private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
-    private val pendingOpenPrivateInbox = mutableStateOf(false)
-    private val pendingOpenPrivateChatRoom = mutableStateOf<Screen.PrivateChatRoom?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setBackgroundDrawableResource(android.R.color.black)
@@ -167,8 +145,6 @@ class MainActivity : ComponentActivity() {
                         pendingExternalMediaItem = pendingExternalMediaItem.value,
                         pendingOpenCommunityChat = pendingOpenCommunityChat.value,
                         pendingOpenVipScreen = pendingOpenVipScreen.value,
-                        pendingOpenPrivateInbox = pendingOpenPrivateInbox.value,
-                        pendingOpenPrivateChatRoom = pendingOpenPrivateChatRoom.value,
                         onFinish = { finish() }
                     )
 
@@ -262,25 +238,6 @@ class MainActivity : ComponentActivity() {
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
-
-        val isPrivateChat = intent.getBooleanExtra("EXTRA_OPEN_PRIVATE_CHAT", false) ||
-                intent.getStringExtra("type") == "private_chat" ||
-                dataUriString.contains("private_chat", ignoreCase = true)
-
-        if (isPrivateChat) {
-            val senderId = intent.getStringExtra("sender_id") ?: ""
-            val senderName = intent.getStringExtra("sender_name") ?: "User"
-            if (senderId.isNotBlank()) {
-                pendingOpenPrivateChatRoom.value = Screen.PrivateChatRoom(
-                    peerId = senderId,
-                    peerName = senderName,
-                    peerAvatar = null
-                )
-            } else {
-                pendingOpenPrivateInbox.value = true
-            }
-            return
-        }
 
         val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
                 intent.getStringExtra("type") == "chat_reply" ||
@@ -466,28 +423,15 @@ private fun MainAppContent(
     pendingExternalMediaItem: LocalVideoItem?,
     pendingOpenCommunityChat: Boolean,
     pendingOpenVipScreen: Boolean,
-    pendingOpenPrivateInbox: Boolean,
-    pendingOpenPrivateChatRoom: Screen.PrivateChatRoom?,
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val isVip = authState.isVip
 
-    val privateChatViewModel: PrivateChatViewModel = viewModel(
-        factory = PrivateChatViewModelFactory(viewModel.repository)
-    )
-
-    val inboxUiState by privateChatViewModel.inboxUiState.collectAsStateWithLifecycle()
-    val totalUnreadCount = remember(inboxUiState.rawInbox) {
-        inboxUiState.rawInbox.sumOf { it.unreadCount }
-    }
-
     var currentScreen by remember {
         mutableStateOf<Screen>(
-            if (pendingOpenPrivateChatRoom != null) pendingOpenPrivateChatRoom
-            else if (pendingOpenPrivateInbox) Screen.PrivateInbox
-            else if (pendingOpenCommunityChat) Screen.CommunityChat
+            if (pendingOpenCommunityChat) Screen.CommunityChat
             else if (pendingOpenVipScreen) Screen.Vip
             else if (pendingExternalMediaItem != null) Screen.LocalPlayer(pendingExternalMediaItem)
             else if (!pendingNotificationSlug.isNullOrBlank()) {
@@ -510,7 +454,7 @@ private fun MainAppContent(
             }
             is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
             is Screen.LocalGallery -> BottomNavTab.GALLERY
-            is Screen.PrivateInbox -> BottomNavTab.INBOX
+            is Screen.Downloads -> BottomNavTab.DOWNLOADS
             is Screen.Profile -> BottomNavTab.ME
             else -> BottomNavTab.HOME
         }
@@ -518,8 +462,7 @@ private fun MainAppContent(
 
     var selectedTab by remember {
         mutableStateOf(
-            if (pendingOpenPrivateInbox) BottomNavTab.INBOX
-            else if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
+            if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
             else BottomNavTab.HOME
         )
     }
@@ -544,7 +487,7 @@ private fun MainAppContent(
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
             if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home ||
-                newScreen is Screen.NotFound || newScreen is Screen.PrivateInbox || newScreen is Screen.LocalGallery || newScreen is Screen.PeerProfile) {
+                newScreen is Screen.NotFound || newScreen is Screen.Downloads || newScreen is Screen.LocalGallery) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
 
@@ -552,8 +495,7 @@ private fun MainAppContent(
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
             val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer ||
-                    newScreen is Screen.PrivateChatRoom || newScreen is Screen.PrivateInbox ||
-                    newScreen is Screen.LocalGallery || newScreen is Screen.PeerProfile
+                    newScreen is Screen.Downloads || newScreen is Screen.LocalGallery
 
             if (isExempted) {
                 currentScreen = newScreen
@@ -645,12 +587,6 @@ private fun MainAppContent(
         authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
     }
 
-    val currentMyUserId = remember(authState.userProfile) {
-        authState.userProfile?.id?.takeIf { it.isNotBlank() }
-            ?: authState.userProfile?.effectiveAccountId
-            ?: "1"
-    }
-
     LaunchedEffect(currentScreen) {
         when (val screen = currentScreen) {
             is Screen.Player -> {
@@ -680,9 +616,6 @@ private fun MainAppContent(
                     is Screen.Downloads -> "Downloads Screen"
                     is Screen.Search -> "Search Screen"
                     is Screen.CommunityChat -> "Community Live Chat"
-                    is Screen.PrivateInbox -> "Private Inbox"
-                    is Screen.PrivateChatRoom -> "Chat Room with: ${screen.peerName}"
-                    is Screen.PeerProfile -> "User Profile: ${screen.peerName}"
                     is Screen.LocalGallery -> "Local Media Gallery"
                     is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
                     is Screen.NotFound -> "404 Not Found Screen"
@@ -704,8 +637,6 @@ private fun MainAppContent(
             currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
-            currentScreen is Screen.PrivateChatRoom ||
-            currentScreen is Screen.PeerProfile ||
             currentScreen is Screen.NotFound
 
     Box(
@@ -719,7 +650,6 @@ private fun MainAppContent(
                 if (!shouldHideBottomNav) {
                     PlayDramaFlixBottomNav(
                         selectedTab = selectedTab,
-                        unreadInboxCount = totalUnreadCount,
                         onTabSelected = { tab ->
                             if (selectedTab != tab) {
                                 when (tab) {
@@ -733,7 +663,7 @@ private fun MainAppContent(
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
                                     BottomNavTab.GALLERY -> navigateTo(Screen.LocalGallery, tab)
-                                    BottomNavTab.INBOX -> navigateTo(Screen.PrivateInbox, tab)
+                                    BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab) // 👈 ডাউনলোডস পেজ ওপেন
                                     BottomNavTab.ME -> navigateTo(Screen.Profile, tab)
                                 }
                             }
@@ -776,7 +706,7 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() },
                                 onNavigateToVip = { navigateTo(Screen.Vip, null) },
                                 onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
-                                onNavigateToDownloads = { navigateTo(Screen.Downloads, null) }
+                                onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                             )
                         }
                         is Screen.Search -> {
@@ -819,6 +749,7 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
+                        // 📥 ৪ নম্বর ট্যাবের ডাউনলোডস পেজ
                         is Screen.Downloads -> {
                             DownloadsScreen(
                                 onBackClick = { handleBackNavigation() },
@@ -827,89 +758,11 @@ private fun MainAppContent(
                                 }
                             )
                         }
+                        // 👥 গ্লোবাল কমিউনিটি লাইভ চ্যাট
                         is Screen.CommunityChat -> {
                             CommunityChatScreen(
                                 viewModel = viewModel,
-                                onBackClick = { handleBackNavigation() },
-                                onNavigateToUserProfile = { clickedUid, clickedName, clickedAvatar ->
-                                    navigateTo(
-                                        Screen.PeerProfile(
-                                            peerId = clickedUid,
-                                            peerName = clickedName,
-                                            peerAvatar = clickedAvatar
-                                        ),
-                                        null
-                                    )
-                                }
-                            )
-                        }
-                        is Screen.PrivateInbox -> {
-                            PrivateInboxScreen(
-                                viewModel = privateChatViewModel,
-                                myUserId = currentMyUserId,
-                                onBackClick = { handleBackNavigation() },
-                                onOpenChat = { peerId, peerName, peerAvatar, isOnline, isVipMember ->
-                                    privateChatViewModel.openChatRoom(
-                                        myUserId = currentMyUserId,
-                                        peerId = peerId,
-                                        peerName = peerName,
-                                        peerAvatar = peerAvatar,
-                                        isPeerOnline = isOnline,
-                                        isPeerVip = isVipMember
-                                    )
-                                    navigateTo(
-                                        Screen.PrivateChatRoom(
-                                            peerId = peerId,
-                                            peerName = peerName,
-                                            peerAvatar = peerAvatar,
-                                            isPeerOnline = isOnline,
-                                            isPeerVip = isVipMember
-                                        ),
-                                        null
-                                    )
-                                },
-                                onOpenCommunityChat = {
-                                    // 🌟 ইনবক্সের শীর্ষ ব্যানার থেকে সরাসরি কমিউনিটি গ্রুপ ওপেন
-                                    navigateTo(Screen.CommunityChat, null)
-                                }
-                            )
-                        }
-                        is Screen.PrivateChatRoom -> {
-                            PrivateChatRoomScreen(
-                                viewModel = privateChatViewModel,
-                                myUserId = currentMyUserId,
                                 onBackClick = { handleBackNavigation() }
-                            )
-                        }
-                        is Screen.PeerProfile -> {
-                            PeerProfileScreen(
-                                peerId = targetScreen.peerId,
-                                peerName = targetScreen.peerName,
-                                peerAvatar = targetScreen.peerAvatar,
-                                isPeerOnline = targetScreen.isPeerOnline,
-                                isPeerVip = targetScreen.isPeerVip,
-                                peerBio = targetScreen.peerBio,
-                                onBackClick = { handleBackNavigation() },
-                                onOpenMessageClick = {
-                                    privateChatViewModel.openChatRoom(
-                                        myUserId = currentMyUserId,
-                                        peerId = targetScreen.peerId,
-                                        peerName = targetScreen.peerName,
-                                        peerAvatar = targetScreen.peerAvatar,
-                                        isPeerOnline = targetScreen.isPeerOnline,
-                                        isPeerVip = targetScreen.isPeerVip
-                                    )
-                                    navigateTo(
-                                        Screen.PrivateChatRoom(
-                                            peerId = targetScreen.peerId,
-                                            peerName = targetScreen.peerName,
-                                            peerAvatar = targetScreen.peerAvatar,
-                                            isPeerOnline = targetScreen.isPeerOnline,
-                                            isPeerVip = targetScreen.isPeerVip
-                                        ),
-                                        null
-                                    )
-                                }
                             )
                         }
                         is Screen.NotFound -> {
@@ -932,16 +785,13 @@ private fun MainAppContent(
         }
 
         // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট
+        // 💬 ফ্লোটিং চ্যাট উইজেট (Community Chat)
         // =========================================================================
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         val shouldHideFloatingChat = (currentScreen is Screen.Player && isLandscape) ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
-                currentScreen is Screen.PrivateInbox ||
-                currentScreen is Screen.PrivateChatRoom ||
-                currentScreen is Screen.PeerProfile ||
                 currentScreen is Screen.NotFound
 
         if (!shouldHideFloatingChat) {
