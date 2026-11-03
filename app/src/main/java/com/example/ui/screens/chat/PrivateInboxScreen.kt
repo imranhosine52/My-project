@@ -7,8 +7,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,10 +19,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -28,7 +30,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -50,16 +51,17 @@ import com.example.data.model.SearchedUserDto
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.viewmodel.PrivateChatViewModel
 
-// 🎨 টেলিগ্রাম অফিসিয়াল ডার্ক কালার প্যালেট
-private val TelegramBg = Color(0xFF0E1621)
-private val TelegramHeaderBg = Color(0xFF17212B)
-private val TelegramCardBg = Color(0xFF17212B)
-private val TelegramBlue = Color(0xFF2AABEE)
-private val TelegramOnlineGreen = Color(0xFF00E676)
-private val TelegramMuted = Color(0xFF7E8D9F)
-private val TelegramDivider = Color(0xFF1A222D)
-private val TelegramUnreadBadge = Color(0xFF2AABEE)
-private val TelegramFieldBg = Color(0xFF212D3B)
+// 🎨 স্ক্রিনশটের হুবহু WhatsApp Dark Mode কালার প্যালেট
+private val WaDarkBg = Color(0xFF0B141B)             // মূল হোয়াটসঅ্যাপ ডার্ক ব্যাকগ্রাউন্ড
+private val WaHeaderBg = Color(0xFF111B21)           // টপ হেডার ব্যাকগ্রাউন্ড
+private val WaSearchPillBg = Color(0xFF202C33)       // সার্চ পিল ব্যাকগ্রাউন্ড
+private val WaGreen = Color(0xFF25D366)              // সিগনেচার হোয়াটসঅ্যাপ নিয়ন গ্রিন
+private val WaTextPrimary = Color(0xFFE9EDEF)        // প্রধান টেক্সট হোয়াইট
+private val WaTextMuted = Color(0xFF8696A0)          // মিউটেড সাবটাইটেল কালার
+private val WaDivider = Color(0xFF202C33)            // স্লিম ডিভাইডার
+private val WaBlueTick = Color(0xFF53BDEB)           // ব্লু টিক মার্ক কালার
+private val WaFilterChipSelected = Color(0xFF005C4B) // অ্যাক্টিভ ফিল্টার চিপ
+private val WaFilterChipUnselected = Color(0xFF202C33)
 
 @Composable
 fun PrivateInboxScreen(
@@ -67,7 +69,7 @@ fun PrivateInboxScreen(
     myUserId: String,
     onBackClick: () -> Unit,
     onOpenChat: (peerId: String, peerName: String, peerAvatar: String?, isOnline: Boolean, isVip: Boolean) -> Unit,
-    onOpenCommunityChat: () -> Unit = {}, // 👈 কমিউনিটি গ্রুপ ওপেন করার কলব্যাক
+    onOpenCommunityChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -75,7 +77,8 @@ fun PrivateInboxScreen(
     val inboxState by viewModel.inboxUiState.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
 
-    var isSearchActive by remember { mutableStateOf(false) }
+    var activeFilter by remember { mutableStateOf("All") } // "All", "Unread", "Find by ID"
+    var showMenuDropdown by remember { mutableStateOf(false) }
 
     LaunchedEffect(myUserId) {
         if (myUserId.isNotBlank()) {
@@ -86,23 +89,22 @@ fun PrivateInboxScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(TelegramBg)
+            .background(WaDarkBg)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টেলিগ্রাম স্টাইল এজ-টু-এজ টপ বার
+            // 🔝 ১. WhatsApp অফিসিয়াল হেডার বার
             // =========================================================================
             Surface(
-                color = TelegramHeaderBg,
-                shadowElevation = 2.dp,
+                color = WaHeaderBg,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -111,219 +113,200 @@ fun PrivateInboxScreen(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            IconButton(onClick = onBackClick, modifier = Modifier.size(34.dp)) {
+                            IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Back",
-                                    tint = Color.White,
+                                    tint = WaTextPrimary,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
 
-                            if (!isSearchActive) {
-                                Text(
-                                    text = "Messages",
-                                    color = Color.White,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else {
-                                BasicTextField(
-                                    value = inboxState.searchQuery,
-                                    onValueChange = { viewModel.onSearchQueryChanged(it) },
-                                    singleLine = true,
-                                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
-                                    cursorBrush = SolidColor(TelegramBlue),
-                                    decorationBox = { innerTextField ->
-                                        if (inboxState.searchQuery.isEmpty()) {
-                                            Text("Search chat...", color = TelegramMuted, fontSize = 14.sp)
-                                        }
-                                        innerTextField()
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
+                            Text(
+                                text = "WhatsApp",
+                                color = WaTextPrimary,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.3).sp
+                            )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (isSearchActive) {
-                                IconButton(
-                                    onClick = {
-                                        isSearchActive = false
-                                        viewModel.onSearchQueryChanged("")
-                                    },
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close Search", tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-                            } else if (inboxState.selectedTab == 0) {
-                                IconButton(
-                                    onClick = { isSearchActive = true },
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(20.dp))
-                                }
+                            IconButton(onClick = { viewModel.refreshInbox(myUserId) }, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Sync",
+                                    tint = WaTextMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
 
-                            IconButton(
-                                onClick = { viewModel.refreshInbox(myUserId) },
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TelegramBlue, modifier = Modifier.size(19.dp))
+                            Box {
+                                IconButton(onClick = { showMenuDropdown = true }, modifier = Modifier.size(36.dp)) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More",
+                                        tint = WaTextPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showMenuDropdown,
+                                    onDismissRequest = { showMenuDropdown = false },
+                                    modifier = Modifier
+                                        .background(WaHeaderBg)
+                                        .border(1.dp, WaDivider, RoundedCornerShape(10.dp))
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Open Community Group", color = WaTextPrimary, fontSize = 14.sp) },
+                                        leadingIcon = { Icon(Icons.Outlined.Groups, contentDescription = null, tint = WaGreen, modifier = Modifier.size(18.dp)) },
+                                        onClick = {
+                                            showMenuDropdown = false
+                                            onOpenCommunityChat()
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Search by 8-Digit ID", color = WaTextPrimary, fontSize = 14.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null, tint = WaGreen, modifier = Modifier.size(18.dp)) },
+                                        onClick = {
+                                            showMenuDropdown = false
+                                            activeFilter = "Find by ID"
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // =========================================================================
-                    // 🧭 ২. স্লিক পিল ট্যাব বার: [ 💬 Chats ] [ 🔍 Find User by ID ]
+                    // 🔍 ২. স্ক্রিনশটের হুবহু ফ্রস্টেড ডার্ক Search Bar Pill
                     // =========================================================================
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(WaSearchPillBg)
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        TabPillItem(
-                            label = "Chats",
-                            icon = Icons.Outlined.ChatBubbleOutline,
-                            badgeCount = inboxState.rawInbox.sumOf { it.unreadCount },
-                            isSelected = inboxState.selectedTab == 0,
-                            onClick = { viewModel.selectInboxTab(0) },
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = WaTextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+
+                        BasicTextField(
+                            value = inboxState.searchQuery,
+                            onValueChange = { query ->
+                                viewModel.onSearchQueryChanged(query)
+                                if (query.length == 8 && query.all { it.isDigit() }) {
+                                    viewModel.onSearchAccountIdInputChanged(query)
+                                    viewModel.searchUserByAccountId(myUserId)
+                                }
+                            },
+                            singleLine = true,
+                            textStyle = TextStyle(color = WaTextPrimary, fontSize = 15.sp),
+                            cursorBrush = SolidColor(WaGreen),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                            decorationBox = { innerTextField ->
+                                if (inboxState.searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search or enter 8-digit ID...",
+                                        color = WaTextMuted,
+                                        fontSize = 14.5.sp
+                                    )
+                                }
+                                innerTextField()
+                            },
                             modifier = Modifier.weight(1f)
                         )
 
-                        TabPillItem(
-                            label = "Find by 8-Digit ID",
-                            icon = Icons.Default.Tag,
-                            isSelected = inboxState.selectedTab == 1,
-                            onClick = { viewModel.selectInboxTab(1) },
-                            modifier = Modifier.weight(1.3f)
-                        )
+                        if (inboxState.searchQuery.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = WaTextMuted,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        viewModel.onSearchQueryChanged("")
+                                        viewModel.clearSearchedUser()
+                                    }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // =========================================================================
+                    // 📑 ৩. আধুনিক WhatsApp ফিল্টার চিপস ([All], [Unread], [🔍 Find by ID])
+                    // =========================================================================
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item {
+                            WhatsAppFilterChip(
+                                label = "All",
+                                isSelected = activeFilter == "All",
+                                onClick = {
+                                    activeFilter = "All"
+                                    viewModel.selectInboxTab(0)
+                                }
+                            )
+                        }
+                        item {
+                            val unreadTotal = inboxState.rawInbox.sumOf { it.unreadCount }
+                            WhatsAppFilterChip(
+                                label = if (unreadTotal > 0) "Unread ($unreadTotal)" else "Unread",
+                                isSelected = activeFilter == "Unread",
+                                onClick = {
+                                    activeFilter = "Unread"
+                                    viewModel.selectInboxTab(0)
+                                }
+                            )
+                        }
+                        item {
+                            WhatsAppFilterChip(
+                                label = "🔍 Find by 8-Digit ID",
+                                isSelected = activeFilter == "Find by ID",
+                                onClick = {
+                                    activeFilter = "Find by ID"
+                                    viewModel.selectInboxTab(1)
+                                }
+                            )
+                        }
                     }
                 }
             }
 
             // =========================================================================
-            // 📑 ৩. নির্বাচিত ট্যাবের কনটেন্ট
+            // 📜 ৪. মূল কন্টেন্ট (চ্যাটস বা ৮-ডিজিট আইডি সার্চ)
             // =========================================================================
-            if (inboxState.selectedTab == 0) {
+            if (activeFilter == "Find by ID" || inboxState.selectedTab == 1) {
                 // ---------------------------------------------------------------------
-                // TAB 0: CHATS LIST (সবার উপরে পিন করা কমিউনিটি গ্রুপ)
-                // ---------------------------------------------------------------------
-                PullToRefreshBox(
-                    isRefreshing = inboxState.isRefreshing,
-                    onRefresh = { viewModel.refreshInbox(myUserId) },
-                    state = pullRefreshState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 4.dp)
-                    ) {
-                        // 🌟 সবার উপরে স্থায়ীভাবে পিন করা কমিউনিটি গ্রুপ ব্যানার
-                        item {
-                            PinnedCommunityGroupBanner(
-                                onClick = onOpenCommunityChat
-                            )
-                        }
-
-                        if (inboxState.isLoading && inboxState.rawInbox.isEmpty()) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(200.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(color = TelegramBlue, strokeWidth = 2.5.dp)
-                                }
-                            }
-                        } else if (inboxState.filteredInbox.isEmpty()) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 40.dp, start = 32.dp, end = 32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(64.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF16202C)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ChatBubbleOutline,
-                                                contentDescription = null,
-                                                tint = TelegramMuted,
-                                                modifier = Modifier.size(32.dp)
-                                            )
-                                        }
-
-                                        Text(
-                                            text = if (inboxState.searchQuery.isNotEmpty()) "No chats matching '${inboxState.searchQuery}'" else "No private messages yet",
-                                            color = Color.White,
-                                            fontSize = 15.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-
-                                        Text(
-                                            text = "Chat with fans in Community above, or tap 'Find by 8-Digit ID' to search a friend and message them directly.",
-                                            color = TelegramMuted,
-                                            fontSize = 12.sp,
-                                            textAlign = TextAlign.Center,
-                                            lineHeight = 17.sp
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            items(
-                                items = inboxState.filteredInbox,
-                                key = { it.chatRoomId }
-                            ) { chatItem ->
-                                TelegramInboxItemRow(
-                                    item = chatItem,
-                                    onClick = {
-                                        onOpenChat(
-                                            chatItem.peerId,
-                                            chatItem.peerName,
-                                            chatItem.peerAvatar,
-                                            chatItem.isOnline,
-                                            chatItem.isVip
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            } else {
-                // ---------------------------------------------------------------------
-                // TAB 1: FIND USER BY 8-DIGIT ID
+                // ৮-ডিজিট আইডি সার্চ মোড
                 // ---------------------------------------------------------------------
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // ৮-ডিজিট আইডি সার্চ ইনপুট কার্ড
                     Surface(
-                        color = TelegramCardBg,
+                        color = WaHeaderBg,
                         shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, Color(0xFF222E3A)),
+                        border = BorderStroke(1.dp, WaDivider),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -331,16 +314,16 @@ fun PrivateInboxScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = "Search User by 8-Digit ID",
-                                color = Color.White,
-                                fontSize = 15.sp,
+                                text = "Find User by 8-Digit ID",
+                                color = WaTextPrimary,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Every PlayDramaFlix user has a unique 8-digit account number (e.g. 85000100). Enter their ID to start private chat.",
-                                color = TelegramMuted,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
+                                text = "Enter any user's 8-digit unique contact number to start private conversation directly.",
+                                color = WaTextMuted,
+                                fontSize = 12.5.sp,
+                                lineHeight = 17.sp
                             )
 
                             Row(
@@ -348,20 +331,20 @@ fun PrivateInboxScreen(
                                     .fillMaxWidth()
                                     .height(44.dp)
                                     .clip(RoundedCornerShape(22.dp))
-                                    .background(TelegramFieldBg)
-                                    .border(1.dp, if (inboxState.searchAccountIdInput.length == 8) TelegramBlue else Color(0xFF2E3B4B), RoundedCornerShape(22.dp))
+                                    .background(WaSearchPillBg)
+                                    .border(1.dp, if (inboxState.searchAccountIdInput.length == 8) WaGreen else WaDivider, RoundedCornerShape(22.dp))
                                     .padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(Icons.Default.Tag, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Tag, contentDescription = null, tint = WaGreen, modifier = Modifier.size(18.dp))
 
                                 BasicTextField(
                                     value = inboxState.searchAccountIdInput,
                                     onValueChange = { viewModel.onSearchAccountIdInputChanged(it) },
                                     singleLine = true,
-                                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
-                                    cursorBrush = SolidColor(TelegramBlue),
+                                    textStyle = TextStyle(color = WaTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                                    cursorBrush = SolidColor(WaGreen),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search),
                                     keyboardActions = KeyboardActions(onSearch = {
                                         focusManager.clearFocus()
@@ -369,7 +352,7 @@ fun PrivateInboxScreen(
                                     }),
                                     decorationBox = { inner ->
                                         if (inboxState.searchAccountIdInput.isEmpty()) {
-                                            Text("Enter 8-digit ID...", color = TelegramMuted, fontSize = 14.sp)
+                                            Text("Enter 8-digit ID...", color = WaTextMuted, fontSize = 14.sp)
                                         }
                                         inner()
                                     },
@@ -380,7 +363,7 @@ fun PrivateInboxScreen(
                                     Icon(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Clear",
-                                        tint = TelegramMuted,
+                                        tint = WaTextMuted,
                                         modifier = Modifier.size(16.dp).clickable { viewModel.clearSearchedUser() }
                                     )
                                 }
@@ -393,27 +376,26 @@ fun PrivateInboxScreen(
                                 },
                                 enabled = inboxState.searchAccountIdInput.length >= 3 && !inboxState.isSearchingUser,
                                 shape = RoundedCornerShape(22.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue),
+                                colors = ButtonDefaults.buttonColors(containerColor = WaGreen),
                                 modifier = Modifier.fillMaxWidth().height(42.dp)
                             ) {
                                 if (inboxState.isSearchingUser) {
-                                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                    CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Searching...", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text("Searching...", color = Color.Black, fontWeight = FontWeight.Bold)
                                 } else {
-                                    Icon(Icons.Default.Search, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Search, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Find User", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Find & Message", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
                             }
                         }
                     }
 
-                    // সার্চ ফলাফল বা এরর ডিসপ্লে
                     if (inboxState.searchUserError != null) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF2E1618),
+                            color = Color(0xFF281418),
                             border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -433,9 +415,8 @@ fun PrivateInboxScreen(
                         }
                     }
 
-                    // 👤 কাঙ্ক্ষিত ইউজার পাওয়া গেলে তার টেলিগ্রাম স্টাইল কার্ড
                     inboxState.searchedUser?.let { user ->
-                        SearchedUserCard(
+                        WhatsAppSearchedUserCard(
                             user = user,
                             onMessageClick = {
                                 onOpenChat(
@@ -449,20 +430,146 @@ fun PrivateInboxScreen(
                         )
                     }
                 }
+            } else {
+                // ---------------------------------------------------------------------
+                // মূল চ্যাট তালিকা (WhatsApp Dark Mode)
+                // ---------------------------------------------------------------------
+                val displayList = remember(inboxState.filteredInbox, activeFilter) {
+                    if (activeFilter == "Unread") {
+                        inboxState.filteredInbox.filter { it.unreadCount > 0 }
+                    } else {
+                        inboxState.filteredInbox
+                    }
+                }
+
+                PullToRefreshBox(
+                    isRefreshing = inboxState.isRefreshing,
+                    onRefresh = { viewModel.refreshInbox(myUserId) },
+                    state = pullRefreshState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        // =============================================================
+                        // 📌 ১. সবার উপরে পিন করা কমিউনিটি গ্রুপ (Pinned Group Banner)
+                        // =============================================================
+                        if (activeFilter == "All" && inboxState.searchQuery.isEmpty()) {
+                            item {
+                                WhatsAppCommunityGroupRow(
+                                    onClick = onOpenCommunityChat
+                                )
+                            }
+                        }
+
+                        // ২. সার্চ রেজাল্টে যদি ৮-ডিজিট আইডি দিয়ে ইউজার পাওয়া যায়
+                        if (inboxState.searchedUser != null) {
+                            item {
+                                Box(modifier = Modifier.padding(14.dp)) {
+                                    WhatsAppSearchedUserCard(
+                                        user = inboxState.searchedUser!!,
+                                        onMessageClick = {
+                                            val u = inboxState.searchedUser!!
+                                            onOpenChat(u.peerId, u.peerName, u.displayAvatar, u.isOnline, u.isVip)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // ৩. খালি স্টেট
+                        if (inboxState.isLoading && inboxState.rawInbox.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = WaGreen, strokeWidth = 2.5.dp)
+                                }
+                            }
+                        } else if (displayList.isEmpty() && inboxState.searchedUser == null) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 40.dp, start = 32.dp, end = 32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(CircleShape)
+                                                .background(WaHeaderBg),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ChatBubbleOutline,
+                                                contentDescription = null,
+                                                tint = WaTextMuted,
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                        }
+
+                                        Text(
+                                            text = if (inboxState.searchQuery.isNotEmpty()) "No chats found matching '${inboxState.searchQuery}'" else "No conversations yet",
+                                            color = WaTextPrimary,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+
+                                        Text(
+                                            text = "Chat in DramaFlix Community Group above or search a user's 8-digit ID to start a direct message.",
+                                            color = WaTextMuted,
+                                            fontSize = 12.5.sp,
+                                            textAlign = TextAlign.Center,
+                                            lineHeight = 17.sp
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // ৪. চ্যাট রোগুলো (স্ক্রিনশটের হুবহু লুক)
+                            items(
+                                items = displayList,
+                                key = { it.chatRoomId }
+                            ) { chatItem ->
+                                WhatsAppStyleChatRow(
+                                    item = chatItem,
+                                    onClick = {
+                                        onOpenChat(
+                                            chatItem.peerId,
+                                            chatItem.peerName,
+                                            chatItem.peerAvatar,
+                                            chatItem.isOnline,
+                                            chatItem.isVip
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 // =============================================================================
-// 👑 ১. সবার উপরে পিন করা কমিউনিটি গ্রুপ কার্ড (Pinned Community Group Banner)
+// 👑 ১. স্ক্রিনশটের হুবহু পিন করা কমিউনিটি গ্রুপ (Pinned WhatsApp Row)
 // =============================================================================
 @Composable
-private fun PinnedCommunityGroupBanner(
+private fun WhatsAppCommunityGroupRow(
     onClick: () -> Unit
 ) {
     Surface(
-        color = Color(0xFF131D28),
+        color = WaDarkBg,
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -471,33 +578,30 @@ private fun PinnedCommunityGroupBanner(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // ব্লু গ্রুপ আইকন
+                // হোয়াটসঅ্যাপ গ্রিন গ্রুপ আইকন
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(52.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF2AABEE), Color(0xFF1D78A8))
-                            )
-                        ),
+                        .background(Color(0xFF005C4B)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Groups,
+                        imageVector = Icons.Outlined.Groups,
                         contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
+                        tint = WaGreen,
+                        modifier = Modifier.size(30.dp)
                     )
                 }
 
+                // টাইটেল ও মেটাডাটা
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -505,92 +609,264 @@ private fun PinnedCommunityGroupBanner(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "DramaFlix Community Group",
-                            color = Color.White,
-                            fontSize = 15.sp,
+                            text = "DramaFlix Community",
+                            color = WaTextPrimary,
+                            fontSize = 16.5.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
 
-                        // PINNED ব্যাজ
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF1B3245),
-                            border = BorderStroke(0.6.dp, Color(0xFF2AABEE).copy(alpha = 0.6f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Icon(Icons.Default.PushPin, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(10.dp))
-                                Text("PINNED", color = Color(0xFF2AABEE), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
+                        Text(
+                            text = "Pinned",
+                            color = WaTextMuted,
+                            fontSize = 11.5.sp
+                        )
                     }
 
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(TelegramOnlineGreen)
-                        )
                         Text(
-                            text = "Public Group • Chat live with drama fans & share moments",
-                            color = Color(0xFF8CA0B8),
-                            fontSize = 12.5.sp,
+                            text = "Public group • Chat live with drama fans & share moments",
+                            color = WaTextMuted,
+                            fontSize = 13.5.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        // 📌 পিন আইকন
+                        Icon(
+                            imageVector = Icons.Outlined.PushPin,
+                            contentDescription = "Pinned",
+                            tint = WaTextMuted,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
             HorizontalDivider(
-                color = Color(0xFF213244),
-                thickness = 1.dp
+                color = WaDivider,
+                thickness = 0.6.dp,
+                modifier = Modifier.padding(start = 80.dp)
             )
         }
     }
 }
 
 // =============================================================================
-// 🔍 ২. সার্চে পাওয়া ইউজারের কার্ড (Searched User Card)
+// 📱 ২. স্ক্রিনশটের হুবহু চ্যাট রো (WhatsApp Style Chat Row)
 // =============================================================================
 @Composable
-private fun SearchedUserCard(
+private fun WhatsAppStyleChatRow(
+    item: LocalInboxEntity,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+
+    val avatarModel = remember(item.peerAvatar, item.peerName) {
+        item.peerAvatar?.takeIf { it.isNotBlank() }
+            ?: "https://ui-avatars.com/api/?name=${item.peerName}&background=202C33&color=25D366&bold=true"
+    }
+
+    Surface(
+        color = WaDarkBg,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // ১. অবতার ও অনলাইন ডট
+                Box(
+                    modifier = Modifier.size(52.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(CircleShape)
+                            .background(WaSearchPillBg),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(avatarModel)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = item.peerName,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    if (item.isOnline) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(WaGreen)
+                                .border(2.dp, WaDarkBg, CircleShape)
+                                .align(Alignment.BottomEnd)
+                        )
+                    }
+                }
+
+                // ২. নাম ও শেষ মেসেজ রো
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = item.peerName,
+                                color = WaTextPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (item.isVip) {
+                                VipCrown3DIcon(modifier = Modifier.size(16.dp, 12.dp))
+                            }
+                        }
+
+                        // সময়
+                        Text(
+                            text = item.timeFormatted.ifBlank { "Recent" },
+                            color = if (item.unreadCount > 0) WaGreen else WaTextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (item.unreadCount > 0) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            // স্ক্রিনশটের মতো ডাবল-টিক্স
+                            Text(
+                                text = "✓✓",
+                                color = if (item.unreadCount == 0) WaBlueTick else WaTextMuted,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Text(
+                                text = item.lastMessage.ifBlank { "Tap to send message" },
+                                color = WaTextMuted,
+                                fontSize = 13.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // ৩. ডানপাশের আনরিড ব্যাজ ও পিন
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (item.isPinned) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PushPin,
+                                    contentDescription = "Pinned",
+                                    tint = WaTextMuted,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+
+                            // 🟢 সিগনেচার WhatsApp নিয়ন গ্রিন আনরিড ব্যাজ
+                            if (item.unreadCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(WaGreen)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (item.unreadCount > 99) "99+" else item.unreadCount.toString(),
+                                        color = Color.Black,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // পাতলা ডিভাইডার (হোয়াটসঅ্যাপ স্টাইল ইনডেন্টেশন)
+            HorizontalDivider(
+                color = WaDivider,
+                thickness = 0.6.dp,
+                modifier = Modifier.padding(start = 80.dp)
+            )
+        }
+    }
+}
+
+// =============================================================================
+// 🔍 ৩. সার্চ করা ইউজারের কার্ড
+// =============================================================================
+@Composable
+private fun WhatsAppSearchedUserCard(
     user: SearchedUserDto,
     onMessageClick: () -> Unit
 ) {
     val context = LocalContext.current
 
     Surface(
-        color = TelegramCardBg,
+        color = WaHeaderBg,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.2.dp, TelegramBlue.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, WaGreen.copy(alpha = 0.4f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // অবতার ও অনলাইন ডট
-                Box(modifier = Modifier.size(60.dp), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(52.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF222E3A)),
+                            .background(WaSearchPillBg),
                         contentAlignment = Alignment.Center
                     ) {
                         AsyncImage(
@@ -607,25 +883,24 @@ private fun SearchedUserCard(
                     if (user.isOnline) {
                         Box(
                             modifier = Modifier
-                                .size(13.dp)
+                                .size(12.dp)
                                 .clip(CircleShape)
-                                .background(TelegramOnlineGreen)
-                                .border(2.dp, TelegramCardBg, CircleShape)
+                                .background(WaGreen)
+                                .border(2.dp, WaHeaderBg, CircleShape)
                                 .align(Alignment.BottomEnd)
                         )
                     }
                 }
 
-                // নাম, একাউন্ট আইডি ও স্ট্যাটাস
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = user.peerName,
-                            color = Color.White,
-                            fontSize = 16.5.sp,
+                            color = WaTextPrimary,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -635,50 +910,33 @@ private fun SearchedUserCard(
                         }
                     }
 
-                    // ৮-ডিজিট আইডি ব্যাজ
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF1E2838),
-                        border = BorderStroke(0.6.dp, Color(0xFF2E3E52))
-                    ) {
-                        Text(
-                            text = "ID: ${user.accountId}",
-                            color = TelegramBlue,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                    Text(
+                        text = "Account ID: ${user.accountId}",
+                        color = WaGreen,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
 
                     Text(
-                        text = if (user.isOnline) "online" else "last seen recently",
-                        color = if (user.isOnline) TelegramOnlineGreen else TelegramMuted,
+                        text = if (user.isOnline) "online" else "offline",
+                        color = if (user.isOnline) WaGreen else WaTextMuted,
                         fontSize = 11.5.sp
                     )
                 }
             }
 
-            // বায়ো
-            Text(
-                text = user.bio ?: "Drama lover & PlayDramaFlix community member ✨",
-                color = Color(0xFFCBD5E1),
-                fontSize = 12.5.sp,
-                lineHeight = 17.sp
-            )
-
-            // সরাসরি মেসেজ করার বাটন
             Button(
                 onClick = onMessageClick,
                 shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue),
+                colors = ButtonDefaults.buttonColors(containerColor = WaGreen),
                 modifier = Modifier.fillMaxWidth().height(42.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
-                    Text("Send Message", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                    Text("Chat on WhatsApp Mode", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -686,198 +944,35 @@ private fun SearchedUserCard(
 }
 
 // =============================================================================
-// 📱 ৩. ইনবক্স চ্যাট আইটেমের রো (Inbox Row Item)
+// 🏷️ ৪. WhatsApp ফিল্টার চিপ কম্পোনেন্ট
 // =============================================================================
 @Composable
-private fun TelegramInboxItemRow(
-    item: LocalInboxEntity,
+private fun WhatsAppFilterChip(
+    label: String,
+    isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val context = LocalContext.current
-
-    val avatarModel = remember(item.peerAvatar, item.peerName) {
-        item.peerAvatar?.takeIf { it.isNotBlank() }
-            ?: "https://ui-avatars.com/api/?name=${item.peerName}&background=1E293B&color=FACC15&bold=true"
-    }
-
     Surface(
-        color = TelegramBg,
+        shape = RoundedCornerShape(16.dp),
+        color = if (isSelected) WaFilterChipSelected else WaFilterChipUnselected,
+        border = BorderStroke(0.6.dp, if (isSelected) WaGreen.copy(alpha = 0.5f) else Color.Transparent),
         modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
+            .height(32.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // অবতার ও সবুজ অনলাইন ডট
-                Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-                    Box(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF222E3A)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(avatarModel)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = item.peerName,
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    if (item.isOnline) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(TelegramOnlineGreen)
-                                .border(2.dp, TelegramBg, CircleShape)
-                                .align(Alignment.BottomEnd)
-                        )
-                    }
-                }
-
-                // নাম, লাস্ট মেসেজ ও মেটা
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = item.peerName,
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            if (item.isVip) {
-                                VipCrown3DIcon(modifier = Modifier.size(16.dp, 12.dp))
-                            }
-                        }
-
-                        Text(
-                            text = item.timeFormatted.ifBlank { "Recent" },
-                            color = TelegramMuted,
-                            fontSize = 11.5.sp
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = item.lastMessage.ifBlank { "No messages yet" },
-                            color = if (item.unreadCount > 0) Color.White else TelegramMuted,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        if (item.unreadCount > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(TelegramUnreadBadge)
-                                    .padding(horizontal = 7.dp, vertical = 2.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (item.unreadCount > 99) "99+" else item.unreadCount.toString(),
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            HorizontalDivider(
-                color = TelegramDivider,
-                thickness = 0.6.dp,
-                modifier = Modifier.padding(start = 76.dp)
-            )
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------
-// স্লিক পিল ট্যাব আইটেম কম্পোনেন্ট
-// -----------------------------------------------------------------------------
-@Composable
-private fun TabPillItem(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isSelected: Boolean,
-    badgeCount: Int = 0,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = if (isSelected) TelegramBlue else Color(0xFF1E2834),
-        modifier = modifier
-            .height(34.dp)
-            .clickable { onClick() }
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+        Box(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (isSelected) Color.White else TelegramMuted,
-                modifier = Modifier.size(15.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
-                color = if (isSelected) Color.White else TelegramMuted,
-                fontSize = 12.sp,
+                color = if (isSelected) WaGreen else WaTextMuted,
+                fontSize = 12.5.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
             )
-            if (badgeCount > 0) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(if (isSelected) Color.White else TelegramBlue)
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
-                ) {
-                    Text(
-                        text = "$badgeCount",
-                        color = if (isSelected) TelegramBlue else Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
         }
     }
 }
