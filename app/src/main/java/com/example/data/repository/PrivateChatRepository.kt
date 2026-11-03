@@ -22,10 +22,24 @@ class PrivateChatRepository(
     companion object {
         private const val TAG = "PrivateChatRepo"
 
-        // 🔑 দুই ইউজারের আইডি দিয়ে একটি স্থায়ী ইউনিক চ্যাট রুম আইডি তৈরি
+        /**
+         * 🔑 দুই ইউজারের আইডি দিয়ে একটি স্থায়ী ও সুরক্ষিত ইউনিক চ্যাট রুম আইডি তৈরি
+         * (আইডি টেক্সট বা ৮-ডিজিট যাই হোক না কেন, কখনোই কনফ্লিক্ট বা 0 হবে না)
+         */
         fun getChatRoomId(user1Id: String, user2Id: String): String {
-            val u1 = user1Id.filter { it.isDigit() }.toLongOrNull() ?: 0L
-            val u2 = user2Id.filter { it.isDigit() }.toLongOrNull() ?: 0L
+            val clean1 = user1Id.trim()
+            val clean2 = user2Id.trim()
+
+            val u1 = clean1.filter { it.isDigit() }.toLongOrNull() ?: run {
+                val hash = clean1.hashCode().toLong()
+                if (hash < 0) -hash else hash
+            }
+
+            val u2 = clean2.filter { it.isDigit() }.toLongOrNull() ?: run {
+                val hash = clean2.hashCode().toLong()
+                if (hash < 0) -hash else hash
+            }
+
             return if (u1 < u2) "${u1}_${u2}" else "${u2}_${u1}"
         }
     }
@@ -51,7 +65,7 @@ class PrivateChatRepository(
                         chatRoomId = item.chatRoomId,
                         peerId = item.peerId,
                         peerName = item.peerName,
-                        peerAvatar = item.peerAvatar,
+                        peerAvatar = item.displayAvatar,
                         isVip = item.isVip,
                         isOnline = item.isOnline,
                         lastMessage = item.lastMessage,
@@ -76,19 +90,40 @@ class PrivateChatRepository(
     }
 
     // =========================================================================
-    // 💬 ২. মেসেজ হিস্ট্রি ও ডেল্টা সিঙ্ক (Telegram Delta Sync)
+    // 🔍 ২. ৮-ডিজিট অ্যাকাউন্ট আইডি দিয়ে ইউজার সার্চ মেথড
     // =========================================================================
 
-    // নির্দিষ্ট চ্যাট রুমের সমস্ত মেসেজ ফোন মেমোরি থেকে লাইভ ফ্লো
+    suspend fun searchUserByAccountId(accountId: String): Result<SearchedUserDto> = withContext(Dispatchers.IO) {
+        val query = accountId.trim()
+        if (query.isBlank()) {
+            return@withContext Result.failure(Exception("Please enter a valid 8-digit Account ID"))
+        }
+
+        try {
+            val response = apiService.searchUser(query)
+            if (response.isSuccessful && response.body()?.success == true && response.body()?.user != null) {
+                Result.success(response.body()!!.user!!)
+            } else {
+                val errorMsg = response.body()?.message ?: "No user found with Account ID: $query"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Search user network error: ${e.message}", e)
+            Result.failure(Exception("Network error: Could not reach server"))
+        }
+    }
+
+    // =========================================================================
+    // 💬 ৩. মেসেজ হিস্ট্রি ও ডেল্টা সিঙ্ক (Telegram Delta Sync)
+    // =========================================================================
+
     fun getMessagesFlow(chatRoomId: String): Flow<List<LocalPrivateMessageEntity>> {
         return chatDao.getMessagesFlow(chatRoomId)
     }
 
-    // শুধুমাত্র নতুন মেসেজ সার্ভার থেকে সিঙ্ক করা (জিরো ব্যান্ডউইথ ও জিরো লোড)
     suspend fun syncMessagesDelta(chatRoomId: String): Result<Int> = withContext(Dispatchers.IO) {
         if (chatRoomId.isBlank()) return@withContext Result.failure(Exception("Invalid room id"))
         try {
-            // ফোনে থাকা শেষ মেসেজের আইডি বের করা
             val lastSavedId = chatDao.getLastMessageId(chatRoomId)
 
             val response = apiService.getPrivateMessages(
@@ -130,7 +165,7 @@ class PrivateChatRepository(
     }
 
     // =========================================================================
-    // 🚀 ৩. অপটিমিস্টিক সেন্ড (০-সেকেন্ডে স্ক্রিনে দেখানো + ব্যাকগ্রাউন্ড সেন্ড)
+    // 🚀 ৪. অপটিমিস্টিক সেন্ড + লোকাল ইনবক্স তাৎক্ষণিক আপডেট
     // =========================================================================
 
     suspend fun sendMessage(
@@ -140,12 +175,16 @@ class PrivateChatRepository(
         mediaUrl: String? = null,
         mediaType: String = "text",
         mediaDurationSec: Int = 0,
-        replyToId: String? = null
+        replyToId: String? = null,
+        peerName: String = "User",
+        peerAvatar: String? = null,
+        isPeerVip: Boolean = false,
+        isPeerOnline: Boolean = true
     ): Result<LocalPrivateMessageEntity> = withContext(Dispatchers.IO) {
         val chatRoomId = getChatRoomId(senderId, receiverId)
-        val tempId = System.currentTimeMillis() // অস্থায়ী ইউনিক আইডি
+        val tempId = System.currentTimeMillis()
 
-        // ১. অপটিমিস্টিক লোকাল মেসেজ তৈরি (সাথে সাথে স্ক্রিনে দেখানোর জন্য)
+        // ১. অপটিমিস্টিক লোকাল মেসেজ তৈরি (চ্যাট রুমে তাৎক্ষণিক দেখানোর জন্য)
         val localOptimisticMessage = LocalPrivateMessageEntity(
             id = tempId,
             chatRoomId = chatRoomId,
@@ -161,11 +200,35 @@ class PrivateChatRepository(
             timeFormatted = "Just now",
             isPendingSync = true
         )
-
-        // ফোনে তাৎক্ষণিক সেভ (ইউজার চোখের পলকে মেসেজ দেখতে পাবে)
         chatDao.saveMessage(localOptimisticMessage)
 
-        // ২. সার্ভার API-তে ব্যাকগ্রাউন্ডে পাঠানো
+        // 🎯 ২. সমাধান: পাঠানোর সাথে সাথেই লোকাল ইনবক্সে সেভ করা (যাতে ইনবক্স কখনো খালি না থাকে)
+        val previewText = when {
+            messageText.isNotBlank() -> messageText
+            mediaType.equals("image", ignoreCase = true) -> "📷 Photo"
+            mediaType.equals("video", ignoreCase = true) -> "🎬 Video"
+            mediaType.equals("audio", ignoreCase = true) -> "🎙️ Voice message"
+            mediaType.equals("sticker", ignoreCase = true) -> "🧸 Sticker"
+            else -> "📎 Attachment"
+        }
+
+        val localInboxRow = LocalInboxEntity(
+            chatRoomId = chatRoomId,
+            peerId = receiverId,
+            peerName = peerName,
+            peerAvatar = peerAvatar,
+            isVip = isPeerVip,
+            isOnline = isPeerOnline,
+            lastMessage = previewText,
+            lastMediaType = mediaType,
+            unreadCount = 0,
+            isPinned = false,
+            updatedAt = System.currentTimeMillis(),
+            timeFormatted = "Just now"
+        )
+        chatDao.saveInboxItem(localInboxRow)
+
+        // ৩. সার্ভার API-তে ব্যাকগ্রাউন্ডে পাঠানো
         val request = SendPrivateMessageRequest(
             senderId = senderId,
             receiverId = receiverId,
@@ -181,7 +244,6 @@ class PrivateChatRepository(
             if (response.isSuccessful && response.body()?.data != null) {
                 val serverMsg = response.body()!!.data!!
 
-                // অস্থায়ী আইডি মুছে আসল সার্ভার আইডি ও স্ট্যাটাস দিয়ে রিপ্লেস
                 val finalEntity = localOptimisticMessage.copy(
                     id = serverMsg.id.toLongOrNull() ?: tempId,
                     status = serverMsg.status,
@@ -200,24 +262,21 @@ class PrivateChatRepository(
     }
 
     // =========================================================================
-    // 👁️ ৪. ব্লু-টিক / সিন মেথড (Seen Confirmation)
+    // 👁️ ৫. ব্লু-টিক / সিন মেথড (Seen Confirmation)
     // =========================================================================
 
     suspend fun markChatAsSeen(myUserId: String, peerId: String) = withContext(Dispatchers.IO) {
         val chatRoomId = getChatRoomId(myUserId, peerId)
         try {
-            // ফোনে সাথে সাথে আনরিড কাউন্ট ০ এবং মেসেজ স্ট্যাটাস Seen (3) করা
             chatDao.clearUnreadCount(chatRoomId)
             chatDao.markMessagesAsSeenLocally(chatRoomId, myUserId)
 
-            // সার্ভারে রিকোয়েস্ট পাঠানো
             apiService.markChatAsSeen(MarkSeenRequest(myUserId, peerId))
         } catch (e: Exception) {
             Log.w(TAG, "Mark seen offline notice: ${e.message}")
         }
     }
 
-    // চ্যাট হিস্ট্রি সম্পূর্ণ মুছে ফেলা
     suspend fun clearChatLocally(chatRoomId: String) = withContext(Dispatchers.IO) {
         chatDao.clearChatMessages(chatRoomId)
         chatDao.deleteInboxItem(chatRoomId)
