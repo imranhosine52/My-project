@@ -1,4 +1,7 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+@file:kotlin.OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.media3.common.util.UnstableApi::class
+)
 
 package com.example.ui.screens.localplayer.components
 
@@ -13,7 +16,6 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Rational
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -97,14 +99,25 @@ fun LocalPlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // ⚡ ২X স্পিড কন্ট্রোল
+    // ⚡ ২X স্পিড
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
-    // 🎵 অডিও ট্র্যাক স্টেট
+    // 🎵 অডিও ট্র্যাক স্টেট (স্মার্ট ইনিশিয়ালাইজেশন)
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
-    var currentAudioLabel by rememberSaveable { mutableStateOf("Audio") }
+    
+    // ভিডিও টাইটেল বা পাথ থেকে প্রাথমিক অডিও ভাষা অনুমান (যেমন KatDrama ফাইলের ক্ষেত্রে HIN -> Hindi)
+    val defaultAudioGuess = remember(currentVideo.title, currentVideo.path) {
+        when {
+            currentVideo.title.contains("hin", true) || currentVideo.path.contains("hin", true) -> "Hindi"
+            currentVideo.title.contains("bangla", true) || currentVideo.title.contains("ben", true) -> "Bengali"
+            currentVideo.title.contains("eng", true) || currentVideo.path.contains("eng", true) -> "English"
+            currentVideo.title.contains("kor", true) || currentVideo.path.contains("kor", true) -> "Korean"
+            else -> "Audio"
+        }
+    }
+    var currentAudioLabel by rememberSaveable(currentVideo.id) { mutableStateOf(defaultAudioGuess) }
 
     // 💬 সাবটাইটেল ট্র্যাক স্টেট
     var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
@@ -115,7 +128,7 @@ fun LocalPlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // ড্রয়ার কন্ট্রোল স্টেট ("none", "playlist", "audio", "subtitles", "speed")
+    // সাইড ড্রয়ার স্টেট ("none", "playlist", "audio", "subtitles", "speed")
     var sideDrawerType by remember { mutableStateOf("none") }
     val showSideDrawer = (sideDrawerType != "none")
 
@@ -149,7 +162,7 @@ fun LocalPlayerVideoBox(
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 ExoPlayer থেকে মাল্টি-অডিও ও সাবটাইটেল ট্র্যাক এক্সট্রাক্ট করা
+    // 🎧 ExoPlayer থেকে নিখুঁত মাল্টি-অডিও ও সাবটাইটেল ট্র্যাকিং
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -160,18 +173,21 @@ fun LocalPlayerVideoBox(
                 for (i in 0 until group.length) {
                     if (group.isTrackSupported(i)) {
                         val format = group.getTrackFormat(i)
-                        val lang = format.language?.lowercase() ?: "und"
+                        val lang = format.language?.lowercase() ?: ""
+                        val label = format.label?.lowercase() ?: ""
                         val isSelected = group.isTrackSelected(i)
 
                         val readableLabel = when {
-                            lang.contains("hi") || format.label?.contains("hindi", true) == true -> "Hindi"
-                            lang.contains("bn") || lang.contains("ben") || format.label?.contains("bangla", true) == true || format.label?.contains("bengali", true) == true -> "Bengali"
-                            lang.contains("en") || format.label?.contains("english", true) == true -> "English"
-                            lang.contains("ta") || format.label?.contains("tamil", true) == true -> "Tamil"
-                            lang.contains("te") || format.label?.contains("telugu", true) == true -> "Telugu"
-                            lang.contains("ja") || format.label?.contains("japanese", true) == true -> "Japanese"
-                            lang.contains("ko") || format.label?.contains("korean", true) == true -> "Korean"
-                            else -> format.label?.takeIf { it.isNotBlank() } ?: "Audio ${foundAudioTracks.size + 1}"
+                            label.contains("hindi") || lang.contains("hi") || lang == "hin" -> "Hindi"
+                            label.contains("bangla") || label.contains("bengali") || lang.contains("bn") || lang == "ben" -> "Bengali"
+                            label.contains("english") || lang.contains("en") || lang == "eng" -> "English"
+                            label.contains("tamil") || lang.contains("ta") || lang == "tam" -> "Tamil"
+                            label.contains("telugu") || lang.contains("te") || lang == "tel" -> "Telugu"
+                            label.contains("korean") || lang.contains("ko") || lang == "kor" -> "Korean"
+                            label.contains("japanese") || lang.contains("ja") || lang == "jpn" -> "Japanese"
+                            !format.label.isNullOrBlank() -> format.label!!.trim()
+                            defaultAudioGuess != "Audio" -> defaultAudioGuess
+                            else -> "Audio ${foundAudioTracks.size + 1}"
                         }
 
                         val trackId = "${groupIndex}_$i"
@@ -183,7 +199,7 @@ fun LocalPlayerVideoBox(
                         foundAudioTracks.add(
                             RealAudioTrack(
                                 id = trackId,
-                                language = lang,
+                                language = lang.ifBlank { "und" },
                                 label = readableLabel,
                                 groupIndex = groupIndex,
                                 trackIndex = i,
@@ -230,9 +246,11 @@ fun LocalPlayerVideoBox(
 
         availableAudioTracks = foundAudioTracks.distinctBy { it.label }
         availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
+        if (availableAudioTracks.isNotEmpty() && selectedAudioTrackId == "default") {
+            currentAudioLabel = availableAudioTracks.first().label
+        }
     }
 
-    // 🎵 অডিও ট্র্যাক পরিবর্তন মেথড
     fun applyAudioTrack(track: RealAudioTrack) {
         selectedAudioTrackId = track.id
         currentAudioLabel = track.label
@@ -249,7 +267,6 @@ fun LocalPlayerVideoBox(
         Toast.makeText(context, "Audio: ${track.label}", Toast.LENGTH_SHORT).show()
     }
 
-    // 💬 সাবটাইটেল পরিবর্তন বা বন্ধ করার মেথড
     fun applySubtitleTrack(subTrack: RealSubtitleTrack?) {
         if (subTrack == null) {
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
@@ -276,7 +293,6 @@ fun LocalPlayerVideoBox(
         }
     }
 
-    // 📂 মেমরি থেকে বাহ্যিক সাবটাইটেল (.srt/.vtt) যোগ করার মেথড
     fun loadExternalSubtitleFile(uri: Uri) {
         try {
             val mimeType = if (uri.toString().endsWith(".vtt", true)) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP
@@ -288,7 +304,6 @@ fun LocalPlayerVideoBox(
 
             val currentPos = exoPlayer.currentPosition
             val isCurrentlyPlaying = exoPlayer.isPlaying
-
             val currentMediaItem = exoPlayer.currentMediaItem
             if (currentMediaItem != null) {
                 val updatedItem = currentMediaItem.buildUpon()
@@ -299,7 +314,7 @@ fun LocalPlayerVideoBox(
                 if (isCurrentlyPlaying) exoPlayer.play()
             }
         } catch (e: Exception) {
-            Toast.makeText(context, "Could not load subtitle: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Cannot load subtitle: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -351,15 +366,22 @@ fun LocalPlayerVideoBox(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            // =============================================================
+            // 👆 সোয়াইপ জেসচার (ভলিউম, ব্রাইটনেস ও সাইড থেকে টান দিলে প্লেলিস্ট ড্রয়ার)
+            // =============================================================
             .pointerInput(isScreenLocked, isLandscape, showSideDrawer) {
                 if (isScreenLocked || showSideDrawer) return@pointerInput
 
                 awaitEachGesture {
                     val firstDown = awaitFirstDown(requireUnconsumed = false)
+                    val isNearLeftEdge = (firstDown.position.x < 48.dp.toPx())
+                    val isNearRightEdge = (firstDown.position.x > size.width - 48.dp.toPx())
+
                     val isLeft = firstDown.position.x < size.width / 2f
                     var isTransforming = false
                     var isVerticalDragging = false
                     var isHorizontalDragging = false
+                    var isEdgeSwipingPlaylist = false
                     var totalDragY = 0f
                     var totalDragX = 0f
                     val touchSlop = viewConfiguration.touchSlop
@@ -404,12 +426,17 @@ fun LocalPlayerVideoBox(
                             totalDragY += dragY
                             totalDragX += dragX
 
-                            if (!isVerticalDragging && !isHorizontalDragging && abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
+                            // 🌟 ফুলস্ক্রিনে সাইড থেকে সোয়াইপ করে প্লেলিস্ট ড্রয়ার ওপেন করা
+                            if (isLandscape && !isVerticalDragging && (isNearRightEdge && totalDragX < -touchSlop || isNearLeftEdge && totalDragX > touchSlop)) {
+                                isEdgeSwipingPlaylist = true
+                            }
+
+                            if (!isVerticalDragging && !isHorizontalDragging && !isEdgeSwipingPlaylist && abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
                                 isVerticalDragging = true
                                 if (isLeft) showVolumeOverlay = true else showBrightnessOverlay = true
                             }
 
-                            if (!isVerticalDragging && !isHorizontalDragging && abs(totalDragX) > touchSlop && abs(totalDragX) > abs(totalDragY)) {
+                            if (!isVerticalDragging && !isHorizontalDragging && !isEdgeSwipingPlaylist && abs(totalDragX) > touchSlop && abs(totalDragX) > abs(totalDragY)) {
                                 isHorizontalDragging = true
                                 isHorizontalScrubbing = true
                             }
@@ -438,7 +465,10 @@ fun LocalPlayerVideoBox(
                         }
                     } while (event.changes.any { it.pressed })
 
-                    if (isHorizontalDragging) {
+                    if (isEdgeSwipingPlaylist) {
+                        sideDrawerType = "playlist"
+                        isControlsVisible = false
+                    } else if (isHorizontalDragging) {
                         onSeekFinished(scrubTargetPositionMs)
                         exoPlayer.seekTo(scrubTargetPositionMs)
                     }
@@ -493,7 +523,7 @@ fun LocalPlayerVideoBox(
                 )
             }
     ) {
-        // ১. আসল ভিডিও প্লেয়ার সারফেস
+        // ১. ExoPlayer ভিডিও সারফেস
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -521,7 +551,7 @@ fun LocalPlayerVideoBox(
                 )
         )
 
-        // ২. জেসচার ওভারলে (ভলিউম, ব্রাইটনেস, ২x স্পিড ও ডাবল ট্যাপ অ্যানিমেশন)
+        // ২. জেসচার ওভারলে (ভলিউম, ব্রাইটনেস ও অ্যানিমেশন)
         PlayerGesturesOverlay(
             is2xActive = is2xActive,
             isHorizontalScrubbing = isHorizontalScrubbing,
@@ -604,13 +634,12 @@ fun LocalPlayerVideoBox(
             onSpeedClick = { sideDrawerType = "speed" },
             onAudioClick = { sideDrawerType = "audio" },
             onSubtitleClick = { sideDrawerType = "subtitles" },
-            onPlaylistClick = { sideDrawerType = "playlist" },
             onToggleFullscreen = onToggleFullscreen,
             modifier = Modifier.fillMaxSize()
         )
 
         // =============================================================
-        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (Audio, Subtitles, Speed, Playlist)
+        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (স্ক্রিনের সাথে মাখনের মতো ব্লেন্ড হওয়া হালকা কালো লুক)
         // =============================================================
         AnimatedVisibility(
             visible = showSideDrawer,
@@ -627,10 +656,15 @@ fun LocalPlayerVideoBox(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(if (sideDrawerType == "playlist") 280.dp else 180.dp)
+                    .width(if (sideDrawerType == "playlist") 285.dp else 195.dp)
+                    // 🔥 কোন সলিড কালার নয়, স্ক্রিনের সাথে ব্লেন্ড হওয়া হালকা কালো ট্রান্সলুসেন্ট ব্যাকগ্রাউন্ড
                     .background(
                         Brush.horizontalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color(0xFF0F1117))
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Black.copy(alpha = 0.78f)
+                            )
                         )
                     )
                     .clickable(
