@@ -5,7 +5,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -18,7 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -31,7 +30,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -239,14 +237,13 @@ fun LocalPlayerControlsOverlay(
     onSpeedClick: () -> Unit,
     onAudioClick: () -> Unit,
     onSubtitleClick: () -> Unit,
-    onPlaylistClick: () -> Unit,
     onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
 
         // =============================================================
-        // 🔝 ১. টপ বার (ব্যাক, টাইটেল, PiP এবং Cast)
+        // 🔝 ১. টপ বার (পোর্ট্রেটে টাইটেল হাইড থাকবে, ফুলস্ক্রিনে দেখাবে)
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked,
@@ -277,14 +274,17 @@ fun LocalPlayerControlsOverlay(
                         )
                     }
 
-                    Text(
-                        text = videoTitle,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    // 🔥 লম্বা প্লেয়ারে টাইটেল থাকবে না, শুধু ফুলস্ক্রিন (Landscape)-এ দেখাবে
+                    if (isLandscape) {
+                        Text(
+                            text = videoTitle,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Row(
@@ -328,9 +328,10 @@ fun LocalPlayerControlsOverlay(
 
         // =============================================================
         // 🎯 ৩. ডান পাশের ফ্লোটিং বাটন (স্ক্রিন লক ও পরবর্তী ভিডিও ⏭️ বাটন)
+        // 🔥 লম্বা প্লেয়ারে সম্পূর্ণ বন্ধ থাকবে, শুধু ফুলস্ক্রিন (Landscape)-এ দেখাবে
         // =============================================================
         AnimatedVisibility(
-            visible = isControlsVisible && !isScreenLocked,
+            visible = isControlsVisible && !isScreenLocked && isLandscape,
             enter = slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(240, easing = FastOutSlowInEasing)) + fadeIn(),
             exit = slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(220, easing = FastOutSlowInEasing)) + fadeOut(),
             modifier = Modifier.align(Alignment.CenterEnd)
@@ -358,7 +359,7 @@ fun LocalPlayerControlsOverlay(
                     )
                 }
 
-                // 🌟 পরবর্তী ভিডিও বাটন (Next Video Button)
+                // পরবর্তী ভিডিও বাটন (Next Video Button)
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -379,7 +380,7 @@ fun LocalPlayerControlsOverlay(
         }
 
         // =============================================================
-        // 📺 ৪. বটম কন্ট্রোল বার (টাইমলাইন, অডিও/সাব চিপস ও কন্ট্রোলস)
+        // 📺 ৪. বটম কন্ট্রোল বার (৩ নম্বর ছবির স্টাইলে স্পিডোমিটার ও অডিও আইকন)
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked,
@@ -425,7 +426,7 @@ fun LocalPlayerControlsOverlay(
                     }
                 }
 
-                // মাখনের মতো মসৃণ টাইমলাইন
+                // টাইমলাইন
                 SleekLocalTimeline(
                     currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                     totalDurationMs = totalDurationMs,
@@ -475,34 +476,56 @@ fun LocalPlayerControlsOverlay(
                         )
                     }
 
-                    // ডান পাশে: স্পিড, অডিও চিপ, সাবটাইটেল চিপ, প্লেলিস্ট এবং ফুলস্ক্রিন
+                    // ডান পাশে: স্পিড, অডিও চিপ, সাবটাইটেল এবং ফুলস্ক্রিন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // স্পিড চিপ
-                        Text(
-                            text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                        // ⏱️ ৩ নম্বর ছবির মতো স্পিডোমিটার আইকন সহ স্পিড চিপ
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable { onSpeedClick() }
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = "Playback Speed",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
+                                color = Color.White,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
-                        // 🎵 অডিও ল্যাঙ্গুয়েজ চিপ
-                        Text(
-                            text = currentAudioLabel,
-                            color = if (hasMultipleAudio) Color(0xFF00E5FF) else Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                        // 🎵 ৩ নম্বর ছবির মতো সায়ান মিউজিক নোট সহ অডিও ট্র্যাক চিপ
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable { onAudioClick() }
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = "Audio Track",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = currentAudioLabel,
+                                color = Color(0xFF00E5FF),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
                         // 💬 সাবটাইটেল (CC) চিপ
                         Text(
@@ -516,15 +539,7 @@ fun LocalPlayerControlsOverlay(
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                         )
 
-                        // ফোল্ডার প্লেলিস্ট ড্রয়ার বাটন
-                        IconButton(onClick = onPlaylistClick, modifier = Modifier.size(26.dp)) {
-                            Icon(
-                                imageVector = Icons.Outlined.Layers,
-                                contentDescription = "Folder Playlist",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        // ❌ বটম বারের প্লেলিস্ট আইকন সম্পূর্ণরূপে অপসারিত
 
                         // ফুলস্ক্রিন টগল
                         Box(
