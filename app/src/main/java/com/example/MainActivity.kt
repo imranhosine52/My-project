@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.LocalVideoItem
@@ -46,6 +47,8 @@ import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
+import com.example.ui.screens.chat.PrivateChatRoomScreen // 👈 ১-টু-১ চ্যাট রুম
+import com.example.ui.screens.chat.PrivateInboxScreen    // 👈 ইনবক্স স্ক্রিন
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
@@ -84,6 +87,14 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
+    object PrivateInbox : Screen() // 👈 নতুন: প্রাইভেট ইনবক্স
+    data class PrivateChatRoom(    // 👈 নতুন: ১-টু-১ চ্যাট রুম
+        val peerId: String,
+        val peerName: String,
+        val peerAvatar: String?,
+        val isPeerOnline: Boolean = false,
+        val isPeerVip: Boolean = false
+    ) : Screen()
     data class NotFound(val message: String? = null) : Screen()
 }
 
@@ -101,6 +112,8 @@ class MainActivity : ComponentActivity() {
     private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
+    private val pendingOpenPrivateInbox = mutableStateOf(false)
+    private val pendingOpenPrivateChatRoom = mutableStateOf<Screen.PrivateChatRoom?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setBackgroundDrawableResource(android.R.color.black)
@@ -119,7 +132,6 @@ class MainActivity : ComponentActivity() {
             FirebaseMessaging.getInstance().subscribeToTopic("all")
         } catch (_: Exception) {}
 
-        // 🎯 সঠিক ক্যাশড কনফিগারেশন ও ভিআইপি স্ট্যাটাস সহ AdManager চালু করা
         val initialConfig = viewModel.repository.getCachedAdsConfig()
         val isVip = viewModel.repository.isUserVip()
         UnifiedAdManager.init(this, initialConfig = initialConfig, isVip = isVip)
@@ -146,6 +158,8 @@ class MainActivity : ComponentActivity() {
                         pendingExternalMediaItem = pendingExternalMediaItem.value,
                         pendingOpenCommunityChat = pendingOpenCommunityChat.value,
                         pendingOpenVipScreen = pendingOpenVipScreen.value,
+                        pendingOpenPrivateInbox = pendingOpenPrivateInbox.value,
+                        pendingOpenPrivateChatRoom = pendingOpenPrivateChatRoom.value,
                         onFinish = { finish() }
                     )
 
@@ -239,6 +253,26 @@ class MainActivity : ComponentActivity() {
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
+
+        // 🎯 ১. প্রাইভেট চ্যাট পুশ নোটিফিকেশন ডিটেকশন
+        val isPrivateChat = intent.getBooleanExtra("EXTRA_OPEN_PRIVATE_CHAT", false) ||
+                intent.getStringExtra("type") == "private_chat" ||
+                dataUriString.contains("private_chat", ignoreCase = true)
+
+        if (isPrivateChat) {
+            val senderId = intent.getStringExtra("sender_id") ?: ""
+            val senderName = intent.getStringExtra("sender_name") ?: "User"
+            if (senderId.isNotBlank()) {
+                pendingOpenPrivateChatRoom.value = Screen.PrivateChatRoom(
+                    peerId = senderId,
+                    peerName = senderName,
+                    peerAvatar = null
+                )
+            } else {
+                pendingOpenPrivateInbox.value = true
+            }
+            return
+        }
 
         val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
                 intent.getStringExtra("type") == "chat_reply" ||
@@ -424,15 +458,24 @@ private fun MainAppContent(
     pendingExternalMediaItem: LocalVideoItem?,
     pendingOpenCommunityChat: Boolean,
     pendingOpenVipScreen: Boolean,
+    pendingOpenPrivateInbox: Boolean,
+    pendingOpenPrivateChatRoom: Screen.PrivateChatRoom?,
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val isVip = authState.isVip
 
+    // 💬 নতুন প্রাইভেট চ্যাট ভিউমডেল ইনস্ট্যান্স
+    val privateChatViewModel: PrivateChatViewModel = viewModel(
+        factory = PrivateChatViewModelFactory(viewModel.repository)
+    )
+
     var currentScreen by remember {
         mutableStateOf<Screen>(
-            if (pendingOpenCommunityChat) Screen.CommunityChat
+            if (pendingOpenPrivateChatRoom != null) pendingOpenPrivateChatRoom
+            else if (pendingOpenPrivateInbox) Screen.PrivateInbox
+            else if (pendingOpenCommunityChat) Screen.CommunityChat
             else if (pendingOpenVipScreen) Screen.Vip
             else if (pendingExternalMediaItem != null) Screen.LocalPlayer(pendingExternalMediaItem)
             else if (!pendingNotificationSlug.isNullOrBlank()) {
@@ -489,14 +532,15 @@ private fun MainAppContent(
 
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
-            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home || newScreen is Screen.NotFound) {
+            if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home || newScreen is Screen.NotFound || newScreen is Screen.PrivateInbox) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
 
             navigationBackStack.add(currentScreen)
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
-            val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer
+            val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer ||
+                    newScreen is Screen.PrivateChatRoom || newScreen is Screen.PrivateInbox
 
             if (isExempted) {
                 currentScreen = newScreen
@@ -588,6 +632,10 @@ private fun MainAppContent(
         authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
     }
 
+    val currentMyUserId = remember(authState.userProfile) {
+        authState.userProfile?.id?.filter { it.isDigit() }?.ifBlank { "1" } ?: "1"
+    }
+
     LaunchedEffect(currentScreen) {
         when (val screen = currentScreen) {
             is Screen.Player -> {
@@ -617,6 +665,8 @@ private fun MainAppContent(
                     is Screen.Downloads -> "Downloads Screen"
                     is Screen.Search -> "Search Screen"
                     is Screen.CommunityChat -> "Community Live Chat"
+                    is Screen.PrivateInbox -> "Private Inbox"
+                    is Screen.PrivateChatRoom -> "Chat Room with: ${screen.peerName}"
                     is Screen.LocalGallery -> "Local Media Gallery"
                     is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
                     is Screen.NotFound -> "404 Not Found Screen"
@@ -633,12 +683,15 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
+    // চ্যাটরুম বা ইনবক্সে বটম ন্যাভিগেশন বার লুকানো থাকবে
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.LocalGallery ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
+            currentScreen is Screen.PrivateInbox ||
+            currentScreen is Screen.PrivateChatRoom ||
             currentScreen is Screen.NotFound
 
     Box(
@@ -765,6 +818,42 @@ private fun MainAppContent(
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
+                        // 💬 নতুন ১: প্রাইভেট ইনবক্স স্ক্রিন
+                        is Screen.PrivateInbox -> {
+                            PrivateInboxScreen(
+                                viewModel = privateChatViewModel,
+                                myUserId = currentMyUserId,
+                                onBackClick = { handleBackNavigation() },
+                                onOpenChat = { peerId, peerName, peerAvatar, isOnline, isVipMember ->
+                                    privateChatViewModel.openChatRoom(
+                                        myUserId = currentMyUserId,
+                                        peerId = peerId,
+                                        peerName = peerName,
+                                        peerAvatar = peerAvatar,
+                                        isPeerOnline = isOnline,
+                                        isPeerVip = isVipMember
+                                    )
+                                    navigateTo(
+                                        Screen.PrivateChatRoom(
+                                            peerId = peerId,
+                                            peerName = peerName,
+                                            peerAvatar = peerAvatar,
+                                            isPeerOnline = isOnline,
+                                            isPeerVip = isVipMember
+                                        ),
+                                        null
+                                    )
+                                }
+                            )
+                        }
+                        // 💬 নতুন ২: ১-টু-১ প্রাইভেট চ্যাট রুম স্ক্রিন
+                        is Screen.PrivateChatRoom -> {
+                            PrivateChatRoomScreen(
+                                viewModel = privateChatViewModel,
+                                myUserId = currentMyUserId,
+                                onBackClick = { handleBackNavigation() }
+                            )
+                        }
                         is Screen.NotFound -> {
                             NotFoundScreen(
                                 onNavigateHome = {
@@ -785,13 +874,15 @@ private fun MainAppContent(
         }
 
         // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট (প্লেয়ার পেজেও দৃশ্যমান, ল্যান্ডস্কেপে অটো-হাইড)
+        // 💬 ফ্লোটিং চ্যাট উইজেট
         // =========================================================================
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         val shouldHideFloatingChat = (currentScreen is Screen.Player && isLandscape) ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
+                currentScreen is Screen.PrivateInbox ||
+                currentScreen is Screen.PrivateChatRoom ||
                 currentScreen is Screen.NotFound
 
         if (!shouldHideFloatingChat) {
@@ -801,7 +892,7 @@ private fun MainAppContent(
                 currentUserEmail = authState.userProfile?.email,
                 currentUserAvatar = authState.userProfile?.avatar,
                 isVip = isVip,
-                hasBottomNav = !shouldHideBottomNav, // 👈 প্লেয়ার স্ক্রিনের সঠিক মার্জিনের জন্য
+                hasBottomNav = !shouldHideBottomNav,
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
                 modifier = Modifier.align(Alignment.BottomEnd)
             )
