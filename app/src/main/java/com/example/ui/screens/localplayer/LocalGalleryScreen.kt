@@ -628,7 +628,7 @@ fun LocalGalleryScreen(
             }
 
             // =============================================================
-            // 🎵 ৪. মিনি অডিও প্লেয়ার
+            // 🎵 ৪. ছবি ২ এবং ৩ এর মতো প্রিমিয়াম অডিও মিনি-প্লেয়ার
             // =============================================================
             AnimatedVisibility(
                 visible = currentlyPlayingItem != null,
@@ -642,7 +642,7 @@ fun LocalGalleryScreen(
                 ) + fadeOut(tween(180)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 12.dp, bottom = 52.dp)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 52.dp)
             ) {
                 currentlyPlayingItem?.let { playing ->
                     Surface(
@@ -658,7 +658,7 @@ fun LocalGalleryScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 8.dp),
+                                .padding(start = 8.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
