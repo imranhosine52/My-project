@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.LocalInboxEntity
 import com.example.data.local.LocalPrivateMessageEntity
+import com.example.data.model.SearchedUserDto
 import com.example.data.repository.PlayDramaFlixRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,9 +21,15 @@ import kotlinx.coroutines.launch
 data class PrivateInboxUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    val selectedTab: Int = 0, // 0 = "Chats", 1 = "Find User by ID"
     val searchQuery: String = "",
     val rawInbox: List<LocalInboxEntity> = emptyList(),
     val filteredInbox: List<LocalInboxEntity> = emptyList(),
+    // 🔍 ৮-ডিজিট আইডি দিয়ে ইউজার সার্চ স্টেট
+    val searchAccountIdInput: String = "",
+    val isSearchingUser: Boolean = false,
+    val searchedUser: SearchedUserDto? = null,
+    val searchUserError: String? = null,
     val errorMessage: String? = null
 )
 
@@ -73,7 +80,8 @@ class PrivateChatViewModel(
                     } else {
                         localList.filter { item ->
                             item.peerName.contains(current.searchQuery, ignoreCase = true) ||
-                            item.lastMessage.contains(current.searchQuery, ignoreCase = true)
+                            item.lastMessage.contains(current.searchQuery, ignoreCase = true) ||
+                            (item.chatRoomId.contains(current.searchQuery, ignoreCase = true))
                         }
                     }
                     current.copy(
@@ -86,6 +94,10 @@ class PrivateChatViewModel(
         }
     }
 
+    fun selectInboxTab(tabIndex: Int) {
+        _inboxUiState.update { it.copy(selectedTab = tabIndex) }
+    }
+
     fun onSearchQueryChanged(query: String) {
         _inboxUiState.update { current ->
             val filtered = if (query.isBlank()) {
@@ -93,7 +105,8 @@ class PrivateChatViewModel(
             } else {
                 current.rawInbox.filter { item ->
                     item.peerName.contains(query, ignoreCase = true) ||
-                    item.lastMessage.contains(query, ignoreCase = true)
+                    item.lastMessage.contains(query, ignoreCase = true) ||
+                    (item.chatRoomId.contains(query, ignoreCase = true))
                 }
             }
             current.copy(searchQuery = query, filteredInbox = filtered)
@@ -110,7 +123,81 @@ class PrivateChatViewModel(
     }
 
     // =========================================================================
-    // 💬 ৪. 1-to-1 চ্যাট রুম ওপেন এবং টেলিগ্রাম ডেল্টা সিঙ্ক
+    // 🔍 ৪. ৮-ডিজিট একাউন্ট আইডি দিয়ে ইউজার সার্চ
+    // =========================================================================
+
+    fun onSearchAccountIdInputChanged(id: String) {
+        _inboxUiState.update {
+            it.copy(
+                searchAccountIdInput = id.filter { char -> char.isDigit() }.take(8),
+                searchUserError = null
+            )
+        }
+    }
+
+    fun searchUserByAccountId(myUserId: String) {
+        val accountId = _inboxUiState.value.searchAccountIdInput.trim()
+        if (accountId.length < 3) {
+            _inboxUiState.update { it.copy(searchUserError = "Please enter a valid Account ID") }
+            return
+        }
+
+        viewModelScope.launch {
+            _inboxUiState.update {
+                it.copy(
+                    isSearchingUser = true,
+                    searchedUser = null,
+                    searchUserError = null
+                )
+            }
+
+            val result = repository.privateChatRepository.searchUserByAccountId(accountId)
+
+            if (result.isSuccess) {
+                val user = result.getOrNull()
+                if (user != null && user.peerId == myUserId) {
+                    _inboxUiState.update {
+                        it.copy(
+                            isSearchingUser = false,
+                            searchedUser = null,
+                            searchUserError = "You cannot message your own Account ID 😊"
+                        )
+                    }
+                } else {
+                    _inboxUiState.update {
+                        it.copy(
+                            isSearchingUser = false,
+                            searchedUser = user,
+                            searchUserError = null
+                        )
+                    }
+                }
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "No user found with ID: $accountId"
+                _inboxUiState.update {
+                    it.copy(
+                        isSearchingUser = false,
+                        searchedUser = null,
+                        searchUserError = err
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearSearchedUser() {
+        _inboxUiState.update {
+            it.copy(
+                searchAccountIdInput = "",
+                searchedUser = null,
+                searchUserError = null,
+                isSearchingUser = false
+            )
+        }
+    }
+
+    // =========================================================================
+    // 💬 ৫. 1-to-1 চ্যাট রুম ওপেন এবং টেলিগ্রাম ডেল্টা সিঙ্ক
     // =========================================================================
 
     fun openChatRoom(
@@ -147,21 +234,19 @@ class PrivateChatViewModel(
             }
         }
 
-        // ২. আল্ট্রা-লাইটওয়েট ব্যাকগ্রাউন্ড ডেল্টা সিঙ্ক (প্রতি ৩ সেকেন্ডে শুধুমাত্র নতুন মেসেজ চেক)
+        // ২. আল্ট্রা-লাইটওয়েট ব্যাকগ্রাউন্ড ডেল্টা সিঙ্ক
         startDeltaSyncPolling(chatRoomId, myUserId, peerId)
     }
 
     private fun startDeltaSyncPolling(chatRoomId: String, myUserId: String, peerId: String) {
         deltaSyncPollingJob?.cancel()
         deltaSyncPollingJob = viewModelScope.launch(Dispatchers.IO) {
-            // চ্যাটে ঢোকার সাথে সাথে একবার প্রথম সিঙ্ক
             repository.syncPrivateChatMessagesDelta(chatRoomId)
 
             while (isActive) {
-                delay(3000L) // ৩ সেকেন্ড পর পর অতি ক্ষুদ্র (~১০০ বাইট) ডেল্টা সিঙ্ক
+                delay(3000L)
                 val result = repository.syncPrivateChatMessagesDelta(chatRoomId)
                 if (result.isSuccess && (result.getOrNull() ?: 0) > 0) {
-                    // নতুন কোনো মেসেজ আসলে সাথে সাথে Seen করে দেওয়া
                     repository.markPrivateChatAsSeen(myUserId, peerId)
                 }
             }
@@ -177,7 +262,7 @@ class PrivateChatViewModel(
     }
 
     // =========================================================================
-    // 🚀 ৫. মেসেজ পাঠানো (Optimistic Send)
+    // 🚀 ৬. মেসেজ পাঠানো (Optimistic Send + ইনবক্স সাথে সাথে আপডেট)
     // =========================================================================
 
     fun sendMessage(
@@ -191,17 +276,27 @@ class PrivateChatViewModel(
         if (messageText.isBlank() && mediaUrl.isNullOrBlank()) return
         val replyId = _chatRoomUiState.value.replyingToMessage?.id?.toString()
 
+        val peerName = _chatRoomUiState.value.peerName
+        val peerAvatar = _chatRoomUiState.value.peerAvatar
+        val isPeerVip = _chatRoomUiState.value.isPeerVip
+        val isPeerOnline = _chatRoomUiState.value.isPeerOnline
+
         _chatRoomUiState.update { it.copy(isSending = true, replyingToMessage = null) }
 
         viewModelScope.launch {
-            repository.sendPrivateChatMessage(
+            // 🎯 পার্টনারের নাম ও ছবিসহ পাঠানো হচ্ছে যাতে ইনবক্স সাথে সাথে আপডেট হয়
+            repository.privateChatRepository.sendMessage(
                 senderId = senderId,
                 receiverId = receiverId,
                 messageText = messageText.trim(),
                 mediaUrl = mediaUrl,
                 mediaType = mediaType,
                 mediaDurationSec = mediaDurationSec,
-                replyToId = replyId
+                replyToId = replyId,
+                peerName = peerName,
+                peerAvatar = peerAvatar,
+                isPeerVip = isPeerVip,
+                isPeerOnline = isPeerOnline
             )
             _chatRoomUiState.update { it.copy(isSending = false) }
         }
