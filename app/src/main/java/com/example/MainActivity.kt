@@ -13,7 +13,6 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import com.example.ui.screens.localplayer.LocalGalleryScreen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -48,14 +47,20 @@ import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
+import com.example.ui.screens.localplayer.LocalGalleryScreen
+import com.example.ui.screens.localplayer.audio.LocalAudioPlayerScreen
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.*
 import com.example.util.AppAnalyticsTracker
+import com.example.util.LocalMediaScanner
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 // 🎯 গ্লোবাল ন্যাভিগেশন ও ক্যাটেগরি মেমোরি হেল্পার
@@ -83,6 +88,10 @@ sealed class Screen {
     object Profile : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
+    data class LocalAudioPlayer(
+        val audioItem: LocalVideoItem,
+        val playlist: List<LocalVideoItem> = emptyList()
+    ) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
     data class NotFound(val message: String? = null) : Screen()
@@ -221,14 +230,14 @@ class MainActivity : ComponentActivity() {
 
         return str.takeIf {
             it.isNotBlank() &&
-            !it.contains("://") &&
-            !it.startsWith("topics/") &&
-            !it.equals("high", ignoreCase = true) &&
-            !it.equals("default", ignoreCase = true) &&
-            !it.equals("normal", ignoreCase = true) &&
-            !it.equals("home", ignoreCase = true) &&
-            !it.equals("index.php", ignoreCase = true) &&
-            !it.equals("index.html", ignoreCase = true)
+                    !it.contains("://") &&
+                    !it.startsWith("topics/") &&
+                    !it.equals("high", ignoreCase = true) &&
+                    !it.equals("default", ignoreCase = true) &&
+                    !it.equals("normal", ignoreCase = true) &&
+                    !it.equals("home", ignoreCase = true) &&
+                    !it.equals("index.php", ignoreCase = true) &&
+                    !it.equals("index.html", ignoreCase = true)
         }
     }
 
@@ -427,6 +436,7 @@ private fun MainAppContent(
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val isVip = authState.isVip
 
@@ -488,7 +498,8 @@ private fun MainAppContent(
     val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
         if (currentScreen != newScreen) {
             if (newScreen is Screen.Vip || newScreen is Screen.Profile || newScreen is Screen.Home ||
-                newScreen is Screen.NotFound || newScreen is Screen.Downloads || newScreen is Screen.LocalGallery) {
+                newScreen is Screen.NotFound || newScreen is Screen.Downloads || newScreen is Screen.LocalGallery ||
+                newScreen is Screen.LocalAudioPlayer) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
 
@@ -496,6 +507,7 @@ private fun MainAppContent(
             selectedTab = tab ?: resolveTabForScreen(newScreen)
 
             val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer ||
+                    newScreen is Screen.LocalAudioPlayer || currentScreen is Screen.LocalAudioPlayer ||
                     newScreen is Screen.Downloads || newScreen is Screen.LocalGallery
 
             if (isExempted) {
@@ -619,6 +631,7 @@ private fun MainAppContent(
                     is Screen.CommunityChat -> "Community Live Chat"
                     is Screen.LocalGallery -> "Local Media Gallery"
                     is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
+                    is Screen.LocalAudioPlayer -> "Playing Audio: ${screen.audioItem.title}"
                     is Screen.NotFound -> "404 Not Found Screen"
                     else -> null
                 }
@@ -636,6 +649,7 @@ private fun MainAppContent(
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
+            currentScreen is Screen.LocalAudioPlayer ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
             currentScreen is Screen.NotFound
@@ -677,7 +691,7 @@ private fun MainAppContent(
                 targetState = currentScreen,
                 transitionSpec = {
                     fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) togetherWith
-                    fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                            fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
                 },
                 label = "screen_transition"
             ) { targetScreen ->
@@ -741,12 +755,36 @@ private fun MainAppContent(
                         is Screen.LocalGallery -> {
                             LocalGalleryScreen(
                                 onBackClick = { handleBackNavigation() },
-                                onVideoClick = { video -> navigateTo(Screen.LocalPlayer(video), null) }
+                                onVideoClick = { mediaItem ->
+                                    val isAudio = mediaItem.mimeType?.startsWith("audio") == true ||
+                                            mediaItem.path.endsWith(".mp3", true) ||
+                                            mediaItem.path.endsWith(".m4a", true) ||
+                                            mediaItem.path.endsWith(".wav", true) ||
+                                            mediaItem.path.endsWith(".aac", true)
+
+                                    if (isAudio) {
+                                        coroutineScope.launch {
+                                            val allAudio = withContext(Dispatchers.IO) {
+                                                LocalMediaScanner.getAllAudioTracks(context)
+                                            }
+                                            navigateTo(Screen.LocalAudioPlayer(mediaItem, allAudio), null)
+                                        }
+                                    } else {
+                                        navigateTo(Screen.LocalPlayer(mediaItem), null)
+                                    }
+                                }
                             )
                         }
                         is Screen.LocalPlayer -> {
                             LocalPlayerScreen(
                                 videoItem = targetScreen.videoItem,
+                                onBackClick = { handleBackNavigation() }
+                            )
+                        }
+                        is Screen.LocalAudioPlayer -> {
+                            LocalAudioPlayerScreen(
+                                initialAudio = targetScreen.audioItem,
+                                playlist = targetScreen.playlist,
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
@@ -785,7 +823,7 @@ private fun MainAppContent(
 
         // =========================================================================
         // 💬 ফ্লোটিং চ্যাট উইজেট (Community Chat)
-        // 🎯 Screen.LocalGallery যুক্ত করা হয়েছে যাতে এই পেজে হেল্প বাটন না আসে
+        // 🔥 লোকাল গ্যালারি, ভিডিও প্লেয়ার এবং অডিও প্লেয়ার থেকে সম্পূর্ণ ব্যান করা হয়েছে!
         // =========================================================================
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -793,6 +831,8 @@ private fun MainAppContent(
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
                 currentScreen is Screen.LocalGallery ||
+                currentScreen is Screen.LocalPlayer ||        // 👈 ভিডিও প্লেয়ারে Help? বন্ধ
+                currentScreen is Screen.LocalAudioPlayer ||   // 👈 অডিও প্লেয়ারে Help? বন্ধ
                 currentScreen is Screen.NotFound
 
         if (!shouldHideFloatingChat) {
