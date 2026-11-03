@@ -749,13 +749,12 @@ fun DramaPosterCardHorizontal(
 
 // =========================================================================
 // 🧭 ফ্রস্টেড গ্লাস ৫-ট্যাব বটম ন্যাভিগেশন বার
-// 🎯 VIP -> Gallery এবং Downloads -> Inbox (আনরিড ব্যাজ সহ)
+// 🎯 ৪ নম্বর ট্যাবে Downloads আইকন রিস্টোর করা হলো
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
     selectedTab: BottomNavTab,
     onTabSelected: (BottomNavTab) -> Unit,
-    unreadInboxCount: Int = 0, // 👈 লাইভ আনরিড মেসেজ সংখ্যা
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -822,7 +821,7 @@ fun PlayDramaFlixBottomNav(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                // ৩. 🎬 VIP-এর পরিবর্তে Gallery (Local Video Player)
+                                // ৩. 🎬 Gallery
                                 BottomNavTab.GALLERY -> {
                                     Icon(
                                         imageVector = if (isSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
@@ -831,36 +830,14 @@ fun PlayDramaFlixBottomNav(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                // ৪. 💬 Downloads-এর পরিবর্তে Inbox (টেলিগ্রাম চ্যাট ও লাল আনরিড ব্যাজ)
-                                BottomNavTab.INBOX -> {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = if (isSelected) Icons.Default.ChatBubble else Icons.Outlined.ChatBubbleOutline,
-                                            contentDescription = "Inbox",
-                                            tint = iconTint,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-
-                                        // 🔴 আনরিড নোটিফিকেশন ব্যাজ
-                                        if (unreadInboxCount > 0) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .offset(x = 6.dp, y = (-4).dp)
-                                                    .size(13.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFFFF2A4B)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = if (unreadInboxCount > 9) "9+" else unreadInboxCount.toString(),
-                                                    color = Color.White,
-                                                    fontSize = 7.5.sp,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                            }
-                                        }
-                                    }
+                                // ৪. 📥 Downloads (ইনবক্স সরিয়ে ডাউনলোডস রিস্টোর করা হলো)
+                                BottomNavTab.DOWNLOADS -> {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Default.Download else Icons.Outlined.FileDownload,
+                                        contentDescription = "Downloads",
+                                        tint = iconTint,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
                                 // ৫. Me (Profile)
                                 BottomNavTab.ME -> {
