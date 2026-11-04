@@ -1,5 +1,5 @@
-@file:OptIn(
-    ExperimentalMaterial3Api::class,
+@file:kotlin.OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 
@@ -51,7 +51,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -101,15 +100,12 @@ fun LocalGalleryScreen(
 
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    // ২ নম্বর ছবির মতো ডিফল্ট ৩-কলাম গ্রিড ভিউ সত্য রাখা হয়েছে
+    // ডিফল্ট ৩-কলাম গ্রিড ভিউ
     var isGridView by remember { mutableStateOf(true) }
 
     var currentFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
     var currentItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
     var specialItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
-
-    var currentlyPlayingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
-    var isMiniPlayerPlaying by remember { mutableStateOf(true) }
 
     var viewingImageInitialIndex by remember { mutableIntStateOf(-1) }
     var viewingImageList by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
@@ -195,7 +191,6 @@ fun LocalGalleryScreen(
                     specialItems = LocalMediaScanner.getSafeFolderItems(context)
                 }
                 SpecialViewType.TRASH -> {
-                    // 🔥 শতভাগ নিরাপদ ও নিখুঁত ডেডিকেটেড ট্র্যাশ লোডার
                     specialItems = LocalMediaScanner.getTrashItems(context)
                 }
                 SpecialViewType.NONE -> {
@@ -206,9 +201,6 @@ fun LocalGalleryScreen(
                         MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
                     }
                     currentFolders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
-                    if (currentlyPlayingItem == null && currentItems.isNotEmpty() && activeTab == MediaTabType.MUSIC) {
-                        currentlyPlayingItem = currentItems.firstOrNull()
-                    }
                 }
             }
             isLoading = false
@@ -364,7 +356,6 @@ fun LocalGalleryScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // রিসাইকেল বিন ভিউতে থাকলে অল ট্র্যাশ ক্লিয়ার বাটন
                         if (specialView == SpecialViewType.TRASH && specialItems.isNotEmpty()) {
                             IconButton(
                                 onClick = { showEmptyTrashConfirmDialog = true },
@@ -411,7 +402,6 @@ fun LocalGalleryScreen(
                                 .clickable { isSearchActive = !isSearchActive }
                         )
 
-                        // গ্রিড ও লিস্ট ভিউ টগল
                         Icon(
                             imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
                             contentDescription = "Toggle Grid/List",
@@ -503,7 +493,7 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // 📁 ৩. মূল গ্রিড/লিস্ট ভিউ (স্ক্রিনশট ২ অনুযায়ী নিখুঁত ৩-কলাম বিন্যাস)
+                // 📁 ৩. মূল গ্রিড/লিস্ট ভিউ (৩-কলাম বিন্যাস)
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = {
@@ -518,7 +508,6 @@ fun LocalGalleryScreen(
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 ) {
                     when {
-                        // ৩.১) স্পেশাল ভিউ (Starred, Safe Folder, Trash)
                         specialView != SpecialViewType.NONE -> {
                             val displayList = specialItems.filter { it.title.contains(searchQuery, ignoreCase = true) }
                             if (displayList.isEmpty()) {
@@ -568,7 +557,6 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // ৩.২) ফোল্ডারের ভেতরের ফাইল গ্রিড (স্ক্রিনশট ২ হুবহু ৩-কলাম গ্রিড)
                         selectedFolder != null -> {
                             val folderMedia = currentItems
                                 .filter { it.bucketId == selectedFolder!!.bucketId }
@@ -621,7 +609,6 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // ৩.৩) রুট ফোল্ডার তালিকা
                         else -> {
                             val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
                             if (filteredFolders.isEmpty()) {
@@ -647,86 +634,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // 🎵 ৪. বটম অডিও মিনি-প্লেয়ার
-            AnimatedVisibility(
-                visible = currentlyPlayingItem != null,
-                enter = slideInVertically(
-                    initialOffsetY = { it },
-                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
-                ) + fadeIn(tween(220)),
-                exit = slideOutVertically(
-                    targetOffsetY = { it },
-                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
-                ) + fadeOut(tween(180)),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp, end = 12.dp, bottom = 52.dp)
-            ) {
-                currentlyPlayingItem?.let { playing ->
-                    Surface(
-                        color = Color(0xF0121722),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, Color(0xFF232D40)),
-                        shadowElevation = 10.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .clickable { onVideoClick(playing) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF1E2638)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                VideoThumbnailPreview(item = playing, modifier = Modifier.fillMaxSize())
-                            }
-
-                            Text(
-                                text = playing.displayName.ifBlank { playing.title },
-                                color = Color.White,
-                                fontSize = 12.5.sp,
-                                maxLines = 1,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            IconButton(
-                                onClick = { isMiniPlayerPlaying = !isMiniPlayerPlaying },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isMiniPlayerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { currentlyPlayingItem = null },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = Color(0xFF8E95A5),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ⚠️ ৫. ট্র্যাশ সম্পূর্ণ খালি করার কনফার্মেশন ডায়ালগ
+            // ট্র্যাশ সম্পূর্ণ খালি করার ডায়ালগ
             if (showEmptyTrashConfirmDialog) {
                 AlertDialog(
                     onDismissRequest = { showEmptyTrashConfirmDialog = false },
