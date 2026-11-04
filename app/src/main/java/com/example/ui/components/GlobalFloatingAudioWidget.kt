@@ -12,9 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -29,7 +27,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -51,7 +48,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
 
-// ২ নম্বর ছবির মতো ডিপ ডার্ক-গ্রিন টিন্ট ব্যাকগ্রাউন্ড
 private val WidgetBarBg = Color(0xF20B130E)
 private val WidgetBorder = Color(0xFF1E3224)
 private val TabBg = Color(0xF20D1711)
@@ -74,7 +70,7 @@ fun GlobalFloatingAudioWidget(
 
     val track = currentTrack!!
 
-    // ৮ সেকেন্ড টাইমার ও স্টেট (২ নম্বর ছবি বনাম ৩ নম্বর ছবি)
+    // ৮ সেকেন্ড টাইমার ও স্টেট
     var isExpanded by remember { mutableStateOf(true) }
     var userInteractionCount by remember { mutableLongStateOf(0L) }
 
@@ -98,7 +94,7 @@ fun GlobalFloatingAudioWidget(
         }
     }
 
-    // ⏱️ ৮ সেকেন্ড পর স্বয়ংক্রিয়ভাবে সাইডে ছোট হয়ে ৩ নম্বর ছবির মতো হওয়া
+    // ⏱️ ৮ সেকেন্ড পর স্বয়ংক্রিয়ভাবে সাইডে ছোট হয়ে যাওয়া
     LaunchedEffect(isExpanded, userInteractionCount, isPlaying) {
         if (isExpanded) {
             delay(8000L)
@@ -114,8 +110,7 @@ fun GlobalFloatingAudioWidget(
     var offsetY by remember { mutableFloatStateOf(screenHeightPx - bottomNavHeightPx - with(density) { 60.dp.toPx() }) }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
+        modifier = modifier.fillMaxSize()
     ) {
         Box(
             modifier = Modifier
@@ -124,7 +119,6 @@ fun GlobalFloatingAudioWidget(
                     detectDragGestures { change, dragAmount ->
                         change.consume()
                         userInteractionCount++
-                        // ড্র্যাগ করার সময় নিরাপদ সীমার মধ্যে রাখা
                         val newY = offsetY + dragAmount.y
                         offsetY = newY.coerceIn(topSafeLimitPx, screenHeightPx - bottomNavHeightPx)
                     }
@@ -234,23 +228,20 @@ fun GlobalFloatingAudioWidget(
                     }
                 } else {
                     // =========================================================
-                    // 🌟 ৩ নম্বর ছবির মতো স্ক্রিনের সাইডে ছোট হয়ে যাওয়া 🎵 ট্যাব
+                    // 🌟 ৩ নম্বর ছবির মতো স্ক্রিনের সাইডে ডক হওয়া 🎵 ট্যাব
                     // =========================================================
                     Surface(
                         shape = RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp),
                         color = TabBg,
                         border = BorderStroke(1.dp, Color(0xFF223628)),
                         shadowElevation = 8.dp,
+                        onClick = {
+                            userInteractionCount++
+                            isExpanded = true
+                        },
                         modifier = Modifier
                             .width(38.dp)
                             .height(44.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(bounded = true)
-                            ) {
-                                userInteractionCount++
-                                isExpanded = true
-                            }
                     ) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
