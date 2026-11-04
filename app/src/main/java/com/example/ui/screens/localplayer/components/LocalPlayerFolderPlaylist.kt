@@ -42,17 +42,17 @@ private val DeepCardBg = Color(0xFF10141E)
 private val CardBorderColor = Color(0xFF1E2638)
 private val ActiveGreen = Color(0xFF00E676)
 
-// 🌿 প্রিমিয়াম স্লিম গ্রিন ও সায়ান বর্ডার কম্বিনেশন গ্রেডিয়েন্ট
-private val ActiveSlimBorderBrush = Brush.horizontalGradient(
+// 🌟 দুই সাইডে নীল এবং মাঝখানে সবুজ রঙের প্রিমিয়াম গ্রেডিয়েন্ট কম্বিনেশন (Blue -> Green -> Blue)
+private val BlueGreenBlueBorderBrush = Brush.horizontalGradient(
     colors = listOf(
-        Color(0xFF00E676),
-        Color(0xFF00C853),
-        Color(0xFF00E5FF)
+        Color(0xFF0091EA), // বাম সাইডে উজ্জ্বল নীল
+        Color(0xFF00E676), // মাঝখানে নিওন সবুজ
+        Color(0xFF0091EA)  // ডান সাইডে উজ্জ্বল নীল
     )
 )
 
 /**
- * 🏷️ ফাইলের নাম থেকে .my বা ভুয়া ট্যাগ মুছে আসল ফরম্যাট (.mkv/.mp4) যুক্ত করার হেল্পার
+ * 🏷️ ফাইলের নাম থেকে .my মুছে আসল ফরম্যাট (.mkv/.mp4) যুক্ত করার হেল্পার
  */
 private fun resolveCleanTitleWithRealFormat(title: String, path: String, mimeType: String?): String {
     val realExt = when {
@@ -68,13 +68,10 @@ private fun resolveCleanTitleWithRealFormat(title: String, path: String, mimeTyp
     }
 
     var baseName = title.trim()
-
-    // .my সাফিক্স ক্লিন করা
     if (baseName.endsWith(".my", ignoreCase = true)) {
         baseName = baseName.substring(0, baseName.length - 3).trimEnd('.')
     }
 
-    // বিদ্যমান এক্সটেনশন ডুপ্লিকেট হওয়া প্রতিরোধ করা
     listOf(".mkv", ".mp4", ".webm", ".avi", ".mov", ".flv", ".ts").forEach { ext ->
         if (baseName.endsWith(ext, ignoreCase = true)) {
             baseName = baseName.removeSuffix(ext)
@@ -82,6 +79,68 @@ private fun resolveCleanTitleWithRealFormat(title: String, path: String, mimeTyp
     }
 
     return "$baseName$realExt"
+}
+
+/**
+ * 🔢 স্মার্ট ন্যাচারাল এপিসোড ট্র্যাকার (E01, E02... সিরিয়ালে সাজানো)
+ */
+private fun extractEpisodeNumber(name: String): Int? {
+    val regexList = listOf(
+        Regex("""(?i)[se]\d+[e|ep](\d+)"""),              // S01E24, s1e24
+        Regex("""(?i)\b(?:ep|episode)[-_\s.]*(\d+)\b"""), // Ep 24, Episode_24
+        Regex("""(?i)\b[e](\d+)\b"""),                    // E24
+        Regex("""(?i)[-_.\s](\d{1,4})[-_.\s]""")          // _24_ or .24.
+    )
+    for (regex in regexList) {
+        val match = regex.find(name)
+        if (match != null) {
+            val num = match.groupValues[1].toIntOrNull()
+            if (num != null) return num
+        }
+    }
+    return null
+}
+
+private fun compareNatural(str1: String, str2: String): Int {
+    val regex = Regex("(\\d+)|(\\D+)")
+    val tokens1 = regex.findAll(str1).map { it.value }.toList()
+    val tokens2 = regex.findAll(str2).map { it.value }.toList()
+
+    val length = minOf(tokens1.size, tokens2.size)
+    for (i in 0 until length) {
+        val t1 = tokens1[i]
+        val t2 = tokens2[i]
+
+        val num1 = t1.toLongOrNull()
+        val num2 = t2.toLongOrNull()
+
+        if (num1 != null && num2 != null) {
+            val cmp = num1.compareTo(num2)
+            if (cmp != 0) return cmp
+        } else {
+            val cmp = t1.compareTo(t2, ignoreCase = true)
+            if (cmp != 0) return cmp
+        }
+    }
+    return tokens1.size.compareTo(tokens2.size)
+}
+
+private fun naturalSortVideos(videos: List<LocalVideoItem>): List<LocalVideoItem> {
+    val hasEpisodes = videos.count { extractEpisodeNumber(it.title) != null } >= (videos.size / 2).coerceAtLeast(1)
+
+    return if (hasEpisodes) {
+        // এপিসোড নম্বর থাকলে ১ থেকে শেষ পর্যন্ত ক্রমানুসারে সাজানো হবে
+        videos.sortedWith(
+            compareBy<LocalVideoItem> {
+                extractEpisodeNumber(it.title) ?: Int.MAX_VALUE
+            }.thenComparing { a, b ->
+                compareNatural(a.title, b.title)
+            }
+        )
+    } else {
+        // সাধারণ ফাইলগুলোর জন্য ন্যাচারাল আলফানিউমেরিক সর্টিং (1, 2, 10...)
+        videos.sortedWith { a, b -> compareNatural(a.title, b.title) }
+    }
 }
 
 /**
@@ -170,7 +229,6 @@ private fun FastLocalVideoThumbnail(
             )
         }
 
-        // সময়সীমা ব্যাজ (Duration)
         if (item.formattedDuration.isNotBlank()) {
             Surface(
                 shape = RoundedCornerShape(4.dp),
@@ -204,6 +262,9 @@ fun LocalPlayerFolderPlaylist(
     isLandscapeDrawer: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    // 🌟 এপিসোডগুলোকে ১ থেকে ক্রমানুসারে সিরিয়ালভাবে সাজানো হয়েছে
+    val sortedVideos = remember(videos) { naturalSortVideos(videos) }
+
     val backgroundModifier = if (isLandscapeDrawer) {
         Modifier.background(
             Brush.horizontalGradient(
@@ -224,7 +285,7 @@ fun LocalPlayerFolderPlaylist(
             .then(backgroundModifier)
     ) {
         // =============================================================
-        // ১. হেডার সেকশন (ল্যান্ডস্কেপে আল্ট্রা-কম্প্যাক্ট যাতে কোনো জায়গা নষ্ট না হয়)
+        // ১. হেডার সেকশন
         // =============================================================
         if (isLandscapeDrawer) {
             Row(
@@ -235,7 +296,7 @@ fun LocalPlayerFolderPlaylist(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "${folderName.ifBlank { "Videos" }} (${videos.size})",
+                    text = "${folderName.ifBlank { "Videos" }} (${sortedVideos.size})",
                     color = Color.White.copy(alpha = 0.85f),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -271,7 +332,6 @@ fun LocalPlayerFolderPlaylist(
                 }
             }
         } else {
-            // পোর্ট্রেট মোডের হেডার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -289,7 +349,7 @@ fun LocalPlayerFolderPlaylist(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${videos.size} videos in folder",
+                        text = "${sortedVideos.size} videos in folder",
                         color = Color(0xFF8E95A5),
                         fontSize = 11.5.sp
                     )
@@ -329,7 +389,7 @@ fun LocalPlayerFolderPlaylist(
         )
 
         // =============================================================
-        // ২. অপ্টিমাইজড প্লেলিস্ট তালিকা
+        // ২. সিরিয়াল অনুযায়ী সাজানো প্লেলিস্ট তালিকা
         // =============================================================
         LazyColumn(
             modifier = Modifier
@@ -342,12 +402,11 @@ fun LocalPlayerFolderPlaylist(
             verticalArrangement = Arrangement.spacedBy(if (isLandscapeDrawer) 6.dp else 8.dp)
         ) {
             items(
-                items = videos,
+                items = sortedVideos,
                 key = { it.id }
             ) { videoItem ->
                 val isPlayingThis = (videoItem.id == currentVideoId)
 
-                // 🌟 ফাইলের নামের শেষে আসল ফরম্যাট যুক্ত করা (.mkv বা .mp4)
                 val cleanTitle = remember(videoItem.title, videoItem.path, videoItem.mimeType) {
                     resolveCleanTitleWithRealFormat(videoItem.title, videoItem.path, videoItem.mimeType)
                 }
@@ -361,9 +420,10 @@ fun LocalPlayerFolderPlaylist(
                             if (isLandscapeDrawer) Color(0x66131826) else DeepCardBg
                         }
                     ),
+                    // 🔥 দুই সাইডে নীল ও মাঝখানে সবুজ কম্বিনেশন গ্রেডিয়েন্ট বর্ডার
                     border = BorderStroke(
                         width = if (isPlayingThis) 0.8.dp else 0.5.dp,
-                        brush = if (isPlayingThis) ActiveSlimBorderBrush else SolidColor(CardBorderColor)
+                        brush = if (isPlayingThis) BlueGreenBlueBorderBrush else SolidColor(CardBorderColor)
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -376,7 +436,6 @@ fun LocalPlayerFolderPlaylist(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // থাম্বনেইল বক্স
                         Box(
                             modifier = Modifier
                                 .width(if (isLandscapeDrawer) 72.dp else 96.dp)
@@ -401,7 +460,6 @@ fun LocalPlayerFolderPlaylist(
                             }
                         }
 
-                        // ভিডিও টাইটেল ও মেটাডাটা
                         Column(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -416,7 +474,6 @@ fun LocalPlayerFolderPlaylist(
                                 lineHeight = if (isLandscapeDrawer) 14.5.sp else 16.sp
                             )
 
-                            // মেটাডাটা রো (নিচে অতিরিক্ত কোনো ব্যাজ রাখা হয়নি)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
