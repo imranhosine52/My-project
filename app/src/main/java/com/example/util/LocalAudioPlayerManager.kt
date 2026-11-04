@@ -2,6 +2,7 @@
 
 package com.example.util
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,14 +12,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadata
 import android.media.MediaMetadataRetriever
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
-import androidx.core.app.NotificationCompat
-import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -44,7 +43,7 @@ object LocalAudioPlayerManager {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var exoPlayer: ExoPlayer? = null
     private var appContext: Context? = null
-    private var mediaSession: MediaSessionCompat? = null
+    private var mediaSession: MediaSession? = null
 
     // 🎵 প্লেব্যাক স্টেটসমূহ
     private val _currentTrack = MutableStateFlow<LocalVideoItem?>(null)
@@ -126,9 +125,9 @@ object LocalAudioPlayerManager {
     }
 
     private fun setupMediaSession(context: Context) {
-        mediaSession = MediaSessionCompat(context, "LocalAudioMediaSession").apply {
+        mediaSession = MediaSession(context, "LocalAudioMediaSession").apply {
             isActive = true
-            setCallback(object : MediaSessionCompat.Callback() {
+            setCallback(object : MediaSession.Callback() {
                 override fun onPlay() { resume() }
                 override fun onPause() { pause() }
                 override fun onSkipToNext() { playNext() }
@@ -251,19 +250,19 @@ object LocalAudioPlayerManager {
     private fun syncPlaybackState() {
         val player = exoPlayer ?: return
         val isPlayingState = player.isPlaying
-        val state = if (isPlayingState) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+        val state = if (isPlayingState) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         val position = player.currentPosition.coerceAtLeast(0L)
         val speed = if (isPlayingState) 1.0f else 0f
 
-        val stateBuilder = PlaybackStateCompat.Builder()
+        val stateBuilder = PlaybackState.Builder()
             .setActions(
-                PlaybackStateCompat.ACTION_PLAY or
-                        PlaybackStateCompat.ACTION_PAUSE or
-                        PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                        PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP
+                PlaybackState.ACTION_PLAY or
+                        PlaybackState.ACTION_PAUSE or
+                        PlaybackState.ACTION_PLAY_PAUSE or
+                        PlaybackState.ACTION_SKIP_TO_NEXT or
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                        PlaybackState.ACTION_SEEK_TO or
+                        PlaybackState.ACTION_STOP
             )
             .setState(state, position, speed)
 
@@ -271,21 +270,21 @@ object LocalAudioPlayerManager {
     }
 
     private fun syncMediaMetadata(track: LocalVideoItem, coverBitmap: Bitmap?) {
-        val metadataBuilder = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.displayName.ifBlank { track.title })
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.folderName.ifBlank { "Music" })
-            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, track.folderName.ifBlank { "Local Audio" })
-            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, _durationMs.value)
+        val metadataBuilder = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, track.displayName.ifBlank { track.title })
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, track.folderName.ifBlank { "Music" })
+            .putString(MediaMetadata.METADATA_KEY_ALBUM, track.folderName.ifBlank { "Local Audio" })
+            .putLong(MediaMetadata.METADATA_KEY_DURATION, _durationMs.value)
 
         if (coverBitmap != null) {
-            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, coverBitmap)
+            metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, coverBitmap)
         }
 
         mediaSession?.setMetadata(metadataBuilder.build())
     }
 
     // =========================================================================
-    // 🔔 Spotify স্টাইল সিস্টেম মিডিয়া নোটিফিকেশন (MediaStyle)
+    // 🔔 Spotify স্টাইল সিস্টেম মিডিয়া নোটিফিকেশন (অ্যান্ড্রয়েড ফ্রেমওয়ার্ক MediaStyle)
     // =========================================================================
     private fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -326,7 +325,6 @@ object LocalAudioPlayerManager {
         scope.launch(Dispatchers.IO) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // অ্যালবাম কভার আর্ট লোড
             var coverBitmap: Bitmap? = null
             try {
                 val retriever = MediaMetadataRetriever()
@@ -373,14 +371,19 @@ object LocalAudioPlayerManager {
                 android.R.drawable.ic_media_play
             }
 
-            // 🌟 MediaStyle: এটিই টেক্সট নোটিফিকেশনকে আসল প্রিমিয়াম মিডিয়া প্লেয়ার বানায়
-            val mediaStyle = androidx.media.app.NotificationCompat.MediaStyle()
+            // 🌟 অ্যান্ড্রয়েডের আসল বিল্ট-ইন MediaStyle (কোনো এক্সটার্নাল লাইব্রেরি ছাড়াই কাজ করে)
+            val mediaStyle = Notification.MediaStyle()
                 .setMediaSession(session.sessionToken)
                 .setShowActionsInCompactView(0, 1, 2)
-                .setShowCancelButton(true)
-                .setCancelButtonIntent(stopIntent)
 
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(context)
+            }
+
+            val notification = builder
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(track.displayName.ifBlank { track.title })
                 .setContentText(track.folderName.ifBlank { "Music" })
@@ -388,11 +391,9 @@ object LocalAudioPlayerManager {
                 .setContentIntent(contentPendingIntent)
                 .setDeleteIntent(stopIntent)
                 .setOngoing(isCurrentlyPlaying)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOnlyAlertOnce(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setStyle(mediaStyle)
-                // আসল আইকন বাটন: Previous [0], Play/Pause [1], Next [2]
+                // আসল প্রফেশনাল মিডিয়া আইকন বাটন
                 .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
                 .addAction(playPauseIcon, if (isCurrentlyPlaying) "Pause" else "Play", playPauseIntent)
                 .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
