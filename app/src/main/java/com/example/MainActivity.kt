@@ -42,6 +42,7 @@ import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.ui.PlayDramaFlixBottomNav
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.GlobalFloatingAudioWidget
 import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
@@ -55,6 +56,7 @@ import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.*
 import com.example.util.AppAnalyticsTracker
+import com.example.util.LocalAudioPlayerManager
 import com.example.util.LocalMediaScanner
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
@@ -128,6 +130,9 @@ class MainActivity : ComponentActivity() {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
             FirebaseMessaging.getInstance().subscribeToTopic("all")
         } catch (_: Exception) {}
+
+        // 🎵 গ্লোবাল অডিও ইঞ্জিন ও মিডিয়া নোটিফিকেশন ইনিশিয়ালাইজ
+        LocalAudioPlayerManager.init(applicationContext)
 
         val initialConfig = viewModel.repository.getCachedAdsConfig()
         val isVip = viewModel.repository.isUserVip()
@@ -760,13 +765,15 @@ private fun MainAppContent(
                                             mediaItem.path.endsWith(".mp3", true) ||
                                             mediaItem.path.endsWith(".m4a", true) ||
                                             mediaItem.path.endsWith(".wav", true) ||
-                                            mediaItem.path.endsWith(".aac", true)
+                                            mediaItem.path.endsWith(".aac", true) ||
+                                            mediaItem.path.endsWith(".opus", true)
 
                                     if (isAudio) {
                                         coroutineScope.launch {
                                             val allAudio = withContext(Dispatchers.IO) {
                                                 LocalMediaScanner.getAllAudioTracks(context)
                                             }
+                                            LocalAudioPlayerManager.playTrack(context, mediaItem, allAudio)
                                             navigateTo(Screen.LocalAudioPlayer(mediaItem, allAudio), null)
                                         }
                                     } else {
@@ -784,7 +791,7 @@ private fun MainAppContent(
                         is Screen.LocalAudioPlayer -> {
                             LocalAudioPlayerScreen(
                                 initialAudio = targetScreen.audioItem,
-                                playlist = targetScreen.playlist,
+                                playlist = targetScreen.playlist.ifEmpty { LocalAudioPlayerManager.playlist.value },
                                 onBackClick = { handleBackNavigation() }
                             )
                         }
@@ -822,8 +829,26 @@ private fun MainAppContent(
         }
 
         // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট (Community Chat)
-        // 🔥 লোকাল গ্যালারি, ভিডিও প্লেয়ার এবং অডিও প্লেয়ার থেকে সম্পূর্ণ ব্যান করা হয়েছে!
+        // 🎵 গ্লোবাল ভাসমান পপ-আপ মিনি প্লেয়ার (ছবি ২ ও ৩)
+        // 🔥 পুরো অ্যাপের যেকোনো পেজে ইউজার গেলে এটি ড্র্যাগেবল অবস্থায় ভাসতে থাকবে
+        // =========================================================================
+        val shouldHideFloatingAudio = currentScreen is Screen.LocalAudioPlayer ||
+                currentScreen is Screen.LocalPlayer ||
+                currentScreen is Screen.Player ||
+                currentScreen is Screen.ShortsPlayer
+
+        if (!shouldHideFloatingAudio) {
+            GlobalFloatingAudioWidget(
+                onOpenFullPlayer = { track ->
+                    navigateTo(Screen.LocalAudioPlayer(track, LocalAudioPlayerManager.playlist.value), null)
+                },
+                hasBottomNav = !shouldHideBottomNav,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // =========================================================================
+        // 💬 ফ্লোটিং চ্যাট উইজেট
         // =========================================================================
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -831,8 +856,8 @@ private fun MainAppContent(
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.CommunityChat ||
                 currentScreen is Screen.LocalGallery ||
-                currentScreen is Screen.LocalPlayer ||        // 👈 ভিডিও প্লেয়ারে Help? বন্ধ
-                currentScreen is Screen.LocalAudioPlayer ||   // 👈 অডিও প্লেয়ারে Help? বন্ধ
+                currentScreen is Screen.LocalPlayer ||
+                currentScreen is Screen.LocalAudioPlayer ||
                 currentScreen is Screen.NotFound
 
         if (!shouldHideFloatingChat) {
