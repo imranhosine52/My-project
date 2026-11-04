@@ -103,11 +103,10 @@ fun LocalPlayerVideoBox(
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
-    // 🎵 অডিও ট্র্যাক স্টেট (স্মার্ট ইনিশিয়ালাইজেশন)
+    // 🎵 অডিও ট্র্যাক স্টেট
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
-    
-    // ভিডিও টাইটেল বা পাথ থেকে প্রাথমিক অডিও ভাষা অনুমান (যেমন KatDrama ফাইলের ক্ষেত্রে HIN -> Hindi)
+
     val defaultAudioGuess = remember(currentVideo.title, currentVideo.path) {
         when {
             currentVideo.title.contains("hin", true) || currentVideo.path.contains("hin", true) -> "Hindi"
@@ -128,7 +127,7 @@ fun LocalPlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // সাইড ড্রয়ার স্টেট ("none", "playlist", "audio", "subtitles", "speed")
+    // ড্রয়ার স্টেট
     var sideDrawerType by remember { mutableStateOf("none") }
     val showSideDrawer = (sideDrawerType != "none")
 
@@ -162,7 +161,7 @@ fun LocalPlayerVideoBox(
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 ExoPlayer থেকে নিখুঁত মাল্টি-অডিও ও সাবটাইটেল ট্র্যাকিং
+    // 🎧 ExoPlayer থেকে মাল্টি-অডিও ও সাবটাইটেল ট্র্যাকিং
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -367,7 +366,7 @@ fun LocalPlayerVideoBox(
             .fillMaxSize()
             .background(Color.Black)
             // =============================================================
-            // 👆 সোয়াইপ জেসচার (ভলিউম, ব্রাইটনেস ও সাইড থেকে টান দিলে প্লেলিস্ট ড্রয়ার)
+            // 👆 সোয়াইপ জেসচার
             // =============================================================
             .pointerInput(isScreenLocked, isLandscape, showSideDrawer) {
                 if (isScreenLocked || showSideDrawer) return@pointerInput
@@ -426,7 +425,7 @@ fun LocalPlayerVideoBox(
                             totalDragY += dragY
                             totalDragX += dragX
 
-                            // 🌟 ফুলস্ক্রিনে সাইড থেকে সোয়াইপ করে প্লেলিস্ট ড্রয়ার ওপেন করা
+                            // ফুলস্ক্রিনে প্রান্ত থেকে সোয়াইপ করে প্লেলিস্ট ড্রয়ার ওপেন করা
                             if (isLandscape && !isVerticalDragging && (isNearRightEdge && totalDragX < -touchSlop || isNearLeftEdge && totalDragX > touchSlop)) {
                                 isEdgeSwipingPlaylist = true
                             }
@@ -479,7 +478,15 @@ fun LocalPlayerVideoBox(
                 }
             }
             .pointerInput(isScreenLocked, showSideDrawer, isUserSeeking) {
-                if (isScreenLocked) return@pointerInput
+                // 🔥 লক থাকা অবস্থায় টাচ করলে যেন আনলক বাটন ছাড়া অন্য কোনো জেসচার কাজ না করে
+                if (isScreenLocked) {
+                    detectTapGestures(
+                        onTap = {
+                            isControlsVisible = !isControlsVisible
+                        }
+                    )
+                    return@pointerInput
+                }
 
                 detectTapGestures(
                     onPress = {
@@ -523,7 +530,7 @@ fun LocalPlayerVideoBox(
                 )
             }
     ) {
-        // ১. ExoPlayer ভিডিও সারফেস
+        // ১. ExoPlayer সারফেস
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -551,7 +558,7 @@ fun LocalPlayerVideoBox(
                 )
         )
 
-        // ২. জেসচার ওভারলে (ভলিউম, ব্রাইটনেস ও অ্যানিমেশন)
+        // ২. জেসচার ওভারলে
         PlayerGesturesOverlay(
             is2xActive = is2xActive,
             isHorizontalScrubbing = isHorizontalScrubbing,
@@ -619,9 +626,18 @@ fun LocalPlayerVideoBox(
                 isMuted = !isMuted
                 exoPlayer.volume = if (isMuted) 0f else 1f
             },
+            // 🔥 ১০০% ফিক্সড স্ক্রিন লক ও আনলক টগল লজিক
             onLockToggle = {
-                isScreenLocked = true
-                isControlsVisible = false
+                if (isScreenLocked) {
+                    isScreenLocked = false
+                    isControlsVisible = true
+                    Toast.makeText(context, "Screen Unlocked", Toast.LENGTH_SHORT).show()
+                } else {
+                    isScreenLocked = true
+                    isControlsVisible = false
+                    sideDrawerType = "none"
+                    Toast.makeText(context, "Screen Locked", Toast.LENGTH_SHORT).show()
+                }
             },
             onSeekStarted = { isUserSeeking = true },
             onSeeking = { scrubPosition = it },
@@ -639,7 +655,7 @@ fun LocalPlayerVideoBox(
         )
 
         // =============================================================
-        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (স্ক্রিনের সাথে মাখনের মতো ব্লেন্ড হওয়া হালকা কালো লুক)
+        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ
         // =============================================================
         AnimatedVisibility(
             visible = showSideDrawer,
@@ -657,7 +673,6 @@ fun LocalPlayerVideoBox(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(if (sideDrawerType == "playlist") 285.dp else 195.dp)
-                    // 🔥 কোন সলিড কালার নয়, স্ক্রিনের সাথে ব্লেন্ড হওয়া হালকা কালো ট্রান্সলুসেন্ট ব্যাকগ্রাউন্ড
                     .background(
                         Brush.horizontalGradient(
                             listOf(
