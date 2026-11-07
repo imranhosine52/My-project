@@ -49,7 +49,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
 import com.example.data.local.WatchHistoryEntity
@@ -154,7 +153,7 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // =============================================================
-                // 🔝 ১. টপ প্রোফাইল হেডার (স্ক্রিনশটের হুবহু স্টাইল)
+                // 🔝 ১. টপ প্রোফাইল হেডার
                 // =============================================================
                 MovieBoxStyleHeader(
                     isLoggedIn = authState.isLoggedIn,
@@ -216,7 +215,7 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 👑 ৩. স্ক্রিনশটের হুবহু গোল্ডেন VIP কার্ড (৫টি আসল ফিচার সহ)
+                // 👑 ৩. গোল্ডেন VIP কার্ড (৫টি আসল ফিচার সহ)
                 // =============================================================
                 MovieBoxStyleVipCard(
                     isVip = vipState.isVip,
@@ -268,7 +267,7 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 🕒 ৫. ওয়াচ হিস্ট্রি ক্যারোসেল (রুম ডাটাবেজ থেকে আসল ডেটা)
+                // 🕒 ৫. ওয়াচ হিস্ট্রি ক্যারোসেল
                 // =============================================================
                 if (watchHistoryList.isNotEmpty()) {
                     WatchHistorySection(
@@ -411,7 +410,7 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 🌐 ৯. বটম ফুটার (স্ক্রিনশটের মতো Official website & Copy link)
+                // 🌐 ৯. বটম ফুটার
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -441,7 +440,7 @@ fun ProfileScreen(
         }
 
         // =============================================================
-        // 🛡️ ডায়ালগ এবং শিটসমূহ (আগের মতোই সম্পূর্ণ কার্যকর)
+        // 🛡️ ডায়ালগ এবং শিটসমূহ
         // =============================================================
         if (showPromoCodeDialog) {
             PromoCodeDialog(
@@ -572,7 +571,7 @@ fun ProfileScreen(
 }
 
 // =============================================================================
-// 🔝 স্ক্রিনশটের হুবহু হেডার কম্পোনেন্ট
+// 🔝 হেডার কম্পোনেন্ট
 // =============================================================================
 @Composable
 private fun MovieBoxStyleHeader(
@@ -593,7 +592,6 @@ private fun MovieBoxStyleHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // টপ স্ক্যানার আইকন (স্ক্রিনশটের ওপরের ডানপাশে যেমন আছে)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
@@ -611,14 +609,12 @@ private fun MovieBoxStyleHeader(
             }
         }
 
-        // লগইন / ইউজার প্রোফাইল রো
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (isLoggedIn && userProfile != null) {
-                // লগইন করা থাকলে: অবতার + নাম + আইডি
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -697,7 +693,6 @@ private fun MovieBoxStyleHeader(
                     }
                 }
 
-                // এডিট প্রোফাইল বাটন
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFF192232),
@@ -713,7 +708,6 @@ private fun MovieBoxStyleHeader(
                     )
                 }
             } else {
-                // গেস্ট থাকলে: স্ক্রিনশটের হুবহু "Log in to your account" ও সবুজ "Log in" বোতাম
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = "Log in to your account",
@@ -754,7 +748,7 @@ private fun MovieBoxStyleHeader(
 }
 
 // =============================================================================
-// 👑 স্ক্রিনশটের হুবহু গোল্ডেন VIP কার্ড (৫টি পার্কস আইকন সহ)
+// 👑 গোল্ডেন VIP কার্ড (৫টি পার্কস আইকন সহ)
 // =============================================================================
 @Composable
 private fun MovieBoxStyleVipCard(
@@ -782,7 +776,6 @@ private fun MovieBoxStyleVipCard(
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                // কার্ড টপ রো: [ 👑 MovieBox Premium > ]      [ Unlock ]
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -813,7 +806,6 @@ private fun MovieBoxStyleVipCard(
                         )
                     }
 
-                    // Unlock বোতাম
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = Color(0xFFFFF2D9),
@@ -829,7 +821,6 @@ private fun MovieBoxStyleVipCard(
                     }
                 }
 
-                // ৫টি পার্কস আইকন রো (স্ক্রিনশটের হুবহু হেক্সাগন স্টাইল আইকন)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -880,7 +871,7 @@ private fun VipFeatureItem(
 }
 
 // =============================================================================
-// 🕒 ওয়াচ হিস্ট্রি ক্যারোসেল (রুম ডাটাবেজ থেকে আসল ইতিহাস)
+// 🕒 ওয়াচ হিস্ট্রি সেকশন
 // =============================================================================
 @Composable
 private fun WatchHistorySection(
@@ -946,7 +937,6 @@ private fun WatchHistorySection(
                             contentScale = ContentScale.Crop
                         )
 
-                        // ভিডিও ব্যাজ (টপ-লেফটে)
                         Surface(
                             shape = RoundedCornerShape(topStart = 6.dp, bottomEnd = 4.dp),
                             color = Color(0xB3000000),
@@ -961,7 +951,6 @@ private fun WatchHistorySection(
                             )
                         }
 
-                        // প্রগ্রেস বার
                         if (item.progressPercentage > 0f) {
                             LinearProgressIndicator(
                                 progress = { item.progressPercentage.coerceIn(0f, 1f) },
@@ -990,7 +979,7 @@ private fun WatchHistorySection(
 }
 
 // =============================================================================
-// 📋 মেনু কার্ড কনটেইনার ও রো আইটেম
+// 📋 মেনু গ্রুপ ও রো কম্পোনেন্ট
 // =============================================================================
 @Composable
 private fun MovieBoxMenuGroup(
@@ -1065,6 +1054,146 @@ private fun MovieBoxMenuRow(
                 tint = Color(0xFF555F73),
                 modifier = Modifier.size(16.dp)
             )
+        }
+    }
+}
+
+// =============================================================================
+// 🧾 ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
+// =============================================================================
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun InAppInvoiceWebViewDialog(
+    userProfile: UserProfileDto?,
+    onDismiss: () -> Unit
+) {
+    val numericUid = userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
+    val rawId = Uri.encode(userProfile?.id ?: "0")
+    val accountId = Uri.encode(userProfile?.effectiveAccountId ?: "")
+    val email = Uri.encode(userProfile?.email ?: "")
+    val phone = Uri.encode(userProfile?.phone ?: "")
+    val name = Uri.encode(userProfile?.displayName ?: "")
+    val isVipFlag = if (userProfile?.isVip == true || userProfile?.plan?.lowercase() in listOf("vip", "premium")) "1" else "0"
+
+    val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$numericUid&raw_id=$rawId&account_id=$accountId&email=$email&phone=$phone&name=$name&is_vip=$isVipFlag"
+    var isLoading by remember { mutableStateOf(true) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
+    ) {
+        Scaffold(
+            topBar = {
+                Surface(
+                    color = Color(0xFF06080E),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White
+                                )
+                            }
+                            Text(
+                                text = "Invoices & History",
+                                color = Color.White,
+                                fontSize = 16.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IconButton(onClick = { webViewInstance?.reload() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = Color(0xFFFFB300),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            containerColor = Color(0xFF06080E)
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(Color(0xFF06080E))
+            ) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            webViewInstance = this
+                            CookieManager.getInstance().setAcceptCookie(true)
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = true
+                                cacheMode = WebSettings.LOAD_NO_CACHE
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
+                                setSupportZoom(false)
+                            }
+                            setBackgroundColor(android.graphics.Color.parseColor("#06080E"))
+
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    isLoading = true
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    isLoading = false
+                                }
+                            }
+                            webChromeClient = WebChromeClient()
+                            loadUrl(invoiceUrl)
+                        }
+                    }
+                )
+
+                if (isLoading) {
+                    LinearProgressIndicator(
+                        color = Color(0xFFFFB300),
+                        trackColor = Color(0xFF1E2536),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.TopCenter)
+                    )
+                }
+            }
         }
     }
 }
