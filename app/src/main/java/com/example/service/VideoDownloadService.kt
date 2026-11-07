@@ -64,6 +64,11 @@ class VideoDownloadService : Service() {
         const val EXTRA_EPISODE = "extra_download_episode"
         const val EXTRA_IS_MOVIE = "extra_download_is_movie"
         const val EXTRA_POSTER_URL = "extra_download_poster_url"
+
+        // 🌟 আধুনিক ট্রান্সপারেন্ট ভেক্টর আইকন (Android 10+ এবং Chrome স্টাইল সাপোর্টেড)
+        val ICON_DOWNLOADING: Int = android.R.drawable.stat_sys_download
+        val ICON_PAUSED: Int = android.R.drawable.ic_media_pause
+        val ICON_COMPLETED: Int = android.R.drawable.checkbox_on_background // টিক চিহ্ন আইকন
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -133,13 +138,15 @@ class VideoDownloadService : Service() {
             posterUrl = taskInfo.posterUrl
         )
 
+        // 🌟 ক্রোম ব্রাউজার স্টাইল ডাউনলোড আইকন ও ক্লিন লুক
         val initialNotif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("⬇️ Starting: ${taskInfo.displayTitle}")
-            .setContentText("Connecting to server...")
+            .setSmallIcon(ICON_DOWNLOADING)
+            .setContentTitle(taskInfo.displayTitle)
+            .setContentText("Downloading... 0%")
             .setProgress(100, 0, true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setColor(0xFF00E5FF.toInt())
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
@@ -166,11 +173,13 @@ class VideoDownloadService : Service() {
         val task = activeTaskInfoMap[taskId]
         val pauseTitle = task?.displayTitle ?: "Download"
 
+        // ⏸️ পজ নোটিফিকেশন আইকন
         val pausedNotif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_pause)
-            .setContentTitle("⏸️ Paused: $pauseTitle")
-            .setContentText("Download paused. Tap play to resume.")
+            .setSmallIcon(ICON_PAUSED)
+            .setContentTitle(pauseTitle)
+            .setContentText("Download paused")
             .setOngoing(false)
+            .setColor(0xFFFFB300.toInt())
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
@@ -286,7 +295,6 @@ class VideoDownloadService : Service() {
             var totalBytesDownloaded = existingBytes
             var lastUpdateTimestamp = 0L
 
-            // 🎯 ফিক্সড: লুপের ভেতরে সরাসরি ডিক্লেয়ার করায় কোনো ইনিশিয়ালাইজেশন এরর আসবে না
             while (currentCoroutineContext().isActive) {
                 val bytesRead = inputStream.read(buffer)
                 if (bytesRead == -1) break
@@ -308,18 +316,20 @@ class VideoDownloadService : Service() {
                     )
 
                     val progressText = if (totalMb > 0) {
-                        "$pct% (${String.format(Locale.US, "%.1f", downMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB)"
+                        "$pct% • ${String.format(Locale.US, "%.1f", downMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB"
                     } else {
                         "${String.format(Locale.US, "%.1f", downMb)} MB downloaded"
                     }
 
+                    // ⬇️ ডাউনলোড চলার সময় পরিচ্ছন্ন ভেক্টর নোটিফিকেশন
                     val progressNotif = NotificationCompat.Builder(this, CHANNEL_ID)
-                        .setSmallIcon(android.R.drawable.stat_sys_download)
-                        .setContentTitle("⬇️ ${taskInfo.displayTitle}")
+                        .setSmallIcon(ICON_DOWNLOADING)
+                        .setContentTitle(taskInfo.displayTitle)
                         .setContentText(progressText)
                         .setProgress(100, pct, totalBytesExpected <= 0)
                         .setOngoing(true)
                         .setOnlyAlertOnce(true)
+                        .setColor(0xFF00E676.toInt())
                         .setPriority(NotificationCompat.PRIORITY_LOW)
                         .build()
 
@@ -333,6 +343,9 @@ class VideoDownloadService : Service() {
                 return
             }
 
+            // =========================================================================
+            // 🎉 ডাউনলোড সম্পন্ন: MediaStore-এ ফাইল সেভ
+            // =========================================================================
             var savedUri: Uri? = null
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -371,13 +384,14 @@ class VideoDownloadService : Service() {
                 contentUri = savedUri?.toString()
             )
 
+            // ✅ ডাউনলোড শেষ হলে ক্রোম ব্রাউজারের মতো টিক চিহ্ন আইকন প্রদর্শন
             showCompletionNotification(taskInfo, savedUri)
 
             activeDownloadJobs.remove(taskInfo.notifId)
             activeTaskInfoMap.remove(taskInfo.notifId)
 
         } catch (e: CancellationException) {
-            // পজের কারণে স্বাভাবিক বন্ধ
+            // পজ
         } catch (e: Exception) {
             DownloadStateTracker.setPaused(taskInfo.notifId, true)
         } finally {
@@ -391,6 +405,9 @@ class VideoDownloadService : Service() {
         }
     }
 
+    /**
+     * ✅ ডাউনলোড কমপ্লিট হলে ক্রোম ব্রাউজারের মতো পরিষ্কার টিক চিহ্ন (Checkmark) আইকন
+     */
     private fun showCompletionNotification(taskInfo: DownloadTaskInfo, savedUri: Uri?) {
         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -411,38 +428,19 @@ class VideoDownloadService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val successNotif = try {
-            val customView = RemoteViews(packageName, R.layout.notification_download_complete).apply {
-                setTextViewText(R.id.notif_title, "Download successfully")
-                setTextViewText(R.id.notif_subtitle, taskInfo.displayTitle)
-                setOnClickPendingIntent(R.id.notif_play_btn_layout, pendingPlay)
-
-                if (posterBitmap != null) {
-                    setImageViewBitmap(R.id.notif_poster, posterBitmap)
-                } else {
-                    setImageViewResource(R.id.notif_poster, R.mipmap.ic_launcher)
-                }
+        val successNotif = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(ICON_COMPLETED) // 👈 ক্রোম ব্রাউজারের মতো সুস্পষ্ট টিক চিহ্ন আইকন
+            .setContentTitle("Download complete")
+            .setContentText(taskInfo.displayTitle)
+            .setContentIntent(pendingPlay)
+            .setAutoCancel(true)
+            .setColor(0xFF00E676.toInt()) // গ্রিন একসেন্ট কালার
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .addAction(android.R.drawable.ic_media_play, "Play", pendingPlay)
+            .apply {
+                if (posterBitmap != null) setLargeIcon(posterBitmap)
             }
-
-            NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-                .setCustomContentView(customView)
-                .setContentIntent(pendingPlay)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .build()
-        } catch (_: Exception) {
-            NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("✅ Download successfully")
-                .setContentText(taskInfo.displayTitle)
-                .setContentIntent(pendingPlay)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .addAction(android.R.drawable.ic_media_play, "Play", pendingPlay)
-                .build()
-        }
+            .build()
 
         notifManager.notify(taskInfo.notifId, successNotif)
     }
