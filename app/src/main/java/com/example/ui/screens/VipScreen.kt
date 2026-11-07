@@ -16,7 +16,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -35,12 +34,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,58 +53,6 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 private val CosmicDarkBg = Color(0xFF07080E)
 private val GoldBorder = Color(0xFFE5B567)
 private val BlueCardBorder = Color(0xFF4B6496)
-
-/**
- * 👑 Hexagon Badge Icon (Gold for Pro, Silver/Blue for Standard)
- */
-@Composable
-private fun HexagonBadgeIcon(
-    isGold: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier.size(44.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            val hexPath = Path().apply {
-                moveTo(w * 0.50f, 0f)
-                lineTo(w, h * 0.25f)
-                lineTo(w, h * 0.75f)
-                lineTo(w * 0.50f, h)
-                lineTo(0f, h * 0.75f)
-                lineTo(0f, h * 0.25f)
-                close()
-            }
-
-            drawPath(
-                path = hexPath,
-                brush = if (isGold) {
-                    Brush.verticalGradient(listOf(Color(0xFFFFE082), Color(0xFFFFA000)))
-                } else {
-                    Brush.verticalGradient(listOf(Color(0xFF9CB8FF), Color(0xFF41568A)))
-                },
-                style = Fill
-            )
-
-            drawPath(
-                path = hexPath,
-                color = if (isGold) Color(0xFFFFF9C4) else Color(0xFFE3EDFF),
-                style = Stroke(width = 1.8.dp.toPx())
-            )
-        }
-
-        Icon(
-            imageVector = if (isGold) Icons.Default.WorkspacePremium else Icons.Default.Shield,
-            contentDescription = null,
-            tint = if (isGold) Color(0xFF2C1902) else Color.White,
-            modifier = Modifier.size(22.dp)
-        )
-    }
-}
 
 data class FaqItem(
     val question: String,
@@ -316,7 +259,7 @@ fun VipScreen(
                 Surface(
                     shape = RoundedCornerShape(22.dp),
                     color = Color(0xFF2A1C08),
-                    border = BorderStroke(1.2.dp, GoldBorder.copy(alpha = 0.85f)),
+                    border = BorderStroke(1.dp, GoldBorder.copy(alpha = 0.65f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(
@@ -330,38 +273,31 @@ fun VipScreen(
                                     )
                                 )
                             )
-                            .padding(16.dp)
+                            .padding(18.dp)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "Royal VIP Pass",
-                                        color = Color(0xFFFFDF88),
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Black
-                                    )
-                                    Text(
-                                        text = "Max 2 Devices • 1080P Full HD • Zero Ads",
-                                        color = Color(0xFFE8C68C),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                                HexagonBadgeIcon(isGold = true)
+                            // হেডার অংশ (ডানদিকের হেক্সাগন আইকন ছাড়া ক্লিন লুক)
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    text = "Royal VIP Pass",
+                                    color = Color(0xFFFFDF88),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Max 2 Devices • 1080P Full HD • Zero Ads",
+                                    color = Color(0xFFE8C68C),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
 
-                            // Dynamic Plan Cards (Single full-width banner OR horizontal row)
+                            // 🎯 ভেতরের ছোট কার্ডের সাইডের লাইন সম্পূর্ণ বাদ দেওয়া হয়েছে
                             if (monthlyPlans.size == 1) {
                                 val singlePlan = monthlyPlans.first()
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFF593C10),
-                                    border = BorderStroke(1.5.dp, Color(0xFFFFDF88)),
+                                    color = Color(0xFF482E0B), // লাইন ছাড়া সফট ও আরামদায়ক ব্যাকগ্রাউন্ড
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -417,14 +353,9 @@ fun VipScreen(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .clip(RoundedCornerShape(12.dp))
-                                                .background(if (isSelected) Color(0xFF593C10) else Color(0xFF2B1D08))
-                                                .border(
-                                                    width = if (isSelected) 1.5.dp else 0.8.dp,
-                                                    color = if (isSelected) Color(0xFFFFDF88) else Color(0xFF6B4B1B),
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
+                                                .background(if (isSelected) Color(0xFF482E0B) else Color(0xFF261906))
                                                 .clickable { selectedMonthlyPlan = plan }
-                                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                                                .padding(vertical = 12.dp, horizontal = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(
@@ -434,7 +365,7 @@ fun VipScreen(
                                                 Text(
                                                     text = plan.name,
                                                     color = if (isSelected) Color.White else Color(0xFFE0C49B),
-                                                    fontSize = 12.sp,
+                                                    fontSize = 12.5.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
@@ -487,12 +418,12 @@ fun VipScreen(
                 }
 
                 // =============================================================
-                // 🥈 Card 2: Multi-Month Tier (Long-Term Savings)
+                // 🥈 Card 2: Multi-Month Tier (Standard Pass)
                 // =============================================================
                 Surface(
                     shape = RoundedCornerShape(22.dp),
                     color = Color(0xFF131726),
-                    border = BorderStroke(1.2.dp, BlueCardBorder.copy(alpha = 0.85f)),
+                    border = BorderStroke(1.dp, BlueCardBorder.copy(alpha = 0.65f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(
@@ -506,38 +437,31 @@ fun VipScreen(
                                     )
                                 )
                             )
-                            .padding(16.dp)
+                            .padding(18.dp)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "Standard Pass",
-                                        color = Color(0xFFD7E2FF),
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Black
-                                    )
-                                    Text(
-                                        text = "High-speed streaming • All episodes unlocked",
-                                        color = Color(0xFFA5B7DE),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                                HexagonBadgeIcon(isGold = false)
+                            // হেডার অংশ (ডানদিকের হেক্সাগন আইকন ছাড়া ক্লিন লুক)
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    text = "Standard Pass",
+                                    color = Color(0xFFD7E2FF),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "High-speed streaming • All episodes unlocked",
+                                    color = Color(0xFFA5B7DE),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
 
-                            // Dynamic Multi-Month Cards (Single full-width OR row)
+                            // 🎯 ভেতরের ছোট কার্ডের সাইডের লাইন সম্পূর্ণ বাদ দেওয়া হয়েছে
                             if (multiMonthPlans.size == 1) {
                                 val singlePlan = multiMonthPlans.first()
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFF2B3A60),
-                                    border = BorderStroke(1.5.dp, Color(0xFF8EA5D8)),
+                                    color = Color(0xFF233052), // লাইন ছাড়া সফট ও আরামদায়ক ব্যাকগ্রাউন্ড
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -593,14 +517,9 @@ fun VipScreen(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .clip(RoundedCornerShape(12.dp))
-                                                .background(if (isSelected) Color(0xFF2B3A60) else Color(0xFF171E30))
-                                                .border(
-                                                    width = if (isSelected) 1.5.dp else 0.8.dp,
-                                                    color = if (isSelected) Color(0xFF8EA5D8) else Color(0xFF2C3955),
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
+                                                .background(if (isSelected) Color(0xFF233052) else Color(0xFF13192B))
                                                 .clickable { selectedMultiMonthPlan = plan }
-                                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                                                .padding(vertical = 12.dp, horizontal = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(
@@ -610,7 +529,7 @@ fun VipScreen(
                                                 Text(
                                                     text = plan.name,
                                                     color = if (isSelected) Color.White else Color(0xFFB8C7E6),
-                                                    fontSize = 12.sp,
+                                                    fontSize = 12.5.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
@@ -662,13 +581,12 @@ fun VipScreen(
                     }
                 }
 
-                // 🎁 Promo Code Banner (100% English)
+                // 🎁 Promo Code Banner
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(Color(0xFF141824))
-                        .border(1.dp, Color(0xFF222B3D), RoundedCornerShape(14.dp))
                         .clickable { showPromoModal = true }
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -700,7 +618,7 @@ fun VipScreen(
                 }
 
                 // =============================================================
-                // 📊 Features Comparison Table (100% International English)
+                // 📊 Features Comparison Table
                 // =============================================================
                 Column(
                     modifier = Modifier
@@ -730,7 +648,6 @@ fun VipScreen(
 
                     HorizontalDivider(color = Color(0xFF1F2636), thickness = 0.8.dp)
 
-                    // 🎯 2 Devices Limit Explicitly Defined
                     FeatureRow(title = "Simultaneous Devices", freeValue = "1", vipValue = "2")
                     FeatureRow(title = "Zero Ads (100% Ad-Free)", freeCheck = false, vipCheck = true)
                     FeatureRow(title = "1080P Full HD Streaming", freeCheck = false, vipCheck = true)
@@ -746,7 +663,7 @@ fun VipScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 24.dp),
+                        .padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
@@ -761,7 +678,6 @@ fun VipScreen(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF111520),
-                            border = BorderStroke(0.8.dp, Color(0xFF1E2536)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { isExpanded = !isExpanded }
@@ -805,6 +721,9 @@ fun VipScreen(
                         }
                     }
                 }
+
+                // 🎯 বটম ন্যাভিগেশন বার ও ফ্লোটিং বাটনের নিচে যেন কন্টেন্ট আটকে না যায় তার সেফ স্পেস
+                Spacer(modifier = Modifier.height(96.dp))
             }
         }
 
@@ -869,7 +788,6 @@ private fun FeatureRow(
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Free Column
             if (freeValue != null) {
                 Text(freeValue, color = Color(0xFF8E95A5), fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
             } else if (freeCheck == true) {
@@ -878,7 +796,6 @@ private fun FeatureRow(
                 Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFF555F73), modifier = Modifier.size(15.dp))
             }
 
-            // Pro VIP Column
             if (vipValue != null) {
                 Text(vipValue, color = Color(0xFFFFDF88), fontSize = 13.sp, fontWeight = FontWeight.Black)
             } else if (vipCheck == true) {
@@ -967,7 +884,6 @@ private fun CheckoutWebViewModal(
                                 }
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                     val url = request?.url?.toString() ?: ""
-                                    // Intercept successful deep link from server checkout.php
                                     if (url.startsWith("playdramaflix://vip-activated") || url.startsWith("playdramaflix://payment-success")) {
                                         onSuccess()
                                         return true
