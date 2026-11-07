@@ -51,6 +51,7 @@ import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.UserProfileDto
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.PromoCodeDialog
 import com.example.ui.screens.profile.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +88,7 @@ fun ProfileScreen(
 
     // শিট ও ডায়ালগ কন্ট্রোল স্টেট
     var showAuthDialog by remember { mutableStateOf(false) }
+    var showPromoCodeDialog by remember { mutableStateOf(false) }
     var showEditProfileSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
@@ -185,7 +187,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // ৩. প্রিমিয়াম পাস সেকশন
+                // ৩. প্রিমিয়াম পাস ও প্রমো কোড সেকশন
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Star,
@@ -195,6 +197,17 @@ fun ProfileScreen(
                         badge = if (vipState.isVip) "VIP ACTIVE" else "UPGRADE",
                         badgeColor = if (vipState.isVip) ActionGreen else GoldVip,
                         onClick = onNavigateToVip
+                    )
+                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                    // 🎁 নতুন সংযোজন: প্রমো কোড রিডিম অপশন
+                    ModernMenuRowItem(
+                        icon = Icons.Default.CardGiftcard,
+                        title = "Redeem Promo Code",
+                        subtitle = "Claim VIP access with gift voucher or promo code",
+                        iconTint = GoldVip,
+                        badge = "GIFT 🎁",
+                        badgeColor = GoldVip,
+                        onClick = { showPromoCodeDialog = true }
                     )
                 }
 
@@ -247,7 +260,7 @@ fun ProfileScreen(
                         HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
                     }
 
-                    // 🎯 ইন-অ্যাপ ওয়েবভিউ ইনভয়েস
+                    // ইন-অ্যাপ ওয়েবভিউ ইনভয়েস
                     ModernMenuRowItem(
                         icon = Icons.Default.ReceiptLong,
                         title = "Payment & Invoices",
@@ -306,8 +319,16 @@ fun ProfileScreen(
         }
 
         // =============================================================
-        // 🧾 ৮. ১০০% ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ (Multi-Identifier)
+        // 🎁 প্রমো কোড রিডিম ডায়ালগ
         // =============================================================
+        if (showPromoCodeDialog) {
+            PromoCodeDialog(
+                viewModel = viewModel,
+                onDismiss = { showPromoCodeDialog = false }
+            )
+        }
+
+        // ইন-অ্যাপ ওয়েবভিউ ইনভয়েস ডায়ালগ
         if (showInAppInvoiceWebView) {
             InAppInvoiceWebViewDialog(
                 userProfile = authState.userProfile,
@@ -453,7 +474,6 @@ fun InAppInvoiceWebViewDialog(
     val name = Uri.encode(userProfile?.displayName ?: "")
     val isVipFlag = if (userProfile?.isVip == true || userProfile?.plan?.lowercase() in listOf("vip", "premium")) "1" else "0"
 
-    // 🎯 ইউজার আইডি, র' আইডি, অ্যাকাউন্ট আইডি, ইমেইল, ফোন, নাম ও ভিআইপি ফ্ল্যাগ একসাথে পাঠানো হচ্ছে
     val invoiceUrl = "https://playdramaflix.com/app/vip/invoices.php?user_id=$numericUid&raw_id=$rawId&account_id=$accountId&email=$email&phone=$phone&name=$name&is_vip=$isVipFlag"
     var isLoading by remember { mutableStateOf(true) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
@@ -540,7 +560,7 @@ fun InAppInvoiceWebViewDialog(
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
                                 databaseEnabled = true
-                                cacheMode = WebSettings.LOAD_NO_CACHE // 👈 রিয়েলটাইম রিফ্রেশ
+                                cacheMode = WebSettings.LOAD_NO_CACHE
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 setSupportZoom(false)
