@@ -29,7 +29,7 @@ enum class BottomNavTab(val label: String) {
     HOME("Home"),
     SHORT_TV("Short"),
     GALLERY("Gallery"),
-    DOWNLOADS("Downloads"), // 👈 ইনবক্সের পরিবর্তে ডাউনলোডস রিস্টোর করা হলো
+    DOWNLOADS("Downloads"),
     ME("Me")
 }
 
@@ -680,6 +680,25 @@ class DramaFlixViewModel(
         }
     }
 
+    // =========================================================================
+    // 🎁 নতুন সংযোজন: প্রমো কোড ক্লেইম মেথড (ViewModel Wrapper)
+    // =========================================================================
+    fun redeemPromoCode(code: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.redeemPromoCode(code)
+            if (result.isSuccess) {
+                val response = result.getOrNull()
+                val message = response?.message ?: "🎉 প্রমো কোড সফলভাবে সক্রিয় হয়েছে!"
+                // VIP স্ট্যাটাস তৎক্ষণাৎ রিফ্রেশ করা
+                refreshVipStatusAndProfile()
+                onResult(true, message)
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: "প্রমো কোডটি সক্রিয় করা সম্ভব হয়নি।"
+                onResult(false, errorMsg)
+            }
+        }
+    }
+
     fun resetSubmissionState() {
         _vipUiState.update { it.copy(submissionSuccess = false, submissionMessage = null, lastSubmittedInvoiceId = null) }
     }
@@ -747,12 +766,8 @@ class DramaFlixViewModel(
         }
     }
 
-    // =========================================================================
-    // 🎬 ড্রামা লোড ও শুধুমাত্র নির্দিষ্ট ড্রামার জন্য সেভড এপিসোড রিড
-    // =========================================================================
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            // 🎯 নতুন ড্রামায় প্রবেশের সময় আগের ড্রামার পর্ব সম্পূর্ণ ক্লিয়ার করা হলো
             _playerUiState.update { 
                 it.copy(
                     isLoading = true, 
@@ -762,8 +777,8 @@ class DramaFlixViewModel(
                     isInWatchlist = false,
                     reactions = emptyMap(),
                     myReaction = null,
-                    content = null,         // 👈 আগের ড্রামার তথ্য মুছে ফেলা হলো
-                    currentEpisode = null   // 👈 আগের ড্রামার পর্ব রিসেট
+                    content = null,
+                    currentEpisode = null
                 ) 
             }
 
@@ -822,9 +837,6 @@ class DramaFlixViewModel(
                     }
                 }
 
-                // =============================================================
-                // 🎯 কঠোরভাবে শুধুমাত্র এই ড্রামার সেভড পর্ব চেক করা (অন্যান্য ড্রামা কখনোই একে ওভাররাইড করতে পারবে না)
-                // =============================================================
                 val savedEpNumForThisDrama = context?.getSharedPreferences("drama_last_watched_ep_prefs", Context.MODE_PRIVATE)
                     ?.getInt("last_ep_$slug", 1) ?: 1
 
