@@ -7,6 +7,7 @@ package com.example.ui.screens
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.media.ThumbnailUtils
 import android.net.Uri
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.LocalVideoItem
+import com.example.service.VideoDownloadService
 import com.example.util.ActiveDownloadTask
 import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.Dispatchers
@@ -59,18 +61,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-// 🎨 প্রিমিয়াম ডার্ক কালার থিম
 private val DeepBlackBg = Color(0xFF06080E)
 private val DeepCardBg = Color(0xFF111520)
 private val CardBorderColor = Color(0xFF1E2536)
 private val TextWhite = Color(0xFFFFFFFF)
 private val TextMutedSlate = Color(0xFF94A3B8)
 
-// 🌟 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট প্লে বাটন
 private val BlueGreenPlayBrush = Brush.horizontalGradient(
     colors = listOf(
-        Color(0xFF007AFF), // Electric Blue
-        Color(0xFF00D166)  // Emerald Green
+        Color(0xFF007AFF),
+        Color(0xFF00D166)
     )
 )
 
@@ -82,17 +82,13 @@ fun DownloadsScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
-    // 🎯 ডানে-বামে স্মুথ স্লাইডিংয়ের জন্য HorizontalPager State (০ = Ongoing, ১ = Completed)
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
-    // লাইভ ডাউনলোড পর্যবেক্ষণ
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsStateWithLifecycle()
     val ongoingList = remember(activeTasksMap) {
         activeTasksMap.values.filter { !it.isCompleted }.reversed()
     }
 
-    // অফলাইন ডাউনলোড হওয়া ভিডিও
     var completedVideos by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
     var isLoadingCompleted by remember { mutableStateOf(false) }
 
@@ -162,7 +158,6 @@ fun DownloadsScreen(
                     }
                 } catch (_: Exception) {}
 
-                // ব্যাকআপ ডিরেক্টরি স্ক্যান
                 if (list.isEmpty()) {
                     try {
                         val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -196,7 +191,6 @@ fun DownloadsScreen(
         loadCompletedVideos()
     }
 
-    // সোয়াইপ করে Completed ট্যাবে গেলেই রিফ্রেশ লোড হবে
     LaunchedEffect(pagerState.currentPage) {
         if (pagerState.currentPage == 1) {
             loadCompletedVideos()
@@ -210,9 +204,7 @@ fun DownloadsScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // =========================================================================
-            // 🔝 ১. এজ-টু-এজ হেডার ও সুইচ বাটন
-            // =========================================================================
+            // হেডার
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -261,12 +253,11 @@ fun DownloadsScreen(
                         )
                     }
 
-                    // 🌟 ক্যাপসুল ট্যাব সুইচ (ক্লিক করলে স্মুথ স্ক্রোল হবে)
+                    // ট্যাব সুইচ
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Ongoing Tab Button
                         val isOngoingActive = (pagerState.currentPage == 0)
                         Box(
                             modifier = Modifier
@@ -279,10 +270,7 @@ fun DownloadsScreen(
                                 )
                                 .clickable {
                                     coroutineScope.launch {
-                                        pagerState.animateScrollToPage(
-                                            page = 0,
-                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                        )
+                                        pagerState.animateScrollToPage(0, tween(300, easing = FastOutSlowInEasing))
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -295,7 +283,6 @@ fun DownloadsScreen(
                             )
                         }
 
-                        // Completed Tab Button
                         val isCompletedActive = (pagerState.currentPage == 1)
                         Box(
                             modifier = Modifier
@@ -308,10 +295,7 @@ fun DownloadsScreen(
                                 )
                                 .clickable {
                                     coroutineScope.launch {
-                                        pagerState.animateScrollToPage(
-                                            page = 1,
-                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                        )
+                                        pagerState.animateScrollToPage(1, tween(300, easing = FastOutSlowInEasing))
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -327,9 +311,6 @@ fun DownloadsScreen(
                 }
             }
 
-            // =========================================================================
-            // ↔️ ২. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
-            // =========================================================================
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
@@ -337,9 +318,6 @@ fun DownloadsScreen(
                     .fillMaxWidth()
             ) { pageIndex ->
                 if (pageIndex == 0) {
-                    // -----------------------------------------------------------------
-                    // ⏳ ONGOING TAB (ডাউনলোড চলছে)
-                    // -----------------------------------------------------------------
                     if (ongoingList.isEmpty()) {
                         Box(
                             modifier = Modifier
@@ -373,11 +351,10 @@ fun DownloadsScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Active downloading videos and live progress will appear here. Swipe right to view completed downloads.",
+                                    text = "Active downloading videos will appear here.",
                                     color = TextMutedSlate,
                                     fontSize = 12.5.sp,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 17.sp
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }
@@ -390,18 +367,32 @@ fun DownloadsScreen(
                             items(ongoingList, key = { it.id }) { task ->
                                 MinimalistOngoingDownloadCard(
                                     task = task,
+                                    onPauseToggle = { shouldPause ->
+                                        // 🎯 সার্ভিসে রিয়েল ইনটেন্ট পাঠানো
+                                        val intent = Intent(context, VideoDownloadService::class.java).apply {
+                                            action = if (shouldPause) VideoDownloadService.ACTION_PAUSE else VideoDownloadService.ACTION_RESUME
+                                            putExtra(VideoDownloadService.EXTRA_TASK_ID, task.id)
+                                        }
+                                        context.startService(intent)
+                                        if (shouldPause) {
+                                            Toast.makeText(context, "Download paused", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Resuming download...", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
                                     onCancel = {
-                                        DownloadStateTracker.removeTask(task.id)
-                                        Toast.makeText(context, "Download stopped", Toast.LENGTH_SHORT).show()
+                                        val intent = Intent(context, VideoDownloadService::class.java).apply {
+                                            action = VideoDownloadService.ACTION_CANCEL
+                                            putExtra(VideoDownloadService.EXTRA_TASK_ID, task.id)
+                                        }
+                                        context.startService(intent)
+                                        Toast.makeText(context, "Download cancelled", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
                         }
                     }
                 } else {
-                    // -----------------------------------------------------------------
-                    // 🎬 COMPLETED TAB (অফলাইন ভিডিও তালিকা)
-                    // -----------------------------------------------------------------
                     if (isLoadingCompleted) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = Color(0xFF007AFF), strokeWidth = 2.5.dp)
@@ -442,8 +433,7 @@ fun DownloadsScreen(
                                     text = "Downloaded episodes and films will appear here to watch offline without internet.",
                                     color = TextMutedSlate,
                                     fontSize = 12.5.sp,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 17.sp
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }
@@ -468,19 +458,18 @@ fun DownloadsScreen(
 }
 
 // =========================================================================
-// 🔄 Ongoing কার্ড (Pause/Stop অপশন সহ)
+// 🔄 Ongoing কার্ড (আসল সার্ভিস কানেক্টেড Pause/Resume বাটন সহ)
 // =========================================================================
 @Composable
 private fun MinimalistOngoingDownloadCard(
     task: ActiveDownloadTask,
+    onPauseToggle: (Boolean) -> Unit,
     onCancel: () -> Unit
 ) {
-    var isPaused by remember { mutableStateOf(false) }
-
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = DeepCardBg),
-        border = BorderStroke(1.dp, CardBorderColor),
+        border = BorderStroke(1.dp, if (task.isPaused) Color(0xFFFFB300).copy(alpha = 0.5f) else CardBorderColor),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -492,23 +481,21 @@ private fun MinimalistOngoingDownloadCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // ডাউনলোড আইকন
                 Box(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF162032)),
+                        .background(if (task.isPaused) Color(0xFF2E2412) else Color(0xFF162032)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Download,
+                        imageVector = if (task.isPaused) Icons.Default.Pause else Icons.Default.Download,
                         contentDescription = null,
-                        tint = Color(0xFF007AFF),
+                        tint = if (task.isPaused) Color(0xFFFFB300) else Color(0xFF007AFF),
                         modifier = Modifier.size(22.dp)
                     )
                 }
 
-                // টাইটেল ও সাইজ
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "${task.title} - EP ${task.episodeNumber}",
@@ -520,37 +507,40 @@ private fun MinimalistOngoingDownloadCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (task.totalMb > 0) {
+                        text = if (task.isPaused) {
+                            "Paused (${String.format(Locale.US, "%.1f", task.downloadedMb)} MB / ${String.format(Locale.US, "%.1f", task.totalMb)} MB)"
+                        } else if (task.totalMb > 0) {
                             "${String.format(Locale.US, "%.1f", task.downloadedMb)} MB / ${String.format(Locale.US, "%.1f", task.totalMb)} MB"
                         } else {
                             "Connecting to high-speed node..."
                         },
-                        color = TextMutedSlate,
+                        color = if (task.isPaused) Color(0xFFFFB300) else TextMutedSlate,
                         fontSize = 11.5.sp
                     )
                 }
 
-                // % কাউন্টার
                 Text(
-                    text = "${task.progressPercent}%",
-                    color = Color(0xFF00E5FF),
-                    fontSize = 14.5.sp,
+                    text = if (task.isPaused) "Paused" else "${task.progressPercent}%",
+                    color = if (task.isPaused) Color(0xFFFFB300) else Color(0xFF00E5FF),
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                // ⏸️ Pause / Resume বাটন
+                // ⏸️ / ▶️ ইনস্ট্যান্ট পজ ও রেজ্যুম বাটন
                 Box(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1C2434))
-                        .clickable { isPaused = !isPaused },
+                        .background(if (task.isPaused) Color(0xFF00E676).copy(alpha = 0.2f) else Color(0xFF1C2434))
+                        .clickable {
+                            onPauseToggle(!task.isPaused)
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        imageVector = if (task.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                         contentDescription = "Pause/Resume",
-                        tint = TextWhite,
+                        tint = if (task.isPaused) Color(0xFF00E676) else TextWhite,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -573,14 +563,13 @@ private fun MinimalistOngoingDownloadCard(
                 }
             }
 
-            // স্লিম প্রোগ্রেস বার
             LinearProgressIndicator(
                 progress = { task.progressPercent / 100f },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
-                color = Color(0xFF007AFF),
+                color = if (task.isPaused) Color(0xFFFFB300) else Color(0xFF007AFF),
                 trackColor = Color(0xFF1C2434)
             )
         }
@@ -588,7 +577,7 @@ private fun MinimalistOngoingDownloadCard(
 }
 
 // =========================================================================
-// 🎬 Completed অফলাইন কার্ড (আসল থাম্বনেইল + ব্লু-গ্রিন Play বাটন)
+// 🎬 Completed অফলাইন কার্ড
 // =========================================================================
 @Composable
 private fun PremiumOfflineVideoCard(
@@ -631,7 +620,6 @@ private fun PremiumOfflineVideoCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 🖼️ আসল ভিডিও থাম্বনেইল বক্স
             Box(
                 modifier = Modifier
                     .size(72.dp, 52.dp)
@@ -655,7 +643,6 @@ private fun PremiumOfflineVideoCard(
                     )
                 }
 
-                // ছোট প্লে ব্যাজ
                 Box(
                     modifier = Modifier
                         .size(22.dp)
@@ -672,7 +659,6 @@ private fun PremiumOfflineVideoCard(
                 }
             }
 
-            // টাইটেল ও সাইজ
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = video.title,
@@ -702,7 +688,6 @@ private fun PremiumOfflineVideoCard(
                 }
             }
 
-            // 🌟 নীল ও সবুজ গ্রেডিয়েন্টের [ ▶ Play ] বাটন
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
