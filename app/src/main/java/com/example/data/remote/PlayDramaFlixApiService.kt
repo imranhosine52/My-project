@@ -46,7 +46,7 @@ interface PlayDramaFlixApiService {
     ): Response<Map<String, Any>>
 
     // =========================================================================
-    // 👑 SUBSCRIPTION & VIP PAYMENTS
+    // 👑 SUBSCRIPTION, VIP PAYMENTS & PROMO CODE
     // =========================================================================
 
     @GET("subscription/plans")
@@ -120,8 +120,17 @@ interface PlayDramaFlixApiService {
     @GET("subscription/status")
     suspend fun getSubscriptionStatus(
         @Query("user_id") userId: String? = null,
-        @Query("device_id") deviceId: String? = null
+        @Query("device_id") deviceId: String? = null,
+        @Query("trx_id") trxId: String? = null,
+        @Query("account_id") accountId: String? = null,
+        @Query("email") email: String? = null
     ): Response<SubscriptionStatusResponse>
+
+    // 🎁 নতুন সংযোজন: প্রমো কোড ক্লেইম API (Promo Code Redemption)
+    @POST("subscription/redeem-promo")
+    suspend fun redeemPromoCode(
+        @Body request: PromoCodeRedeemRequest
+    ): Response<PromoCodeRedeemResponse>
 
     // =========================================================================
     // 💬 POST ENGAGEMENT & INTERACTION ENDPOINTS
