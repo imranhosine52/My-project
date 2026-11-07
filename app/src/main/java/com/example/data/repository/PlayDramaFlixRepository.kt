@@ -86,7 +86,7 @@ class PlayDramaFlixRepository(
         authRepository.getUserProfile(userId)
 
     // =========================================================================
-    // 👑 3. SUBSCRIPTION & PAYMENT DELEGATIONS
+    // 👑 3. SUBSCRIPTION, VIP & PROMO CODE DELEGATIONS
     // =========================================================================
     fun savePendingSubscriptionRequest(req: PendingSubscriptionRequestModel) =
         subscriptionRepository.savePendingSubscriptionRequest(req)
@@ -108,6 +108,10 @@ class PlayDramaFlixRepository(
 
     suspend fun getSubscriptionStatus(userId: String?, deviceId: String? = null): Result<SubscriptionStatusResponse> =
         subscriptionRepository.getSubscriptionStatus(userId, deviceId)
+
+    // 🎁 নতুন সংযোজন: প্রমো কোড রিডিম ডেলিগেশন
+    suspend fun redeemPromoCode(code: String): Result<PromoCodeRedeemResponse> =
+        subscriptionRepository.redeemPromoCode(code)
 
     fun getFallbackSubscriptionPlans(): SubscriptionPlansResponse =
         subscriptionRepository.getFallbackSubscriptionPlans()
