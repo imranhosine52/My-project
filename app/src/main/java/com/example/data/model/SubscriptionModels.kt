@@ -221,7 +221,6 @@ data class PendingSubscriptionRequestModel(
     val status: String = "pending"
 )
 
-// 🎯 ১০০% ক্র্যাশ-প্রুফ সার্বজনীন রেসপন্স হ্যান্ডলার (String/Int/Boolean সব সাপোর্ট করবে)
 @JsonClass(generateAdapter = true)
 data class SubscriptionStatusResponse(
     @Json(name = "success") val success: Boolean = true,
@@ -256,3 +255,28 @@ data class SubscriptionStatusResponse(
         }
     val allInvoices: List<InvoiceItemDto> get() = invoices?.ifEmpty { history ?: emptyList() } ?: (history ?: emptyList())
 }
+
+// =============================================================================
+// 🎁 নতুন সংযোজন: প্রমো কোড রিকোয়েস্ট ও রেসপন্স মডেল (PHP API এর সাথে ১০০% সামঞ্জস্যপূর্ণ)
+// =============================================================================
+
+@JsonClass(generateAdapter = true)
+data class PromoCodeRedeemRequest(
+    @Json(name = "promo_code") val promoCode: String,
+    @Json(name = "user_id") val userId: Int? = null,
+    @Json(name = "account_id") val accountId: String? = null,
+    @Json(name = "device_id") val deviceId: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PromoCodeRedeemResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "status") val status: Int? = 200,
+    @Json(name = "is_vip") val isVip: Boolean? = false,
+    @Json(name = "promo_code") val promoCode: String? = null,
+    @Json(name = "granted_days") val grantedDays: Int? = 0,
+    @Json(name = "granted_hours") val grantedHours: Int? = 0,
+    @Json(name = "plan_expires_at") val planExpiresAt: String? = null,
+    @Json(name = "formatted_expiry") val formattedExpiry: String? = null,
+    @Json(name = "message") val message: String? = null
+)
