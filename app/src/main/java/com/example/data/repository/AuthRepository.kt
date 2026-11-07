@@ -8,7 +8,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
@@ -42,6 +45,23 @@ class AuthRepository(
             .writeTimeout(45, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
+    }
+
+    // 🎯 ApiClient-এর সাথে টোকেন প্রোভাইডার ও অটো-লগআউট লিসেনার কানেক্ট করা
+    init {
+        ApiClient.authTokenProvider = { getSavedAuthToken() }
+        ApiClient.onSessionExpiredListener = {
+            if (isUserLoggedIn()) {
+                clearUserSession()
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(
+                        context.applicationContext,
+                        "⚠️ আপনার অ্যাকাউন্টটি অন্য ডিভাইসে লগইন করার কারণে এই ডিভাইস থেকে লগআউট করা হয়েছে।",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
     }
 
     // =========================================================================
@@ -309,7 +329,6 @@ class AuthRepository(
         name: String,
         avatar: String?
     ): Result<GoogleAuthResponse> = withContext(Dispatchers.IO) {
-        // 🎯 মোবাইলের ইউনিক ডিভাইস আইডি বের করে পেলোডে যুক্ত করা হলো
         val deviceId = AppAnalyticsTracker.getDeviceId(context)
 
         val request = GoogleAuthRequest(
@@ -355,7 +374,6 @@ class AuthRepository(
                 )
                 return@withContext Result.success(body.copy(user = finalUser))
             } else {
-                // 🛑 সার্ভার থেকে সীমা অতিক্রমের (HTTP 429) এরর মেসেজ আসলে সেটি পড়া
                 val errorMsg = response.errorBody()?.string()?.let {
                     try { JSONObject(it).optString("message", "Google authentication failed on server.") } catch (_: Exception) { null }
                 } ?: response.body()?.message ?: "গুগল সাইন-ইন সম্পন্ন করা সম্ভব হয়নি।"
@@ -371,7 +389,6 @@ class AuthRepository(
     // ✍️ ৪. EMAIL REGISTER (Device ID + IP লিমিট ভেরিফিকেশন সহ)
     // =========================================================================
     suspend fun registerUser(name: String, emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
-        // 🎯 মোবাইলের ইউনিক ডিভাইস আইডি বের করে পেলোডে যুক্ত করা হলো
         val deviceId = AppAnalyticsTracker.getDeviceId(context)
 
         val req = AuthRegisterRequest(
@@ -401,7 +418,6 @@ class AuthRepository(
                 )
                 return@withContext Result.success(body)
             } else {
-                // 🛑 সার্ভার থেকে সীমা অতিক্রমের (HTTP 429) এরর মেসেজ আসলে সেটি সরাসরি UI-তে পাঠানো
                 val errorMsg = response.errorBody()?.string()?.let {
                     try { JSONObject(it).optString("message", "Registration failed.") } catch (_: Exception) { null }
                 } ?: body?.message ?: "রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি।"
@@ -413,10 +429,16 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🔑 ৫. EMAIL LOGIN (সাধারণ লগইন)
+    // 🔑 ৫. EMAIL LOGIN (সর্বোচ্চ ২টি ডিভাইসের সীমা কার্যকর সহ)
     // =========================================================================
     suspend fun loginUser(emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
-        val req = AuthLoginRequest(emailOrPhone = emailOrPhone, password = password)
+        val deviceId = AppAnalyticsTracker.getDeviceId(context)
+
+        val req = AuthLoginRequest(
+            emailOrPhone = emailOrPhone,
+            password = password,
+            deviceId = deviceId
+        )
         try {
             val response = apiService.loginUser(req)
             val body = response.body()
