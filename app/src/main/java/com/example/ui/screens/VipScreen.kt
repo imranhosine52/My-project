@@ -3,11 +3,7 @@
 package com.example.ui.screens
 
 import android.annotation.SuppressLint
-import android.content.Intent
-import android.graphics.Bitmap
-import android.net.Uri
 import android.webkit.CookieManager
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -15,15 +11,13 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +30,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -57,13 +53,13 @@ import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.PromoCodeDialog
 import com.example.ui.viewmodel.DramaFlixViewModel
 
-// 🎨 স্ক্রিনশটের হুবহু কালার প্যালেট
-private val CosmicDarkBg = Color(0xFF090A10)
-private val GoldBorder = Color(0xFFD4A359)
+// 🎨 Cosmic Luxury Color Palette
+private val CosmicDarkBg = Color(0xFF07080E)
+private val GoldBorder = Color(0xFFE5B567)
 private val BlueCardBorder = Color(0xFF4B6496)
 
 /**
- * 👑 হেক্সাগন ব্যাজ (স্ক্রিনশটের মতো গোল্ডেন ও সিলভার ব্যাজ)
+ * 👑 Hexagon Badge Icon (Gold for Pro, Silver/Blue for Standard)
  */
 @Composable
 private fun HexagonBadgeIcon(
@@ -71,7 +67,7 @@ private fun HexagonBadgeIcon(
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier.size(42.dp),
+        modifier = modifier.size(44.dp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -88,21 +84,19 @@ private fun HexagonBadgeIcon(
                 close()
             }
 
-            // ব্যাকগ্রাউন্ড গ্রেডিয়েন্ট
             drawPath(
                 path = hexPath,
                 brush = if (isGold) {
-                    Brush.verticalGradient(listOf(Color(0xFFF9D976), Color(0xFFE99C24)))
+                    Brush.verticalGradient(listOf(Color(0xFFFFE082), Color(0xFFFFA000)))
                 } else {
-                    Brush.verticalGradient(listOf(Color(0xFF8EA5D8), Color(0xFF41568A)))
+                    Brush.verticalGradient(listOf(Color(0xFF9CB8FF), Color(0xFF41568A)))
                 },
                 style = Fill
             )
 
-            // বর্ডার স্ট্রোক
             drawPath(
                 path = hexPath,
-                color = if (isGold) Color(0xFFFFEFA7) else Color(0xFFD2E0FF),
+                color = if (isGold) Color(0xFFFFF9C4) else Color(0xFFE3EDFF),
                 style = Stroke(width = 1.8.dp.toPx())
             )
         }
@@ -110,11 +104,16 @@ private fun HexagonBadgeIcon(
         Icon(
             imageVector = if (isGold) Icons.Default.WorkspacePremium else Icons.Default.Shield,
             contentDescription = null,
-            tint = if (isGold) Color(0xFF382305) else Color.White,
-            modifier = Modifier.size(20.dp)
+            tint = if (isGold) Color(0xFF2C1902) else Color.White,
+            modifier = Modifier.size(22.dp)
         )
     }
 }
+
+data class FaqItem(
+    val question: String,
+    val answer: String
+)
 
 @Composable
 fun VipScreen(
@@ -133,37 +132,50 @@ fun VipScreen(
 
     var showAuthModal by remember { mutableStateOf(false) }
     var showPromoModal by remember { mutableStateOf(false) }
-
-    // 🎯 ওয়েবভিউ চেকআউট ডায়ালগ স্টেট
     var checkoutTargetUrl by remember { mutableStateOf<String?>(null) }
 
+    // 📡 Live server plans (fallback to safe defaults if offline)
     val rawPlans = vipState.plans
-    val effectivePlans = remember(rawPlans) {
+    val allPlans = remember(rawPlans) {
         if (rawPlans.isNotEmpty()) rawPlans else listOf(
-            SubscriptionPlanDto(rawId = 1, name = "1 Month", rawPrice = "59.00", rawOriginalPrice = "89.00", durationDays = 30),
-            SubscriptionPlanDto(rawId = 2, name = "3 Months", rawPrice = "150.00", rawOriginalPrice = "225.00", durationDays = 90, isPopular = true),
-            SubscriptionPlanDto(rawId = 3, name = "12 Months", rawPrice = "499.00", rawOriginalPrice = "899.00", durationDays = 365)
+            SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59.00", rawOriginalPrice = "89.00", durationDays = 30),
+            SubscriptionPlanDto(rawId = 2, name = "3 Months VIP Pass", rawPrice = "150.00", rawOriginalPrice = "225.00", durationDays = 90, isPopular = true)
         )
     }
 
-    var selectedGoldPlan by remember(effectivePlans) {
-        mutableStateOf(effectivePlans.find { it.isPopular } ?: effectivePlans.firstOrNull() ?: effectivePlans[0])
-    }
-    var selectedBluePlan by remember(effectivePlans) {
-        mutableStateOf(effectivePlans.firstOrNull() ?: effectivePlans[0])
+    // 🎯 Categorize plans: 1 Month vs Multi-Month
+    val monthlyPlans = remember(allPlans) {
+        val list = allPlans.filter { it.durationDays <= 45 }
+        list.ifEmpty {
+            listOf(SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59.00", rawOriginalPrice = "89.00", durationDays = 30))
+        }
     }
 
-    // 🔒 সাবস্ক্রিপশন কেনার অ্যাকশন হ্যান্ডলার (Auth Guard সহ)
+    val multiMonthPlans = remember(allPlans) {
+        val list = allPlans.filter { it.durationDays > 45 }
+        list.ifEmpty {
+            listOf(SubscriptionPlanDto(rawId = 2, name = "3 Months VIP Pass", rawPrice = "150.00", rawOriginalPrice = "225.00", durationDays = 90, isPopular = true))
+        }
+    }
+
+    var selectedMonthlyPlan by remember(monthlyPlans) {
+        mutableStateOf(monthlyPlans.find { it.isPopular } ?: monthlyPlans.first())
+    }
+    var selectedMultiMonthPlan by remember(multiMonthPlans) {
+        mutableStateOf(multiMonthPlans.find { it.isPopular } ?: multiMonthPlans.first())
+    }
+
+    // 🔒 Auth Guard & Checkout Launcher
     fun initiateSubscriptionCheckout(plan: SubscriptionPlanDto) {
         if (!isLoggedIn) {
-            Toast.makeText(context, "সাবস্ক্রিপশন কিনতে অনুগ্রহ করে প্রথমে লগইন করুন।", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Please sign in to purchase a VIP subscription.", Toast.LENGTH_SHORT).show()
             showAuthModal = true
             return
         }
 
         val uid = userProfile?.id?.filter { it.isDigit() }?.ifBlank { "0" } ?: "0"
         val planId = plan.id
-        checkoutTargetUrl = "https://playdramaflix.com/app/vip/index.php?user_id=$uid&plan_id=$planId"
+        checkoutTargetUrl = "https://playdramaflix.com/app/vip/checkout.php?plan_id=$planId&user_id=$uid"
     }
 
     BackHandler {
@@ -174,23 +186,67 @@ fun VipScreen(
         }
     }
 
+    // FAQ List in 100% International English
+    val faqs = remember {
+        listOf(
+            FaqItem(
+                question = "How fast is VIP activation?",
+                answer = "Instant! Automated bKash, Nagad, and Crypto TrxID payments are verified in 1-2 seconds."
+            ),
+            FaqItem(
+                question = "How many devices can stream simultaneously?",
+                answer = "Each VIP account supports active streaming on up to 2 devices at the same time."
+            ),
+            FaqItem(
+                question = "What happens if a 3rd device signs in?",
+                answer = "To protect your account, signing in on a 3rd device automatically logs out the oldest device session."
+            ),
+            FaqItem(
+                question = "Are all videos and series 100% ad-free?",
+                answer = "Yes! VIP members enjoy zero video ads, zero popups, and uninterrupted 1080p Ultra HD streaming."
+            ),
+            FaqItem(
+                question = "Is there any video download limit?",
+                answer = "No limits! VIP members can download unlimited full drama episodes directly for offline viewing."
+            )
+        )
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(CosmicDarkBg)
     ) {
+        // Cosmic Ambient Glow Layer
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFFE5B567).copy(alpha = 0.08f), Color.Transparent),
+                    center = Offset(size.width * 0.85f, size.height * 0.15f),
+                    radius = size.width * 0.65f
+                )
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFF4B6496).copy(alpha = 0.08f), Color.Transparent),
+                    center = Offset(size.width * 0.15f, size.height * 0.45f),
+                    radius = size.width * 0.70f
+                )
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
             // =============================================================
-            // 🔝 ১. টপ বার: ব্যাক বাটন + লগইন স্ট্যাটাস পিল
+            // 🔝 Top Navigation Bar
             // =============================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -206,7 +262,7 @@ fun VipScreen(
                     )
                 }
 
-                // ইউজার স্ট্যাটাস পিল (Log in > অথবা ইউজারের নাম ও প্ল্যান)
+                // User Login Pill
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = Color(0xFF1B1E2A),
@@ -216,12 +272,12 @@ fun VipScreen(
                     }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = if (isLoggedIn) (userProfile?.displayName ?: "Member") else "Log in",
+                            text = if (isLoggedIn) (userProfile?.displayName ?: "User") else "Log in",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -242,7 +298,7 @@ fun VipScreen(
             }
 
             // =============================================================
-            // 📜 স্ক্রোলযোগ্য প্ল্যান কনটেন্ট
+            // 📜 Scrollable Pricing & Content Body
             // =============================================================
             Column(
                 modifier = Modifier
@@ -254,12 +310,12 @@ fun VipScreen(
             ) {
 
                 // =============================================================
-                // 👑 ২. স্ক্রিনশটের ১ম কার্ড: রয়্যাল গোল্ড ভিআইপি কার্ড (PRO VIP)
+                // 👑 Card 1: Top Gold Tier (Monthly Pass)
                 // =============================================================
                 Surface(
                     shape = RoundedCornerShape(22.dp),
                     color = Color(0xFF2A1C08),
-                    border = BorderStroke(1.2.dp, GoldBorder.copy(alpha = 0.8f)),
+                    border = BorderStroke(1.2.dp, GoldBorder.copy(alpha = 0.85f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(
@@ -276,7 +332,6 @@ fun VipScreen(
                             .padding(16.dp)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            // কার্ড হেডার
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -299,59 +354,113 @@ fun VipScreen(
                                 HexagonBadgeIcon(isGold = true)
                             }
 
-                            // প্যাকেজ সিলেকশন রো
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                effectivePlans.take(3).forEach { plan ->
-                                    val isSelected = (selectedGoldPlan.id == plan.id)
-                                    Box(
+                            // Dynamic Plan Cards (Single full-width banner OR horizontal row)
+                            if (monthlyPlans.size == 1) {
+                                val singlePlan = monthlyPlans.first()
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF593C10),
+                                    border = BorderStroke(1.5.dp, Color(0xFFFFDF88)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(if (isSelected) Color(0xFF593C10) else Color(0xFF2B1D08))
-                                            .border(
-                                                width = if (isSelected) 1.5.dp else 0.8.dp,
-                                                color = if (isSelected) Color(0xFFFFDF88) else Color(0xFF6B4B1B),
-                                                shape = RoundedCornerShape(12.dp)
-                                            )
-                                            .clickable { selectedGoldPlan = plan }
-                                            .padding(vertical = 10.dp, horizontal = 6.dp),
-                                        contentAlignment = Alignment.Center
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = singlePlan.name,
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "${singlePlan.durationDays} Days All-Access Pass",
+                                                color = Color(0xFFE0C49B),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+
                                         Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                            horizontalAlignment = Alignment.End,
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = plan.name,
-                                                color = if (isSelected) Color.White else Color(0xFFE0C49B),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "৳${plan.priceFormatted}",
+                                                text = "৳${singlePlan.priceFormatted}",
                                                 color = Color(0xFFFFDF88),
-                                                fontSize = 16.sp,
+                                                fontSize = 20.sp,
                                                 fontWeight = FontWeight.Black
                                             )
-                                            Text(
-                                                text = "৳${plan.originalPriceFormatted}",
-                                                color = Color(0xFF9E8159),
-                                                fontSize = 10.sp,
-                                                textDecoration = TextDecoration.LineThrough
-                                            )
+                                            if (singlePlan.originalPriceDouble > singlePlan.priceDouble) {
+                                                Text(
+                                                    text = "৳${singlePlan.originalPriceFormatted}",
+                                                    color = Color(0xFF9E8159),
+                                                    fontSize = 11.sp,
+                                                    textDecoration = TextDecoration.LineThrough
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    monthlyPlans.forEach { plan ->
+                                        val isSelected = (selectedMonthlyPlan.id == plan.id)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (isSelected) Color(0xFF593C10) else Color(0xFF2B1D08))
+                                                .border(
+                                                    width = if (isSelected) 1.5.dp else 0.8.dp,
+                                                    color = if (isSelected) Color(0xFFFFDF88) else Color(0xFF6B4B1B),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                                .clickable { selectedMonthlyPlan = plan }
+                                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Text(
+                                                    text = plan.name,
+                                                    color = if (isSelected) Color.White else Color(0xFFE0C49B),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "৳${plan.priceFormatted}",
+                                                    color = Color(0xFFFFDF88),
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Black
+                                                )
+                                                if (plan.originalPriceDouble > plan.priceDouble) {
+                                                    Text(
+                                                        text = "৳${plan.originalPriceFormatted}",
+                                                        color = Color(0xFF9E8159),
+                                                        fontSize = 10.sp,
+                                                        textDecoration = TextDecoration.LineThrough
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            // 🌟 গোল্ডেন [ Pay Now ] বাটন
+                            // Gold Pay Now Button
                             Button(
-                                onClick = { initiateSubscriptionCheckout(selectedGoldPlan) },
+                                onClick = { initiateSubscriptionCheckout(selectedMonthlyPlan) },
                                 shape = RoundedCornerShape(25.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                 contentPadding = PaddingValues(0.dp),
@@ -377,12 +486,12 @@ fun VipScreen(
                 }
 
                 // =============================================================
-                // 🥈 ৩. স্ক্রিনশটের ২য় কার্ড: সিলভার/ব্লু প্রিমিয়াম কার্ড
+                // 🥈 Card 2: Multi-Month Tier (Long-Term Savings)
                 // =============================================================
                 Surface(
                     shape = RoundedCornerShape(22.dp),
                     color = Color(0xFF131726),
-                    border = BorderStroke(1.2.dp, BlueCardBorder.copy(alpha = 0.8f)),
+                    border = BorderStroke(1.2.dp, BlueCardBorder.copy(alpha = 0.85f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(
@@ -399,7 +508,6 @@ fun VipScreen(
                             .padding(16.dp)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            // কার্ড হেডার
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -422,59 +530,113 @@ fun VipScreen(
                                 HexagonBadgeIcon(isGold = false)
                             }
 
-                            // প্যাকেজ সিলেকশন রো
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                effectivePlans.take(3).forEach { plan ->
-                                    val isSelected = (selectedBluePlan.id == plan.id)
-                                    Box(
+                            // Dynamic Multi-Month Cards (Single full-width OR row)
+                            if (multiMonthPlans.size == 1) {
+                                val singlePlan = multiMonthPlans.first()
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF2B3A60),
+                                    border = BorderStroke(1.5.dp, Color(0xFF8EA5D8)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(if (isSelected) Color(0xFF2B3A60) else Color(0xFF171E30))
-                                            .border(
-                                                width = if (isSelected) 1.5.dp else 0.8.dp,
-                                                color = if (isSelected) Color(0xFF8EA5D8) else Color(0xFF2C3955),
-                                                shape = RoundedCornerShape(12.dp)
-                                            )
-                                            .clickable { selectedBluePlan = plan }
-                                            .padding(vertical = 10.dp, horizontal = 6.dp),
-                                        contentAlignment = Alignment.Center
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = singlePlan.name,
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "${singlePlan.durationDays} Days Extended Access",
+                                                color = Color(0xFFB8C7E6),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+
                                         Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                            horizontalAlignment = Alignment.End,
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = plan.name,
-                                                color = if (isSelected) Color.White else Color(0xFFB8C7E6),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "৳${plan.priceFormatted}",
+                                                text = "৳${singlePlan.priceFormatted}",
                                                 color = Color(0xFFD7E2FF),
-                                                fontSize = 16.sp,
+                                                fontSize = 20.sp,
                                                 fontWeight = FontWeight.Black
                                             )
-                                            Text(
-                                                text = "৳${plan.originalPriceFormatted}",
-                                                color = Color(0xFF6C7C9E),
-                                                fontSize = 10.sp,
-                                                textDecoration = TextDecoration.LineThrough
-                                            )
+                                            if (singlePlan.originalPriceDouble > singlePlan.priceDouble) {
+                                                Text(
+                                                    text = "৳${singlePlan.originalPriceFormatted}",
+                                                    color = Color(0xFF6C7C9E),
+                                                    fontSize = 11.sp,
+                                                    textDecoration = TextDecoration.LineThrough
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    multiMonthPlans.forEach { plan ->
+                                        val isSelected = (selectedMultiMonthPlan.id == plan.id)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (isSelected) Color(0xFF2B3A60) else Color(0xFF171E30))
+                                                .border(
+                                                    width = if (isSelected) 1.5.dp else 0.8.dp,
+                                                    color = if (isSelected) Color(0xFF8EA5D8) else Color(0xFF2C3955),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                                .clickable { selectedMultiMonthPlan = plan }
+                                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Text(
+                                                    text = plan.name,
+                                                    color = if (isSelected) Color.White else Color(0xFFB8C7E6),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "৳${plan.priceFormatted}",
+                                                    color = Color(0xFFD7E2FF),
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Black
+                                                )
+                                                if (plan.originalPriceDouble > plan.priceDouble) {
+                                                    Text(
+                                                        text = "৳${plan.originalPriceFormatted}",
+                                                        color = Color(0xFF6C7C9E),
+                                                        fontSize = 10.sp,
+                                                        textDecoration = TextDecoration.LineThrough
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            // 🌟 সিলভার/ব্লু [ Pay Now ] বাটন
+                            // Silver/Blue Pay Now Button
                             Button(
-                                onClick = { initiateSubscriptionCheckout(selectedBluePlan) },
+                                onClick = { initiateSubscriptionCheckout(selectedMultiMonthPlan) },
                                 shape = RoundedCornerShape(25.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                 contentPadding = PaddingValues(0.dp),
@@ -499,15 +661,15 @@ fun VipScreen(
                     }
                 }
 
-                // 🎁 প্রমো কোড ক্লেইম কুইক লিঙ্ক
+                // 🎁 Promo Code Banner (100% English)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(Color(0xFF141824))
-                        .border(1.dp, Color(0xFF222B3D), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0xFF222B3D), RoundedCornerShape(14.dp))
                         .clickable { showPromoModal = true }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -515,22 +677,36 @@ fun VipScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.CardGiftcard, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(18.dp))
-                        Text("Have a VIP Promo Code?", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.Default.CardGiftcard,
+                            contentDescription = null,
+                            tint = Color(0xFFFFB300),
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Text(
+                            text = "Have a VIP Promo Code?",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
-                    Text("Redeem ➔", color = Color(0xFF00E676), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Redeem ➔",
+                        color = Color(0xFF00E676),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 // =============================================================
-                // 📊 ৪. স্ক্রিনশটের হুবহু ফিচার কম্প্যারিজন টেবিল (Features Table)
+                // 📊 Features Comparison Table (100% International English)
                 // =============================================================
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 24.dp),
+                        .padding(top = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // টেবিল হেডার
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -553,20 +729,86 @@ fun VipScreen(
 
                     HorizontalDivider(color = Color(0xFF1F2636), thickness = 0.8.dp)
 
-                    // টেবিলের রোগুলো
-                    FeatureTableRow(title = "Simultaneous Devices", freeValue = "1", vipValue = "2")
-                    FeatureTableRow(title = "Zero Ads (100% Ad-Free)", freeCheck = false, vipCheck = true)
-                    FeatureTableRow(title = "1080P Full HD Streaming", freeCheck = false, vipCheck = true)
-                    FeatureTableRow(title = "High-Speed Video Downloads", freeCheck = false, vipCheck = true)
-                    FeatureTableRow(title = "Unlock All Dubbed Episodes", freeCheck = false, vipCheck = true)
-                    FeatureTableRow(title = "Exclusive Early Releases", freeCheck = false, vipCheck = true)
-                    FeatureTableRow(title = "Auto-Approval Fast Activation", freeCheck = false, vipCheck = true)
+                    // 🎯 2 Devices Limit Explicitly Defined
+                    FeatureRow(title = "Simultaneous Devices", freeValue = "1", vipValue = "2")
+                    FeatureRow(title = "Zero Ads (100% Ad-Free)", freeCheck = false, vipCheck = true)
+                    FeatureRow(title = "1080P Full HD Streaming", freeCheck = false, vipCheck = true)
+                    FeatureRow(title = "High-Speed Video Downloads", freeCheck = false, vipCheck = true)
+                    FeatureRow(title = "Unlock All Dubbed Episodes", freeCheck = false, vipCheck = true)
+                    FeatureRow(title = "Exclusive Early Releases", freeCheck = false, vipCheck = true)
+                    FeatureRow(title = "Auto-Approval Fast Activation", freeCheck = false, vipCheck = true)
+                }
+
+                // =============================================================
+                // ❓ Interactive Frequently Asked Questions (FAQ Accordion)
+                // =============================================================
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Frequently Asked Questions",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    faqs.forEach { faq ->
+                        var isExpanded by remember { mutableStateOf(false) }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF111520),
+                            border = BorderStroke(0.8.dp, Color(0xFF1E2536)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isExpanded = !isExpanded }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = faq.question,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        tint = if (isExpanded) Color(0xFFFFB300) else Color(0xFF8E95A5),
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .rotate(if (isExpanded) 180f else 0f)
+                                    )
+                                }
+
+                                AnimatedVisibility(visible = isExpanded) {
+                                    Text(
+                                        text = faq.answer,
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 12.sp,
+                                        lineHeight = 17.sp,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
         // =============================================================
-        // 💳 ৫. চেকআউট ওয়েবভিউ ডায়ালগ (শুধুমাত্র Pay Now চাপলে লোড হবে)
+        // 💳 Secure In-App Checkout Web Modal
         // =============================================================
         if (checkoutTargetUrl != null) {
             CheckoutWebViewModal(
@@ -575,13 +817,13 @@ fun VipScreen(
                 onSuccess = {
                     checkoutTargetUrl = null
                     viewModel.refreshVipStatusAndProfile()
-                    Toast.makeText(context, "🎉 VIP Activated Successfully!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "VIP Activated Successfully!", Toast.LENGTH_LONG).show()
                     onNavigateBack()
                 }
             )
         }
 
-        // অথ ডায়ালগ (লগইন না থাকলে)
+        // Auth Modal (Triggered by login guard)
         if (showAuthModal) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
@@ -589,7 +831,7 @@ fun VipScreen(
             )
         }
 
-        // প্রমো কোড ডায়ালগ
+        // Promo Code Modal
         if (showPromoModal) {
             PromoCodeDialog(
                 viewModel = viewModel,
@@ -599,11 +841,8 @@ fun VipScreen(
     }
 }
 
-/**
- * 📋 টেবিল রো কম্পোনেন্ট
- */
 @Composable
-private fun FeatureTableRow(
+private fun FeatureRow(
     title: String,
     freeValue: String? = null,
     vipValue: String? = null,
@@ -638,7 +877,7 @@ private fun FeatureTableRow(
                 Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFF555F73), modifier = Modifier.size(15.dp))
             }
 
-            // VIP Column
+            // Pro VIP Column
             if (vipValue != null) {
                 Text(vipValue, color = Color(0xFFFFDF88), fontSize = 13.sp, fontWeight = FontWeight.Black)
             } else if (vipCheck == true) {
@@ -658,9 +897,6 @@ private fun FeatureTableRow(
     }
 }
 
-/**
- * 🌐 শুধুমাত্র চেকআউটের জন্য সুরক্ষিত ওয়েবভিউ ডায়ালগ
- */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun CheckoutWebViewModal(
@@ -730,6 +966,7 @@ private fun CheckoutWebViewModal(
                                 }
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                     val url = request?.url?.toString() ?: ""
+                                    // Intercept successful deep link from server checkout.php
                                     if (url.startsWith("playdramaflix://vip-activated") || url.startsWith("playdramaflix://payment-success")) {
                                         onSuccess()
                                         return true
@@ -745,7 +982,10 @@ private fun CheckoutWebViewModal(
                 if (isLoading) {
                     LinearProgressIndicator(
                         color = Color(0xFFFFB300),
-                        modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.TopCenter)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.TopCenter)
                     )
                 }
             }
