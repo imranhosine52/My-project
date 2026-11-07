@@ -46,7 +46,6 @@ class VideoDownloadService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
-    // চলমান জব ও টাস্ক ট্র্যাক করার ম্যাপ
     private val activeDownloadJobs = ConcurrentHashMap<Int, Job>()
     private val activeTaskInfoMap = ConcurrentHashMap<Int, DownloadTaskInfo>()
 
@@ -93,7 +92,6 @@ class VideoDownloadService : Service() {
                 }
             }
             else -> {
-                // নতুন ডাউনলোড শুরু
                 val downloadUrl = intent?.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY
                 val title = intent.getStringExtra(EXTRA_TITLE) ?: "Video"
                 val episodeNumber = intent.getIntExtra(EXTRA_EPISODE, 1)
@@ -158,12 +156,9 @@ class VideoDownloadService : Service() {
         activeDownloadJobs[taskInfo.notifId] = job
     }
 
-    /**
-     * ⏸️ সাথে সাথে ডাউনলোড বন্ধ করার মেথড
-     */
     private fun pauseDownload(taskId: Int) {
         val job = activeDownloadJobs.remove(taskId)
-        job?.cancel() // কোরুভিনের মাধ্যমে নেটওয়ার্ক সকেট ও স্ট্রিম সাথে সাথে বন্ধ
+        job?.cancel()
 
         DownloadStateTracker.setPaused(taskId, true)
 
@@ -174,7 +169,7 @@ class VideoDownloadService : Service() {
         val pausedNotif = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_pause)
             .setContentTitle("⏸️ Paused: $pauseTitle")
-            .setContentText("Tap resume to continue download")
+            .setContentText("Download paused. Tap play to resume.")
             .setOngoing(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -182,9 +177,6 @@ class VideoDownloadService : Service() {
         notifManager.notify(taskId, pausedNotif)
     }
 
-    /**
-     * ▶️ যেখান থেকে বন্ধ হয়েছিল সেখান থেকে রেজ্যুম করার মেথড
-     */
     private fun resumeDownload(taskId: Int) {
         val taskInfo = activeTaskInfoMap[taskId] ?: return
         if (activeDownloadJobs[taskId]?.isActive == true) return
@@ -198,9 +190,6 @@ class VideoDownloadService : Service() {
         activeDownloadJobs[taskId] = job
     }
 
-    /**
-     * ✕ ডাউনলোড পুরোপুরি বাতিল ও টেম্প ফাইল ডিলিট
-     */
     private fun cancelDownload(taskId: Int) {
         val job = activeDownloadJobs.remove(taskId)
         job?.cancel()
@@ -224,13 +213,9 @@ class VideoDownloadService : Service() {
         }
     }
 
-    /**
-     * ⚡ HTTP Range Resumable ডাউনলোড এক্সিকিউটর
-     */
     private suspend fun executeDownload(taskInfo: DownloadTaskInfo) {
         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // টেম্প ডিরেক্টরি যেখানে .part ফাইল সেভ থাকবে
         val tempDir = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir, "temp_downloads").apply {
             if (!exists()) mkdirs()
         }
@@ -254,7 +239,6 @@ class VideoDownloadService : Service() {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Downloader")
                     setRequestProperty("Accept", "*/*")
-                    // 🎯 Range হেডার: আগের ডাউনলোড করা অংশের পর থেকে চাওয়া হচ্ছে
                     if (existingBytes > 0L) {
                         setRequestProperty("Range", "bytes=$existingBytes-")
                     }
@@ -285,7 +269,6 @@ class VideoDownloadService : Service() {
                 throw IllegalStateException("Server returned HTTP $responseCode")
             }
 
-            // যদি সার্ভার 200 পাঠায় (অর্থাৎ Range সাপোর্ট না করে), তবে নতুন করে শুরু হবে
             val append = isPartial && existingBytes > 0L
             if (!append && existingBytes > 0L) {
                 existingBytes = 0L
@@ -300,11 +283,14 @@ class VideoDownloadService : Service() {
             outputStream = FileOutputStream(partFile, append)
 
             val buffer = ByteArray(32 * 1024)
-            var bytesRead: Int
             var totalBytesDownloaded = existingBytes
             var lastUpdateTimestamp = 0L
 
-            while (currentCoroutineContext().isActive && inputStream.read(buffer).also { bytesRead = it } != -1) {
+            // 🎯 ফিক্সড: লুপের ভেতরে সরাসরি ডিক্লেয়ার করায় কোনো ইনিশিয়ালাইজেশন এরর আসবে না
+            while (currentCoroutineContext().isActive) {
+                val bytesRead = inputStream.read(buffer)
+                if (bytesRead == -1) break
+
                 outputStream.write(buffer, 0, bytesRead)
                 totalBytesDownloaded += bytesRead
 
@@ -343,14 +329,10 @@ class VideoDownloadService : Service() {
 
             outputStream.flush()
 
-            // যদি ইউজার পজ করে থাকে, তবে ফাইল মুভ হবে না, .part হিসেবে থেকে যাবে
             if (!currentCoroutineContext().isActive) {
                 return
             }
 
-            // =========================================================================
-            // 🎉 ডাউনলোড ১০০% সম্পন্ন: টেম্প .part ফাইল আসল ফোনে মুভ করা
-            // =========================================================================
             var savedUri: Uri? = null
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -379,7 +361,6 @@ class VideoDownloadService : Service() {
                 savedUri = Uri.fromFile(target)
             }
 
-            // সফল হলে টেম্প পার্ট ফাইল ডিলিট
             partFile.delete()
 
             MediaScannerConnection.scanFile(this, arrayOf(taskInfo.fileName), arrayOf("video/mp4"), null)
@@ -390,14 +371,13 @@ class VideoDownloadService : Service() {
                 contentUri = savedUri?.toString()
             )
 
-            // নোটিফিকেশন প্রদর্শন
             showCompletionNotification(taskInfo, savedUri)
 
             activeDownloadJobs.remove(taskInfo.notifId)
             activeTaskInfoMap.remove(taskInfo.notifId)
 
         } catch (e: CancellationException) {
-            // পজ করার কারণে স্বাভাবিক ক্যানসেল
+            // পজের কারণে স্বাভাবিক বন্ধ
         } catch (e: Exception) {
             DownloadStateTracker.setPaused(taskInfo.notifId, true)
         } finally {
