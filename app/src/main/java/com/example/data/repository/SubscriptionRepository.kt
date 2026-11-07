@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
+import com.example.util.AppAnalyticsTracker
 import com.example.util.VipStatusNotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -209,7 +210,7 @@ class SubscriptionRepository(
         val amountDouble = request.amount ?: 59.0
         val paymentMethod = request.paymentMethod.ifBlank { "bKash" }
 
-        // 🎯 আইডি, একাউন্ট আইডি, ইমেইল ও নাম একসাথে পাঠানো হচ্ছে যাতে সার্ভার যেকোনোভাবে ইউজারকে শনাক্ত করতে পারে
+        // আইডি, একাউন্ট আইডি, ইমেইল ও নাম একসাথে পাঠানো হচ্ছে
         val jsonPayload = JSONObject().apply {
             put("user_id", uidStr.toIntOrNull() ?: 0)
             put("account_id", userProfile?.effectiveAccountId ?: "")
@@ -267,7 +268,6 @@ class SubscriptionRepository(
                     )
                 )
             } else {
-                // ❌ সার্ভার রিজেক্ট করলে আসল এরর মেসেজ পাঠানো
                 Result.failure(Exception(serverMessage))
             }
         } catch (e: Exception) {
@@ -307,7 +307,6 @@ class SubscriptionRepository(
             if (response.isSuccessful && response.body() != null) {
                 val status = response.body()!!
 
-                // সার্ভারের ইনভয়েসের সাথে পেন্ডিং TrxID মেলানো
                 val matchingServerInv = if (localPending != null) {
                     status.allInvoices.find { it.trxId.equals(localPending.transactionId, ignoreCase = true) }
                 } else null
@@ -316,7 +315,7 @@ class SubscriptionRepository(
                 val isInvApproved = matchingServerInv?.status == "approved"
                 val isInvDeclined = matchingServerInv?.status == "rejected"
 
-                // 👑 ১. সার্ভার এপ্রুভ করলে সাথে সাথে VIP সক্রিয় করা
+                // ১. সার্ভার এপ্রুভ করলে সাথে সাথে VIP সক্রিয় করা
                 if (isServerVip || isInvApproved) {
                     val plan = status.planName ?: localPending?.planName ?: "VIP Pass"
                     if (localPending != null) {
@@ -334,7 +333,7 @@ class SubscriptionRepository(
                         VipStatusNotificationHelper.showVipApprovedNotification(context, plan)
                     }
                 } 
-                // ❌ ২. সার্ভার রিজেক্ট করলে পেন্ডিং ক্লিয়ার ও রিজেকশন নোটিফিকেশন দেওয়া
+                // ২. সার্ভার রিজেক্ট করলে পেন্ডিং ক্লিয়ার ও রিজেকশন নোটিফিকেশন দেওয়া
                 else if (isInvDeclined && localPending != null) {
                     updateLocalInvoiceStatusPermanently(localPending.transactionId, "rejected")
                     clearPendingSubscriptionRequest(targetUserId)
@@ -377,6 +376,59 @@ class SubscriptionRepository(
                     rawStatus = if (profile?.isVip == true) "active" else "free"
                 )
             )
+        }
+    }
+
+    // =========================================================================
+    // 🎁 ৬. নতুন সংযোজন: প্রমো কোড রিডিম ইঞ্জিন (ডিভাইস আইডি ও ইনস্ট্যান্ট VIP সিঙ্ক)
+    // =========================================================================
+
+    suspend fun redeemPromoCode(code: String): Result<PromoCodeRedeemResponse> = withContext(Dispatchers.IO) {
+        val cleanCode = code.trim().uppercase()
+        if (cleanCode.isBlank()) {
+            return@withContext Result.failure(Exception("প্রমো কোড প্রদান করা আবশ্যক।"))
+        }
+
+        val userProfile = authRepository.getSavedUserProfile()
+        val numericUserId = userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+        val accountId = userProfile?.effectiveAccountId
+        val deviceId = AppAnalyticsTracker.getDeviceId(context)
+
+        val request = PromoCodeRedeemRequest(
+            promoCode = cleanCode,
+            userId = if (numericUserId != null && numericUserId > 0) numericUserId else null,
+            accountId = accountId?.takeIf { it.isNotBlank() },
+            deviceId = deviceId
+        )
+
+        try {
+            val response = apiService.redeemPromoCode(request)
+            val body = response.body()
+
+            if (response.isSuccessful && body != null && body.success) {
+                // 👑 প্রমো কোড সফল হলে লোকাল সেশনে সাথে সাথে VIP সেভ করা
+                if (body.isVip == true) {
+                    val days = body.grantedDays ?: 0
+                    authRepository.saveUserSession(
+                        userId = userProfile?.id ?: numericUserId?.toString() ?: "0",
+                        isVip = true,
+                        planName = "Promo Pass (${body.promoCode ?: cleanCode})",
+                        expiry = body.planExpiresAt,
+                        daysLeft = days,
+                        triggerNotification = true
+                    )
+                }
+                Result.success(body)
+            } else {
+                // 🛑 সার্ভার থেকে পাঠানো ৪০০, ৪০৪ বা ৪০৯ এরর মেসেজ সরাসরি পড়া
+                val errorMsg = response.errorBody()?.string()?.let {
+                    try { JSONObject(it).optString("message", null) } catch (_: Exception) { null }
+                } ?: body?.message ?: "প্রমো কোডটি সক্রিয় করা সম্ভব হয়নি।"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Promo code redeem failed: ${e.message}", e)
+            Result.failure(Exception(e.localizedMessage ?: "সার্ভারের সাথে সংযোগ স্থাপন করা যায়নি।"))
         }
     }
 
