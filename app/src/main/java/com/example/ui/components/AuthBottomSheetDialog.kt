@@ -36,13 +36,39 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 
-private val ActionGreen = Color(0xFF00D166)
+private val ActionGreen = Color(0xFF00E676)
 private val AlertRed = Color(0xFFFF3B30)
 
 private enum class AuthViewMode {
     WELCOME,
     SIGN_UP,
     LOG_IN
+}
+
+/**
+ * 📱 স্মার্ট ইনপুট ভ্যালিডেশন: ইনপুটটি বৈধ ইমেইল অথবা ১০-১৫ ডিজিটের মোবাইল নম্বর কি না যাচাই করে
+ */
+private fun isValidEmailOrPhone(input: String): Boolean {
+    val clean = input.trim()
+    if (clean.isBlank()) return false
+    val isEmail = clean.contains("@") && clean.substringAfter("@").contains(".")
+    val cleanDigits = clean.replace(Regex("[\\s\\-+()]"), "")
+    val isPhone = cleanDigits.isNotEmpty() && cleanDigits.all { it.isDigit() } && cleanDigits.length in 10..15 && !clean.contains("@")
+    return isEmail || isPhone
+}
+
+/**
+ * 🧹 মোবাইল নম্বর হলে স্পেস বা ড্যাশ অপসারণ করে স্ট্যান্ডার্ড ফরম্যাটে রূপান্তর করে
+ */
+private fun formatContactForApi(input: String): String {
+    val clean = input.trim()
+    val isEmail = clean.contains("@")
+    return if (isEmail) {
+        clean
+    } else {
+        // ফোন নম্বর হলে স্পেস বা হাইফেন বাদ দিয়ে ক্লিন নম্বর পাঠানো
+        clean.replace(Regex("[\\s\\-()]"), "")
+    }
 }
 
 @Composable
@@ -55,7 +81,7 @@ fun AuthBottomSheetDialog(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
     var viewMode by remember { mutableStateOf(AuthViewMode.WELCOME) }
-    var inputEmail by remember { mutableStateOf("") }
+    var inputContact by remember { mutableStateOf("") }
     var inputName by remember { mutableStateOf("") }
     var inputPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -114,7 +140,7 @@ fun AuthBottomSheetDialog(
 
             when (viewMode) {
                 // =========================================================================
-                // 🌟 ১. WELCOME / MAIN SCREEN (গুগল সাইন-ইনকে ১ নম্বরে রাখা হয়েছে)
+                // 🌟 ১. WELCOME / MAIN SCREEN
                 // =========================================================================
                 AuthViewMode.WELCOME -> {
                     Row(
@@ -147,7 +173,7 @@ fun AuthBottomSheetDialog(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // 🎯 ১-ক্লিকে সরাসরি গুগল সাইন-ইন বাটন (4-Color Google Logo)
+                    // 🎯 ১-ক্লিকে গুগল সাইন-ইন বাটন
                     GoogleSignInButton(
                         onClick = {
                             viewModel.signInWithGoogle(context) { success ->
@@ -175,7 +201,7 @@ fun AuthBottomSheetDialog(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // ইমেইল দিয়ে সাইন-আপ বাটন
+                    // মোবাইল বা ইমেইল দিয়ে সাইন-আপ বাটন
                     Button(
                         onClick = {
                             viewModel.clearAuthMessage()
@@ -187,14 +213,14 @@ fun AuthBottomSheetDialog(
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
                     ) {
-                        Icon(Icons.Default.Email, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign up with Email", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Sign up with Phone or Email", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // ইমেইল লগইন বাটন
+                    // লগইন বাটন
                     Button(
                         onClick = {
                             viewModel.clearAuthMessage()
@@ -222,7 +248,7 @@ fun AuthBottomSheetDialog(
                 }
 
                 // =========================================================================
-                // ✍️ ২. SIGN UP WITH EMAIL
+                // ✍️ ২. SIGN UP WITH PHONE OR EMAIL
                 // =========================================================================
                 AuthViewMode.SIGN_UP -> {
                     Row(
@@ -233,7 +259,7 @@ fun AuthBottomSheetDialog(
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign up with Email", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Sign up with Phone / Email", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -242,7 +268,7 @@ fun AuthBottomSheetDialog(
                         value = inputName,
                         onValueChange = { inputName = it },
                         label = { Text("Full Name", color = TextMuted) },
-                        placeholder = { Text("e.g. John Doe", color = Color.DarkGray) },
+                        placeholder = { Text("e.g. Imran Hossain", color = Color.DarkGray) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -257,10 +283,10 @@ fun AuthBottomSheetDialog(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     OutlinedTextField(
-                        value = inputEmail,
-                        onValueChange = { inputEmail = it },
-                        label = { Text("Email Address", color = TextMuted) },
-                        placeholder = { Text("e.g. yourname@gmail.com", color = Color.DarkGray) },
+                        value = inputContact,
+                        onValueChange = { inputContact = it },
+                        label = { Text("Mobile Number or Email", color = TextMuted) },
+                        placeholder = { Text("e.g. 017XXXXXXXX or name@gmail.com", color = Color.DarkGray) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -310,8 +336,8 @@ fun AuthBottomSheetDialog(
                                 Toast.makeText(context, "Please enter your name", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            if (inputEmail.isBlank() || !inputEmail.contains("@")) {
-                                Toast.makeText(context, "Please enter a valid email", Toast.LENGTH_SHORT).show()
+                            if (!isValidEmailOrPhone(inputContact)) {
+                                Toast.makeText(context, "Please enter a valid mobile number or email address", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             if (inputPassword.length < 6) {
@@ -319,9 +345,11 @@ fun AuthBottomSheetDialog(
                                 return@Button
                             }
 
+                            val formattedContact = formatContactForApi(inputContact)
+
                             viewModel.registerUser(
                                 name = inputName.trim(),
-                                emailOrPhone = inputEmail.trim(),
+                                emailOrPhone = formattedContact,
                                 password = inputPassword
                             ) { success ->
                                 if (success) {
@@ -359,7 +387,7 @@ fun AuthBottomSheetDialog(
                 }
 
                 // =========================================================================
-                // 🔑 ৩. LOG IN WITH EMAIL
+                // 🔑 ৩. LOG IN WITH PHONE OR EMAIL
                 // =========================================================================
                 AuthViewMode.LOG_IN -> {
                     Row(
@@ -370,15 +398,16 @@ fun AuthBottomSheetDialog(
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Log In with Email", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Log In", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     OutlinedTextField(
-                        value = inputEmail,
-                        onValueChange = { inputEmail = it },
-                        label = { Text("Email or Phone", color = TextMuted) },
+                        value = inputContact,
+                        onValueChange = { inputContact = it },
+                        label = { Text("Mobile Number or Email", color = TextMuted) },
+                        placeholder = { Text("e.g. 017XXXXXXXX or name@gmail.com", color = Color.DarkGray) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -424,8 +453,8 @@ fun AuthBottomSheetDialog(
 
                     Button(
                         onClick = {
-                            if (inputEmail.isBlank()) {
-                                Toast.makeText(context, "Please enter your email or phone", Toast.LENGTH_SHORT).show()
+                            if (!isValidEmailOrPhone(inputContact)) {
+                                Toast.makeText(context, "Please enter your valid mobile number or email", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             if (inputPassword.isBlank()) {
@@ -433,8 +462,10 @@ fun AuthBottomSheetDialog(
                                 return@Button
                             }
 
+                            val formattedContact = formatContactForApi(inputContact)
+
                             viewModel.loginUser(
-                                emailOrPhone = inputEmail.trim(),
+                                emailOrPhone = formattedContact,
                                 password = inputPassword
                             ) { success ->
                                 if (success) {
