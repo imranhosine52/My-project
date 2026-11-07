@@ -19,8 +19,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,8 +32,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -51,7 +52,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
-import com.example.data.local.WatchHistoryEntity
 import com.example.data.model.UserProfileDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.PromoCodeDialog
@@ -62,7 +62,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 
-// 🎨 স্ক্রিনশটের হুবহু ডার্ক কালার প্যালেট
+// 🎨 স্ক্রিন কালার প্যালেট
 private val ScreenBg = Color(0xFF0C0E14)
 private val CardGroupBg = Color(0xFF131620)
 private val CardBorderColor = Color(0xFF1C2230)
@@ -89,11 +89,6 @@ fun ProfileScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     val watchlistState by viewModel.watchlistUiState.collectAsStateWithLifecycle()
-    val notificationState by viewModel.notificationUiState.collectAsStateWithLifecycle()
-    val activityState by viewModel.activityUiState.collectAsStateWithLifecycle()
-
-    // 📺 আপনার ফোনের আসল Room Database থেকে Watch History
-    val watchHistoryList by viewModel.repository.continueWatchingFlow.collectAsStateWithLifecycle(emptyList())
 
     val installedVersion = remember { viewModel.getInstalledAppVersion() }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -135,8 +130,6 @@ fun ProfileScreen(
                     isRefreshing = true
                     viewModel.refreshVipStatusAndProfile()
                     viewModel.loadVipSubscriptionPlans()
-                    viewModel.loadNotifications()
-                    viewModel.loadUserActivity(isRefresh = true)
                     delay(400)
                     isRefreshing = false
                 }
@@ -153,21 +146,19 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // =============================================================
-                // 🔝 ১. টপ প্রোফাইল হেডার
+                // 🔝 ১. টপ প্রোফাইল হেডার (স্ক্যানার আইকন রিমুভড)
                 // =============================================================
                 MovieBoxStyleHeader(
                     isLoggedIn = authState.isLoggedIn,
                     userProfile = authState.userProfile,
                     isVip = vipState.isVip,
-                    vipDaysLeft = vipState.daysRemaining,
                     onLoginClick = { showAuthDialog = true },
                     onEditClick = { showEditProfileSheet = true },
                     onAvatarClick = {
                         val currentAvatar = localAvatarOverride ?: authState.userProfile?.avatar
                         if (!currentAvatar.isNullOrBlank()) showFullAvatarPreview = true
                         else avatarGalleryPicker.launch("image/*")
-                    },
-                    onScannerClick = { showScannerDialog = true }
+                    }
                 )
 
                 // =============================================================
@@ -215,12 +206,11 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 👑 ৩. গোল্ডেন VIP কার্ড (৫টি আসল ফিচার সহ)
+                // 👑 ৩. ছবি ২-এর হুবহু গোল্ডেন VIP কার্ড (হেক্সাগন ও পার্কস সহ)
                 // =============================================================
-                MovieBoxStyleVipCard(
+                ImageTwoStyleVipCard(
                     isVip = vipState.isVip,
                     vipDaysLeft = vipState.daysRemaining,
-                    planName = vipState.planName,
                     onUnlockClick = onNavigateToVip
                 )
 
@@ -267,21 +257,7 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 🕒 ৫. ওয়াচ হিস্ট্রি ক্যারোসেল
-                // =============================================================
-                if (watchHistoryList.isNotEmpty()) {
-                    WatchHistorySection(
-                        items = watchHistoryList,
-                        onItemClick = { slug ->
-                            onNavigateToPlayer?.invoke(slug) ?: run {
-                                Toast.makeText(context, "Resuming video...", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                }
-
-                // =============================================================
-                // 📋 ৬. গ্রুপ ১: My List, Messages, Invoices, Downloads
+                // 📋 ৫. গ্রুপ ১: My List, Invoices, Offline Player
                 // =============================================================
                 MovieBoxMenuGroup {
                     MovieBoxMenuRow(
@@ -289,17 +265,6 @@ fun ProfileScreen(
                         title = "My List",
                         badgeText = if (watchlistState.savedDramas.isNotEmpty()) "${watchlistState.savedDramas.size}" else null,
                         onClick = onNavigateToWatchlist
-                    )
-                    HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
-                    MovieBoxMenuRow(
-                        icon = Icons.Outlined.Notifications,
-                        title = "Messages & Notifications",
-                        badgeText = if (notificationState.unreadCount > 0) "${notificationState.unreadCount}" else null,
-                        badgeColor = Color(0xFFFF2D55),
-                        onClick = {
-                            viewModel.loadNotifications()
-                            Toast.makeText(context, "${notificationState.notifications.size} updates available", Toast.LENGTH_SHORT).show()
-                        }
                     )
                     HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
                     MovieBoxMenuRow(
@@ -320,7 +285,7 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 💬 ৭. গ্রুপ ২: Community & My Activity
+                // 💬 ৬. গ্রুপ ২: Community Live Chat
                 // =============================================================
                 MovieBoxMenuGroup {
                     MovieBoxMenuRow(
@@ -330,20 +295,10 @@ fun ProfileScreen(
                         badgeColor = ActionGreen,
                         onClick = onNavigateToCommunityChat
                     )
-                    HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
-                    MovieBoxMenuRow(
-                        icon = Icons.Outlined.ChatBubbleOutline,
-                        title = "My Activity",
-                        badgeText = "${activityState.activityData?.likesList?.size ?: 0}",
-                        onClick = {
-                            viewModel.loadUserActivity(isRefresh = true)
-                            Toast.makeText(context, "Activity refreshed!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
                 }
 
                 // =============================================================
-                // ⚙️ ৮. গ্রুপ ৩: Settings, Clear Cache, Feedback
+                // ⚙️ ৭. গ্রুপ ৩: Settings, Clear Cache, Feedback (Telegram Link)
                 // =============================================================
                 MovieBoxMenuGroup {
                     MovieBoxMenuRow(
@@ -370,18 +325,19 @@ fun ProfileScreen(
                         }
                     )
                     HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
+                    // 🎯 Feedback & Support: সরাসরি Telegram Link (t.me/rxbd_rifat83)
                     MovieBoxMenuRow(
                         icon = Icons.Outlined.Feedback,
                         title = "Feedback & Support",
                         onClick = {
-                            val intent = Intent(Intent.ACTION_SENDTO).apply {
-                                data = Uri.parse("mailto:support@playdramaflix.com")
-                                putExtra(Intent.EXTRA_SUBJECT, "PlayDramaFlix App Feedback v$installedVersion")
-                            }
+                            val telegramUrl = "https://t.me/rxbd_rifat83"
                             try {
-                                context.startActivity(Intent.createChooser(intent, "Send Feedback"))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(telegramUrl)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
                             } catch (_: Exception) {
-                                UnifiedAdManager.openChromeCustomTab(context, "https://playdramaflix.com")
+                                UnifiedAdManager.openChromeCustomTab(context, telegramUrl)
                             }
                         }
                     )
@@ -410,7 +366,7 @@ fun ProfileScreen(
                 }
 
                 // =============================================================
-                // 🌐 ৯. বটম ফুটার
+                // 🌐 ৮. বটম ফুটার
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -571,195 +527,172 @@ fun ProfileScreen(
 }
 
 // =============================================================================
-// 🔝 হেডার কম্পোনেন্ট
+// 🔝 হেডার কম্পোনেন্ট (টপ স্ক্যানার আইকন ছাড়া ক্লিন লুক)
 // =============================================================================
 @Composable
 private fun MovieBoxStyleHeader(
     isLoggedIn: Boolean,
     userProfile: UserProfileDto?,
     isVip: Boolean,
-    vipDaysLeft: Int,
     onLoginClick: () -> Unit,
     onEditClick: () -> Unit,
-    onAvatarClick: () -> Unit,
-    onScannerClick: () -> Unit
+    onAvatarClick: () -> Unit
 ) {
     val context = LocalContext.current
     val effectiveId = userProfile?.effectiveAccountId
         ?: remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE).getString("account_id", null) ?: "535359562" }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            IconButton(
-                onClick = onScannerClick,
-                modifier = Modifier.size(28.dp)
+        if (isLoggedIn && userProfile != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = Icons.Default.CropFree,
-                    contentDescription = "Scan",
-                    tint = TextWhite,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            if (isLoggedIn && userProfile != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.weight(1f)
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E2434))
+                        .border(1.5.dp, if (isVip) GoldAccent else Color(0xFF2C374D), CircleShape)
+                        .clickable { onAvatarClick() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1E2434))
-                            .border(1.5.dp, if (isVip) GoldAccent else Color(0xFF2C374D), CircleShape)
-                            .clickable { onAvatarClick() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!userProfile.avatar.isNullOrBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(userProfile.avatar)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Text(
-                                text = userProfile.displayName.take(1).uppercase(),
-                                color = TextWhite,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = userProfile.displayName,
-                                color = TextWhite,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (isVip) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF2A2000),
-                                    border = BorderStroke(0.6.dp, GoldAccent)
-                                ) {
-                                    Text(
-                                        text = "VIP",
-                                        color = GoldAccent,
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF1A1F2C)
-                        ) {
-                            Text(
-                                text = "ID: $effectiveId",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 10.5.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF192232),
-                    border = BorderStroke(0.8.dp, Color(0xFF26354D)),
-                    modifier = Modifier.clickable { onEditClick() }
-                ) {
-                    Text(
-                        text = "Edit",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Log in to your account",
-                        color = TextWhite,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF1B202D)
-                    ) {
+                    if (!userProfile.avatar.isNullOrBlank()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(userProfile.avatar)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
                         Text(
-                            text = "ID: $effectiveId",
-                            color = Color(0xFF7E8799),
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            text = userProfile.displayName.take(1).uppercase(),
+                            color = TextWhite,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                Button(
-                    onClick = onLoginClick,
-                    shape = RoundedCornerShape(6.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = userProfile.displayName,
+                            color = TextWhite,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (isVip) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF2A2000),
+                                border = BorderStroke(0.6.dp, GoldAccent)
+                            ) {
+                                Text(
+                                    text = "VIP",
+                                    color = GoldAccent,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF1A1F2C)
+                    ) {
+                        Text(
+                            text = "ID: $effectiveId",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 10.5.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF192232),
+                border = BorderStroke(0.8.dp, Color(0xFF26354D)),
+                modifier = Modifier.clickable { onEditClick() }
+            ) {
+                Text(
+                    text = "Edit",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Log in to your account",
+                    color = TextWhite,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF1B202D)
                 ) {
                     Text(
-                        text = "Log in",
-                        color = Color.Black,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "ID: $effectiveId",
+                        color = Color(0xFF7E8799),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
+            }
+
+            Button(
+                onClick = onLoginClick,
+                shape = RoundedCornerShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Text(
+                    text = "Log in",
+                    color = Color.Black,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
 }
 
 // =============================================================================
-// 👑 গোল্ডেন VIP কার্ড (৫টি পার্কস আইকন সহ)
+// 👑 ছবি ২-এর হুবহু গোল্ডেন সিল্ক VIP কার্ড (হেক্সাগন ব্যাজ ও পার্কস)
 // =============================================================================
 @Composable
-private fun MovieBoxStyleVipCard(
+private fun ImageTwoStyleVipCard(
     isVip: Boolean,
     vipDaysLeft: Int,
-    planName: String?,
     onUnlockClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF9E783E)),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color(0xFFB58742).copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Box(
@@ -767,15 +700,17 @@ private fun MovieBoxStyleVipCard(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFE5B567),
-                            Color(0xFFC79549),
-                            Color(0xFF8C5D23)
+                            Color(0xFFF7E2B8), // নরম সিল্কি সোনালী
+                            Color(0xFFE8BD7B),
+                            Color(0xFFD4A052),
+                            Color(0xFFC0873E)
                         )
                     )
                 )
-                .padding(14.dp)
+                .padding(horizontal = 14.dp, vertical = 13.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // টপ রো: [ 👑 MovieBox Premium > ]      [ Unlock ]
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -786,195 +721,146 @@ private fun MovieBoxStyleVipCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.clickable { onUnlockClick() }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.WorkspacePremium,
-                            contentDescription = null,
-                            tint = Color(0xFF2C1902),
-                            modifier = Modifier.size(19.dp)
-                        )
+                        // গাঢ় কফি রঙের আইকন বক্স
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(Color(0xFF452408)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WorkspacePremium,
+                                contentDescription = null,
+                                tint = Color(0xFFFFF0D0),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+
                         Text(
-                            text = if (isVip) (planName ?: "PlayDramaFlix VIP") else "PlayDramaFlix Premium",
-                            color = Color(0xFF241502),
+                            text = if (isVip) "PlayDramaFlix VIP" else "MovieBox Premium",
+                            color = Color(0xFF381F06),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Black
                         )
+
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = Color(0xFF241502),
+                            tint = Color(0xFF381F06),
                             modifier = Modifier.size(16.dp)
                         )
                     }
 
+                    // নরম আইভরি রঙের Unlock বোতাম
                     Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = Color(0xFFFFF2D9),
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFFFFF5DF),
+                        shadowElevation = 2.dp,
                         modifier = Modifier.clickable { onUnlockClick() }
                     ) {
                         Text(
                             text = if (isVip) "$vipDaysLeft Days" else "Unlock",
-                            color = Color(0xFF2A1A04),
-                            fontSize = 12.sp,
+                            color = Color(0xFF381F06),
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
                         )
                     }
                 }
 
+                // ৫টি হেক্সাগন পার্কস আইকন রো (ছবি ২ অনুযায়ী হুবহু)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    VipFeatureItem(icon = Icons.Default.MovieFilter, label = "Premium\nContents")
-                    VipFeatureItem(icon = Icons.Default.Hd, label = "High\nQuality")
-                    VipFeatureItem(icon = Icons.Default.Block, label = "No\nAds")
-                    VipFeatureItem(icon = Icons.Default.FileDownload, label = "Free\nDownloads")
-                    VipFeatureItem(icon = Icons.Default.PhoneAndroid, label = "2 Devices\nStream")
+                    ImageTwoFeatureHexagon(
+                        icon = Icons.Default.MovieFilter,
+                        label = "Premium\nContents"
+                    )
+                    ImageTwoFeatureHexagon(
+                        icon = Icons.Default.Hd,
+                        label = "High\nQuality"
+                    )
+                    ImageTwoFeatureHexagon(
+                        icon = Icons.Default.Block,
+                        label = "No\nAds"
+                    )
+                    ImageTwoFeatureHexagon(
+                        icon = Icons.Default.ArrowDownward,
+                        label = "Free\nDownloads"
+                    )
+                    ImageTwoFeatureHexagon(
+                        icon = Icons.Default.FolderSpecial,
+                        label = "Save to\nphone"
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * ⬡ ছবি ২-এর হুবহু ডার্ক চকোলেট হেক্সাগন ব্যাজ আইকন
+ */
 @Composable
-private fun VipFeatureItem(
+private fun ImageTwoFeatureHexagon(
     icon: ImageVector,
     label: String
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0x38000000)),
+            modifier = Modifier.size(36.dp),
             contentAlignment = Alignment.Center
         ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+
+                // পারফেক্ট হেক্সাগন পাথ
+                val hexPath = Path().apply {
+                    moveTo(w * 0.50f, 0f)
+                    lineTo(w * 0.96f, h * 0.25f)
+                    lineTo(w * 0.96f, h * 0.75f)
+                    lineTo(w * 0.50f, h)
+                    lineTo(w * 0.04f, h * 0.75f)
+                    lineTo(w * 0.04f, h * 0.25f)
+                    close()
+                }
+
+                // গাঢ় চকোলেট ব্যাকগ্রাউন্ড
+                drawPath(
+                    path = hexPath,
+                    color = Color(0xFF442408)
+                )
+
+                // সূক্ষ্ম সোনালী বর্ডার
+                drawPath(
+                    path = hexPath,
+                    color = Color(0xFFF3D08E),
+                    style = Stroke(width = 1.3.dp.toPx())
+                )
+            }
+
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color(0xFFFFF6E5),
-                modifier = Modifier.size(19.dp)
+                tint = Color(0xFFFFF3DB),
+                modifier = Modifier.size(17.dp)
             )
         }
+
         Text(
             text = label,
-            color = Color(0xFF332005),
+            color = Color(0xFF381F06),
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
             lineHeight = 11.sp,
             textAlign = TextAlign.Center
         )
-    }
-}
-
-// =============================================================================
-// 🕒 ওয়াচ হিস্ট্রি সেকশন
-// =============================================================================
-@Composable
-private fun WatchHistorySection(
-    items: List<WatchHistoryEntity>,
-    onItemClick: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = null,
-                    tint = TextWhite,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = "Watch History",
-                    color = TextWhite,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = TextMuted,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            items(items.take(10), key = { it.id }) { item ->
-                Column(
-                    modifier = Modifier
-                        .width(108.dp)
-                        .clickable { onItemClick(item.contentSlug) },
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF1E2432))
-                    ) {
-                        AsyncImage(
-                            model = item.posterUrl,
-                            contentDescription = item.contentTitle,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(topStart = 6.dp, bottomEnd = 4.dp),
-                            color = Color(0xB3000000),
-                            modifier = Modifier.align(Alignment.TopStart)
-                        ) {
-                            Text(
-                                text = "EP ${item.episodeNumber}",
-                                color = ActionGreen,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-
-                        if (item.progressPercentage > 0f) {
-                            LinearProgressIndicator(
-                                progress = { item.progressPercentage.coerceIn(0f, 1f) },
-                                color = ActionGreen,
-                                trackColor = Color(0x66000000),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(2.dp)
-                                    .align(Alignment.BottomCenter)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = item.contentTitle,
-                        color = Color(0xFFCBD5E1),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
     }
 }
 
