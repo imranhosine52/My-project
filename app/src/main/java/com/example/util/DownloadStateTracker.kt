@@ -1,6 +1,5 @@
 package com.example.util
 
-import com.example.data.model.LocalVideoItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +15,7 @@ data class ActiveDownloadTask(
     val totalMb: Float = 0f,
     val isCompleted: Boolean = false,
     val isFailed: Boolean = false,
+    val isPaused: Boolean = false, // 👈 পজ স্টেট ট্র্যাকার
     val localFilePath: String? = null,
     val contentUriString: String? = null
 )
@@ -30,7 +30,8 @@ object DownloadStateTracker {
                 id = id,
                 title = title,
                 episodeNumber = episodeNumber,
-                posterUrl = posterUrl
+                posterUrl = posterUrl,
+                isPaused = false
             ))
         }
     }
@@ -38,11 +39,19 @@ object DownloadStateTracker {
     fun updateProgress(id: Int, progressPercent: Int, downloadedMb: Float, totalMb: Float) {
         _activeDownloads.update { current ->
             val task = current[id] ?: return@update current
+            if (task.isPaused) return@update current // পজ থাকা অবস্থায় প্রগ্রেস আপডেট বন্ধ
             current + (id to task.copy(
                 progressPercent = progressPercent,
                 downloadedMb = downloadedMb,
                 totalMb = totalMb
             ))
+        }
+    }
+
+    fun setPaused(id: Int, isPaused: Boolean) {
+        _activeDownloads.update { current ->
+            val task = current[id] ?: return@update current
+            current + (id to task.copy(isPaused = isPaused))
         }
     }
 
@@ -52,6 +61,7 @@ object DownloadStateTracker {
             current + (id to task.copy(
                 progressPercent = 100,
                 isCompleted = true,
+                isPaused = false,
                 localFilePath = filePath,
                 contentUriString = contentUri
             ))
