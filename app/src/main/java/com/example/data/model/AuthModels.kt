@@ -30,10 +30,12 @@ data class AuthRegisterRequest(
     @Json(name = "device_id") val deviceId: String? = null // 👈 সার্ভারে ডিভাইস লিমিট চেকের জন্য
 )
 
+// 🎯 লগইন রিকোয়েস্টে device_id যুক্ত করা হলো (সর্বোচ্চ ২টি ডিভাইসের সীমা কার্যকর করতে)
 @JsonClass(generateAdapter = true)
 data class AuthLoginRequest(
     @Json(name = "email_or_phone") val emailOrPhone: String,
-    @Json(name = "password") val password: String
+    @Json(name = "password") val password: String,
+    @Json(name = "device_id") val deviceId: String? = null // 👈 নতুন: ২টা ডিভাইস লিমিট চেকের জন্য
 )
 
 @JsonClass(generateAdapter = true)
