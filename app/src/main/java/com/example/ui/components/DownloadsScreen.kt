@@ -270,7 +270,11 @@ fun DownloadsScreen(
                                 )
                                 .clickable {
                                     coroutineScope.launch {
-                                        pagerState.animateScrollToPage(0, tween(300, easing = FastOutSlowInEasing))
+                                        // 🎯 ফিক্সড: নামসহ প্যারামিটার পাস করা হয়েছে
+                                        pagerState.animateScrollToPage(
+                                            page = 0,
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                                        )
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -295,7 +299,11 @@ fun DownloadsScreen(
                                 )
                                 .clickable {
                                     coroutineScope.launch {
-                                        pagerState.animateScrollToPage(1, tween(300, easing = FastOutSlowInEasing))
+                                        // 🎯 ফিক্সড: নামসহ প্যারামিটার পাস করা হয়েছে
+                                        pagerState.animateScrollToPage(
+                                            page = 1,
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                                        )
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -368,7 +376,6 @@ fun DownloadsScreen(
                                 MinimalistOngoingDownloadCard(
                                     task = task,
                                     onPauseToggle = { shouldPause ->
-                                        // 🎯 সার্ভিসে রিয়েল ইনটেন্ট পাঠানো
                                         val intent = Intent(context, VideoDownloadService::class.java).apply {
                                             action = if (shouldPause) VideoDownloadService.ACTION_PAUSE else VideoDownloadService.ACTION_RESUME
                                             putExtra(VideoDownloadService.EXTRA_TASK_ID, task.id)
@@ -458,7 +465,7 @@ fun DownloadsScreen(
 }
 
 // =========================================================================
-// 🔄 Ongoing কার্ড (আসল সার্ভিস কানেক্টেড Pause/Resume বাটন সহ)
+// 🔄 Ongoing কার্ড
 // =========================================================================
 @Composable
 private fun MinimalistOngoingDownloadCard(
