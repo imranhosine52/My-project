@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,12 +51,13 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.BottomNavTab
+import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // =========================================================================
-// 🏷️ ১. ১০০% ডাইনামিক ডাবিং ব্যাজ (সার্ভার থেকে আসা যেকোনো ভাষার নাম দেখাবে)
+// 🏷️ ১. ১০০% ডাইনামিক ডাবিং ব্যাজ
 // =========================================================================
 @Composable
 fun LanguageDubBadge(
@@ -749,7 +751,7 @@ fun DramaPosterCardHorizontal(
 
 // =========================================================================
 // 🧭 ফ্রস্টেড গ্লাস ৫-ট্যাব বটম ন্যাভিগেশন বার
-// 🎯 ৪ নম্বর ট্যাবে Downloads আইকন রিস্টোর করা হলো
+// 🎯 লাইভ ডাউনলোড কাউন্টার ব্যাজ (Active Download Counter Badge) সহ
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -757,6 +759,12 @@ fun PlayDramaFlixBottomNav(
     onTabSelected: (BottomNavTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 📥 লাইভ চলমান ডাউনলোড সংখ্যা ট্র্যাক করা
+    val activeDownloadsMap by DownloadStateTracker.activeDownloads.collectAsState()
+    val ongoingDownloadsCount = remember(activeDownloadsMap) {
+        activeDownloadsMap.values.count { !it.isCompleted }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -801,7 +809,7 @@ fun PlayDramaFlixBottomNav(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             when (tab) {
@@ -830,14 +838,43 @@ fun PlayDramaFlixBottomNav(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                // ৪. 📥 Downloads (ইনবক্স সরিয়ে ডাউনলোডস রিস্টোর করা হলো)
+                                // ৪. 📥 Downloads (লাইভ কাউন্টার ব্যাজ সহ)
                                 BottomNavTab.DOWNLOADS -> {
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Default.Download else Icons.Outlined.FileDownload,
-                                        contentDescription = "Downloads",
-                                        tint = iconTint,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Default.Download else Icons.Outlined.FileDownload,
+                                            contentDescription = "Downloads",
+                                            tint = iconTint,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+
+                                        // 🎯 ডাউনলোড চলাকালীন ছোট লাল বৃত্তাকার ব্যাজ
+                                        if (ongoingDownloadsCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .offset(x = 6.dp, y = (-3).dp)
+                                                    .defaultMinSize(minWidth = 14.dp, minHeight = 14.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFFF2A4B))
+                                                    .border(0.6.dp, Color(0xFF080C14), CircleShape)
+                                                    .padding(horizontal = 2.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = if (ongoingDownloadsCount > 99) "99+" else ongoingDownloadsCount.toString(),
+                                                    color = Color.White,
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    lineHeight = 9.sp,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                                 // ৫. Me (Profile)
                                 BottomNavTab.ME -> {
