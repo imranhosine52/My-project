@@ -128,7 +128,6 @@ class AppConfigRepository(
         val adsterraSocialBarScript = adConfigPrefs.getString("adsterra_social_bar_script", null)
         val adsterraSocialBarUrl = adConfigPrefs.getString("adsterra_social_bar_url", null)
 
-        // 🎯 ডায়নামিক টাইমার ও কয়টি ক্লিক দেখতে হবে
         val timerSeconds = adConfigPrefs.getInt("timer_seconds", 5)
         val adWaitSeconds = adConfigPrefs.getInt("ad_wait_seconds", timerSeconds)
         val unlockClicksRequired = adConfigPrefs.getInt("unlock_clicks_required", 1)
@@ -171,11 +170,7 @@ class AppConfigRepository(
 
     suspend fun fetchRemoteAdsConfig(): Result<AdsConfigResponse> = withContext(Dispatchers.IO) {
         try {
-            val response = try {
-                apiService.getAdsConfig()
-            } catch (e: Exception) {
-                apiService.getAdsConfigDirect()
-            }
+            val response = apiService.getAdsConfig()
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
                 adConfigPrefs.edit().apply {
@@ -199,7 +194,6 @@ class AppConfigRepository(
                     putString("adsterra_social_bar_script", body.adsterra?.socialBarScript)
                     putString("adsterra_social_bar_url", body.adsterra?.socialBarUrl)
 
-                    // 🎯 ডায়নামিক ক্লিক সংখ্যা ও টাইমার সেভ
                     putInt("timer_seconds", body.rules?.timerSeconds ?: 5)
                     putInt("ad_wait_seconds", body.rules?.adWaitSeconds ?: body.rules?.timerSeconds ?: 5)
                     putInt("unlock_clicks_required", body.rules?.unlockClicksRequired ?: 1)
