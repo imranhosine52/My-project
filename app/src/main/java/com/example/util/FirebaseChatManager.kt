@@ -78,6 +78,19 @@ object FirebaseChatManager {
             .build()
     }
 
+    // =========================================================================
+    // 🛡️ Bulletproof Block Checker: ফায়ারবেজে ডাটা রাইট করার আগে সার্ভার সাইড ভেরিফিকেশন
+    // =========================================================================
+    private suspend fun checkIsUserBlocked(userId: String): Boolean {
+        if (userId.isBlank()) return false
+        return try {
+            val doc = firestore.collection(BLOCKED_COLLECTION).document(userId).get().await()
+            doc.exists()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun subscribeToUserTopic(userId: String) {
         if (userId.isBlank()) return
         try {
@@ -164,7 +177,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 🌟 ১. জয়েন করার সময় স্থায়ীভাবে isVip ফিল্ড ক্লাউডে সেভ করা
+    // 🌟 ১. জয়েন করার সময় স্থায়ীভাবে isVip এবং isOnline ফিল্ড ক্লাউডে সেভ করা
     fun joinGroup(
         userId: String,
         userName: String,
@@ -173,6 +186,8 @@ object FirebaseChatManager {
         isVip: Boolean = false
     ) {
         CoroutineScope(Dispatchers.IO).launch {
+            if (checkIsUserBlocked(userId)) return@launch // 🛡️ ব্লক থাকলে জয়েন বাতিল
+
             try {
                 val isOwner = isRootAdmin(userEmail) || userName.contains("Hey Sifat", true)
                 val targetDocId = if (isOwner) "owner_yheysifat" else userId
@@ -184,7 +199,8 @@ object FirebaseChatManager {
                     "userAvatar" to userAvatar,
                     "userEmail" to userEmail?.trim()?.lowercase(),
                     "isOwner" to isOwner,
-                    "isVip" to (isVip || isOwner || userName.contains("VIP", true)), // 👈 স্থায়ী VIP ফ্ল্যাগ
+                    "isVip" to (isVip || isOwner || userName.contains("VIP", true)), 
+                    "isOnline" to true, // 👈 Instant Online State
                     "joinedAt" to System.currentTimeMillis(),
                     "lastActive" to System.currentTimeMillis()
                 )
@@ -231,13 +247,14 @@ object FirebaseChatManager {
         }
     }
 
-    // 🌟 ২. প্রেজেন্স পিং করার সময় সবসময় isVip রিফ্রেশ ও পার্মানেন্টলি সেভ রাখা
-    fun pingUserPresence(
+    // 🌟 ২. Smart Real-time Presence Engine: অনলাইন/অফলাইন স্টেটাস আপডেট
+    fun updateUserPresence(
         userId: String,
         userName: String,
         userAvatar: String? = null,
         userEmail: String? = null,
-        isVip: Boolean = false
+        isVip: Boolean = false,
+        isOnline: Boolean
     ) {
         val isOwner = isRootAdmin(userEmail) || userName.contains("Hey Sifat", true)
         val targetDocId = if (isOwner) "owner_yheysifat" else userId
@@ -251,17 +268,29 @@ object FirebaseChatManager {
                     "userAvatar" to userAvatar,
                     "userEmail" to userEmail?.trim()?.lowercase(),
                     "isOwner" to isOwner,
-                    "isVip" to (isVip || isOwner || userName.contains("VIP", true)), // 👈 স্থায়ী VIP ফ্ল্যাগ
+                    "isVip" to (isVip || isOwner || userName.contains("VIP", true)),
+                    "isOnline" to isOnline, // 👈 Instant Online/Offline State
                     "lastActive" to System.currentTimeMillis()
                 )
                 firestore.collection(MEMBERS_COLLECTION).document(targetDocId)
                     .set(memberData, com.google.firebase.firestore.SetOptions.merge())
-                subscribeToUserTopic(targetDocId)
+                
+                if (isOnline) subscribeToUserTopic(targetDocId)
             } catch (_: Exception) {}
         }
     }
 
-    // 🌟 ৩. ইনস্ট্যান্ট ক্লাউড থেকে VIP মেম্বারদের লোড করা (ক্লিয়ার ডাটা করলেও নষ্ট হবে না)
+    // Backward compatibility for existing UI files until they are updated
+    fun pingUserPresence(
+        userId: String,
+        userName: String,
+        userAvatar: String? = null,
+        userEmail: String? = null,
+        isVip: Boolean = false
+    ) {
+        updateUserPresence(userId, userName, userAvatar, userEmail, isVip, true)
+    }
+
     fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
@@ -307,15 +336,19 @@ object FirebaseChatManager {
                 val rawMembers = snapshot.documents.mapNotNull { doc ->
                     val name = doc.getString("userName") ?: ""
                     val email = doc.getString("userEmail")
+                    val isOnline = doc.getBoolean("isOnline") ?: false // 👈 Real-time Check
                     val lastActive = doc.getLong("lastActive") ?: 0L
                     val isOwner = isRootAdmin(email) || name.contains("Hey Sifat", ignoreCase = true)
-                    Pair(if (isOwner) "owner_admin" else (email ?: doc.id), lastActive)
+                    
+                    Triple(if (isOwner) "owner_admin" else (email ?: doc.id), lastActive, isOnline)
                 }
 
                 val uniqueMembers = rawMembers.distinctBy { it.first }
                 val total = uniqueMembers.size.coerceAtLeast(1)
                 val now = System.currentTimeMillis()
-                val online = uniqueMembers.count { (now - it.second) < 180_000L }.coerceAtLeast(1)
+                
+                // Instant online flag OR 3 minutes fallback
+                val online = uniqueMembers.count { it.third || (now - it.second) < 180_000L }.coerceAtLeast(1)
 
                 trySend(LiveGroupStats(totalMembers = total, onlineMembers = online))
             }
@@ -374,7 +407,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 💬 ১. টেক্সট মেসেজ সেন্ড (প্রেজেন্সে VIP আপডেট সহ)
+    // 💬 ১. টেক্সট মেসেজ সেন্ড (Bulletproof Block Check)
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -384,6 +417,8 @@ object FirebaseChatManager {
         text: String,
         replyToMessage: ChatMessage? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        if (checkIsUserBlocked(senderId)) return@withContext false // 🛡️
+
         try {
             val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
             val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
@@ -412,7 +447,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
+            updateUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip, true)
 
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
@@ -442,7 +477,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 🧸 ২. স্টিকার ও GIF মেসেজ সেন্ড
+    // 🧸 ২. স্টিকার ও GIF মেসেজ সেন্ড (Bulletproof Block Check)
     suspend fun sendStickerMessage(
         mediaUrl: String,
         senderId: String,
@@ -452,6 +487,8 @@ object FirebaseChatManager {
         isVip: Boolean,
         replyToMessage: ChatMessage? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        if (checkIsUserBlocked(senderId)) return@withContext false // 🛡️
+
         try {
             val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
             val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
@@ -480,7 +517,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(msgData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
+            updateUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip, true)
 
             val displayCaption = "🧸 Sent a sticker"
 
@@ -513,7 +550,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 📷 ৩. একাধিক ছবি সেন্ড
+    // 📷 ৩. একাধিক ছবি সেন্ড (Bulletproof Block Check)
     suspend fun uploadMultipleImagesAndSendMessage(
         context: Context,
         imageUris: List<Uri>,
@@ -527,6 +564,11 @@ object FirebaseChatManager {
         onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         if (imageUris.isEmpty()) return@withContext false
+        if (checkIsUserBlocked(senderId)) { // 🛡️
+            withContext(Dispatchers.Main) { onError?.invoke("You are blocked from sending messages.") }
+            return@withContext false
+        }
+
         try {
             val uploadedUrls = mutableListOf<String>()
 
@@ -593,7 +635,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
+            updateUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip, true)
 
             val displayCaption = captionText.trim().ifBlank { "📷 Sent a photo" }
 
@@ -626,7 +668,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 🎬 ৪. ভিডিও মেসেজ সেন্ড
+    // 🎬 ৪. ভিডিও মেসেজ সেন্ড (Bulletproof Block Check)
     suspend fun uploadVideoWithProgressAndSendMessage(
         context: Context,
         videoUri: Uri,
@@ -640,6 +682,11 @@ object FirebaseChatManager {
         onProgress: (percent: Int, secondsLeft: Long) -> Unit,
         onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        if (checkIsUserBlocked(senderId)) { // 🛡️
+            withContext(Dispatchers.Main) { onError?.invoke("You are blocked from sending messages.") }
+            return@withContext false
+        }
+
         try {
             var fileSize = 0L
             context.contentResolver.query(videoUri, null, null, null, null)?.use { cursor ->
@@ -732,7 +779,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
+            updateUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip, true)
 
             val displayCaption = captionText.trim().ifBlank { "🎬 Sent a video" }
 
@@ -765,7 +812,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 🎤 ৫. ভয়েস মেসেজ সেন্ড
+    // 🎤 ৫. ভয়েস মেসেজ সেন্ড (Bulletproof Block Check)
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
         durationSeconds: Long,
@@ -777,6 +824,11 @@ object FirebaseChatManager {
         replyToMessage: ChatMessage? = null,
         onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        if (checkIsUserBlocked(senderId)) { // 🛡️
+            withContext(Dispatchers.Main) { onError?.invoke("You are blocked from sending messages.") }
+            return@withContext false
+        }
+
         try {
             val reqBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
@@ -818,7 +870,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
+            updateUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip, true)
 
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
