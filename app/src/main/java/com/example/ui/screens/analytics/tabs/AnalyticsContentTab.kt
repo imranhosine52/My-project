@@ -4,11 +4,11 @@ package com.example.ui.screens.analytics.tabs
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.ContentAnalyticsDto
+import com.example.data.model.PublicLiveAnalyticsResponse
 import com.example.data.model.RealtimePostItem
 
 // 🎨 প্রিমিয়াম লিডারবোর্ড কালার প্যালেট
@@ -72,9 +73,12 @@ fun AnalyticsContentTab(
     onPostClick: (slug: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 🎯 ভিউজ সংখ্যা অনুযায়ী ডিসেন্ডিং অর্ডারে সাজানো (সর্বাধিক ভিউয়ের পোস্ট সবার উপরে থাকবে)
+    // 🎯 ৩ সেকেন্ডের লাইভ ডেটা অনুযায়ী স্বয়ংক্রিয় সাজানো (Today Views ও Total Views ভিত্তিক র‍্যাঙ্কিং)
     val sortedPosts = remember(content.realtimePosts) {
-        content.realtimePosts.sortedByDescending { it.views }
+        content.realtimePosts.sortedWith(
+            compareByDescending<RealtimePostItem> { it.todayViews ?: 0L }
+                .thenByDescending { it.views }
+        )
     }
 
     if (sortedPosts.isEmpty()) {
@@ -92,7 +96,7 @@ fun AnalyticsContentTab(
         LazyColumn(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp) // 🎯 পোস্টগুলোর মাঝের গ্যাপ একদম স্লিম
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             itemsIndexed(
                 items = sortedPosts,
@@ -104,7 +108,7 @@ fun AnalyticsContentTab(
                     onClick = { onPostClick(post.slug) },
                     modifier = Modifier.animateItemPlacement(
                         animationSpec = tween(
-                            durationMillis = 650,
+                            durationMillis = 600,
                             easing = FastOutSlowInEasing
                         )
                     )
@@ -119,7 +123,7 @@ fun AnalyticsContentTab(
 }
 
 /**
- * 🎬 আল্ট্রা-কমপ্যাক্ট স্লিম রো আইটেম
+ * 🎬 আল্ট্রা-কমপ্যাক্ট স্লিম রো আইটেম (৩-সেকেন্ড লাইভ সিঙ্ক সহ)
  */
 @Composable
 private fun RealtimePostCompactRow(
@@ -128,11 +132,18 @@ private fun RealtimePostCompactRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // প্রোগ্রেস বারের লাইভ অ্যানিমেশন
+    // প্রোগ্রেস বারের লাইভ ৩-সেকেন্ড অ্যানিমেশন
     val animatedProgress by animateFloatAsState(
         targetValue = post.progressRatio.coerceIn(0.04f, 1f),
         animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
         label = "post_progress"
+    )
+
+    // ভিউজ সংখ্যা বৃদ্ধির মসৃণ অ্যানিমেশন
+    val animatedViews by animateIntAsState(
+        targetValue = post.views.toInt(),
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        label = "post_views"
     )
 
     // 🎯 সংক্ষিপ্ত পরিষ্কার নাম
@@ -145,7 +156,7 @@ private fun RealtimePostCompactRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .clickable { onClick() }
-            .padding(vertical = 3.5.dp, horizontal = 2.dp), // 🎯 অত্যন্ত স্লিম উচ্চতা
+            .padding(vertical = 3.5.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -174,7 +185,9 @@ private fun RealtimePostCompactRow(
                         else -> Color(0xFF222B3D)
                     }
                 ),
-                modifier = Modifier.width(22.dp).height(20.dp)
+                modifier = Modifier
+                    .width(22.dp)
+                    .height(20.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
@@ -194,7 +207,7 @@ private fun RealtimePostCompactRow(
             // ২. ছোট কমপ্যাক্ট পোস্টার থাম্বনেইল
             Box(
                 modifier = Modifier
-                    .size(width = 28.dp, height = 38.dp) // 🎯 সাইজ ছোট করা হয়েছে
+                    .size(width = 28.dp, height = 38.dp)
                     .clip(RoundedCornerShape(3.dp))
                     .background(Color(0xFF1A2234)),
                 contentAlignment = Alignment.Center
@@ -215,7 +228,7 @@ private fun RealtimePostCompactRow(
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = cleanDisplayName, // 👈 সংক্ষিপ্ত পরিষ্কার নাম
+                    text = cleanDisplayName,
                     color = TextLight,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
@@ -230,7 +243,7 @@ private fun RealtimePostCompactRow(
                     trackColor = ProgressTrack,
                     modifier = Modifier
                         .fillMaxWidth(0.95f)
-                        .height(2.5.dp) // 🎯 আল্ট্রা-স্লিম উচ্চতা
+                        .height(2.5.dp)
                         .clip(RoundedCornerShape(2.dp))
                 )
             }
@@ -238,7 +251,7 @@ private fun RealtimePostCompactRow(
 
         // ৪. ডানপাশে ভিউজ সংখ্যা
         Text(
-            text = post.formattedViews,
+            text = PublicLiveAnalyticsResponse.formatMetric(animatedViews.toLong()),
             color = if (rank == 1) GoldRank else Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
