@@ -5,8 +5,10 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class ViewIncrementRequest(
-    @Json(name = "content_id") val contentId: Any
-)
+    @Json(name = "content_id") val contentId: String
+) {
+    constructor(contentId: Any) : this(contentId.toString())
+}
 
 @JsonClass(generateAdapter = true)
 data class ViewIncrementResponse(
@@ -20,10 +22,16 @@ data class ViewIncrementResponse(
 
 @JsonClass(generateAdapter = true)
 data class LikeToggleRequest(
-    @Json(name = "content_id") val contentId: Any,
-    @Json(name = "episode_id") val episodeId: Any? = null,
-    @Json(name = "user_id") val userId: Any? = null
-)
+    @Json(name = "content_id") val contentId: String,
+    @Json(name = "episode_id") val episodeId: String? = null,
+    @Json(name = "user_id") val userId: String? = null
+) {
+    constructor(contentId: Any, episodeId: Any? = null, userId: Any? = null) : this(
+        contentId = contentId.toString(),
+        episodeId = episodeId?.toString(),
+        userId = userId?.toString()
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class LikeToggleResponse(
@@ -38,14 +46,21 @@ data class LikeToggleResponse(
 }
 
 // =============================================================================
-// 🌟 টেলিগ্রাম স্টাইল মাল্টি-ইমোজি রিঅ্যাকশন মডেলস
+// 🌟 মাল্টি-ইমোজি রিঅ্যাকশন মডেলস
 // =============================================================================
+
 @JsonClass(generateAdapter = true)
 data class ReactionToggleRequest(
-    @Json(name = "content_id") val contentId: Any,
+    @Json(name = "content_id") val contentId: String,
     @Json(name = "reaction") val reaction: String,
-    @Json(name = "user_id") val userId: Any? = null
-)
+    @Json(name = "user_id") val userId: String? = null
+) {
+    constructor(contentId: Any, reaction: String, userId: Any? = null) : this(
+        contentId = contentId.toString(),
+        reaction = reaction,
+        userId = userId?.toString()
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class ReactionToggleResponse(
@@ -67,14 +82,18 @@ data class InteractionStatusResponse(
     @Json(name = "is_liked") val isLiked: Boolean? = null,
     @Json(name = "liked") val liked: Boolean? = null,
     @Json(name = "total_comments") val totalComments: Int? = null,
-    @Json(name = "my_reaction") val myReaction: String? = null, // 👈 ইউজারের বর্তমান রিঅ্যাক্ট
-    @Json(name = "reactions") val reactions: Map<String, Int>? = emptyMap() // 👈 সব ইমোজির লাইভ কাউন্ট
+    @Json(name = "my_reaction") val myReaction: String? = null,
+    @Json(name = "reactions") val reactions: Map<String, Int>? = emptyMap()
 ) {
     val effectiveViews: Long get() = totalViews ?: views ?: 0L
     val effectiveLikes: Long get() = totalLikes ?: likes ?: 0L
     val effectiveIsLiked: Boolean get() = isLiked ?: liked ?: false
     val reactionsMap: Map<String, Int> get() = reactions ?: emptyMap()
 }
+
+// =============================================================================
+// 💬 কমেন্ট ও রিপ্লাই মডেলস
+// =============================================================================
 
 @JsonClass(generateAdapter = true)
 data class DramaApiComment(
@@ -123,13 +142,29 @@ data class CommentsListResponse(
 
 @JsonClass(generateAdapter = true)
 data class AddCommentApiRequest(
-    @Json(name = "content_id") val contentId: Any,
-    @Json(name = "episode_id") val episodeId: Any? = null,
-    @Json(name = "parent_id") val parentId: Any? = null,
-    @Json(name = "user_id") val userId: Any? = null,
+    @Json(name = "content_id") val contentId: String,
+    @Json(name = "episode_id") val episodeId: String? = null,
+    @Json(name = "parent_id") val parentId: String? = null,
+    @Json(name = "user_id") val userId: String? = null,
     @Json(name = "user_name") val userName: String? = null,
     @Json(name = "comment_text") val commentText: String
-)
+) {
+    constructor(
+        contentId: Any,
+        episodeId: Any? = null,
+        parentId: Any? = null,
+        userId: Any? = null,
+        userName: String? = null,
+        commentText: String
+    ) : this(
+        contentId = contentId.toString(),
+        episodeId = episodeId?.toString(),
+        parentId = parentId?.toString(),
+        userId = userId?.toString(),
+        userName = userName,
+        commentText = commentText
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class AddCommentResponse(
@@ -144,9 +179,14 @@ data class AddCommentResponse(
 
 @JsonClass(generateAdapter = true)
 data class CommentLikeApiRequest(
-    @Json(name = "comment_id") val commentId: Any,
-    @Json(name = "user_id") val userId: Any? = null
-)
+    @Json(name = "comment_id") val commentId: String,
+    @Json(name = "user_id") val userId: String? = null
+) {
+    constructor(commentId: Any, userId: Any? = null) : this(
+        commentId = commentId.toString(),
+        userId = userId?.toString()
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class CommentLikeApiResponse(
@@ -159,9 +199,14 @@ data class CommentLikeApiResponse(
 
 @JsonClass(generateAdapter = true)
 data class CommentShareApiRequest(
-    @Json(name = "comment_id") val commentId: Any,
-    @Json(name = "user_id") val userId: Any? = null
-)
+    @Json(name = "comment_id") val commentId: String,
+    @Json(name = "user_id") val userId: String? = null
+) {
+    constructor(commentId: Any, userId: Any? = null) : this(
+        commentId = commentId.toString(),
+        userId = userId?.toString()
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class CommentShareApiResponse(
