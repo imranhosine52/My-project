@@ -12,14 +12,14 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন (Android 14+ সাপোর্টেড) -->
+    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন (Android 13/14+ সাপোর্টেড) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- 👈 স্ক্রিন অফ থাকলেও গান সচল রাখার জন্য -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /> <!-- 👈 অডিও সার্ভিসের জন্য আবশ্যক -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- 🎬 ৪. লোকাল মিডিয়া ও মাইক্রোফোন পারমিশন -->
@@ -44,10 +44,18 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- 📢 ফায়ারবেস ডিফল্ট নোটিফিকেশন চ্যানেল -->
+        <!-- 📢 ফায়ারবেস ডিফল্ট নোটিফিকেশন চ্যানেল (Background & Killed state notification handler) -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="high_importance_channel" />
+
+        <!-- 🔔 ফায়ারবেস ব্যাকগ্রাউন্ড নোটিফিকেশন আইকন ও অ্যাকসেন্ট কালার মেটা-ডাটা -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@android:color/black" />
 
         <!-- 🔔 ফায়ারবেস পুশ নোটিফিকেশন সার্ভিস -->
         <service
@@ -58,7 +66,7 @@
             </intent-filter>
         </service>
 
-        <!-- 🎵 নতুন: ব্যাকগ্রাউন্ড অডিও প্লেয়ার সার্ভিস (MX Player / Spotify স্টাইল মিডিয়া নোটিফিকেশন) -->
+        <!-- 🎵 ব্যাকগ্রাউন্ড অডিও প্লেয়ার সার্ভিস -->
         <service
             android:name=".service.AudioPlaybackService"
             android:exported="false"
@@ -70,7 +78,7 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 🚀 রিলস ব্যাকগ্রাউন্ড আপলোডের জন্য WorkManager Foreground Service (Android 14+ এর জন্য আবশ্যক) -->
+        <!-- 🚀 WorkManager Foreground Service -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
