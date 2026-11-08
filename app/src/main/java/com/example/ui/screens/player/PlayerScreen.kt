@@ -209,7 +209,7 @@ fun PlayerScreen(
         return
     }
 
-    // 🎯 স্লাগ গার্ড: বর্তমান লোড করা ড্রামাটি ঠিক এই ড্রামা কিনা তা চেক করা
+    // 🎯 স্লাগ গার্ড: বর্তমান লোড করা ড্রামা ঠিক থাকলে কন্টেন্ট রিটার্ন করা
     val isCurrentDramaLoaded = playerState.content?.slug == slug
 
     val content = if (isCurrentDramaLoaded) {
@@ -288,20 +288,18 @@ fun PlayerScreen(
                 }
             }
         } else {
-            // ডামি লিস্ট যতক্ষণ না সার্ভার ডাটা লোড হয়
             (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
                 EpisodeDto(episodeNumber = num, isLocked = num > freeEpisodesCount)
             }
         }
     }
 
-    // 🎯 স্লাগ গার্ড: আগের ড্রামার ডাটা যাতে নতুন ড্রামায় ওভাররাইড না করতে পারে
     val currentEp = remember(playerState.currentEpisode, effectiveEpisodes, isCurrentDramaLoaded) {
         if (isCurrentDramaLoaded) {
             val targetNum = playerState.currentEpisode?.episodeNumber ?: 1
             effectiveEpisodes.find { it.episodeNumber == targetNum } ?: effectiveEpisodes.firstOrNull()
         } else {
-            null // ড্রামা লোড না হওয়া পর্যন্ত currentEp Null থাকবে, ফলে ভুল সেভ হবে না
+            null
         }
     }
 
@@ -368,8 +366,13 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 স্লাগ পরিবর্তন হলে কেবল তখনই কমেন্ট পরিষ্কার হবে
+    var lastActiveSlug by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(slug) {
-        persistentDramaComments.clear()
+        if (lastActiveSlug != slug) {
+            persistentDramaComments.clear()
+            lastActiveSlug = slug
+        }
 
         val initialTitle = homeState.popularDramas.find { it.slug == slug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == slug }?.displayName
@@ -389,7 +392,12 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
-    LaunchedEffect(playerState.comments, slug, currentContentId) {
+    // 💬 কমেন্ট পর্যবেক্ষণ: লোডিংয়ের সময় আগের কমেন্ট মুছে ফেলা রোধ
+    LaunchedEffect(playerState.comments, playerState.isCommentsLoading, slug, currentContentId) {
+        if (playerState.isCommentsLoading && persistentDramaComments.isNotEmpty()) {
+            return@LaunchedEffect
+        }
+
         val serverComments = playerState.comments.filter { comment ->
             comment.id !in deletedCommentIds
         }
@@ -401,9 +409,11 @@ fun PlayerScreen(
                     it.commentText.trim() !in serverTexts
         }
 
-        persistentDramaComments.clear()
-        persistentDramaComments.addAll(uniquePendingOptimistic)
-        persistentDramaComments.addAll(serverComments)
+        if (serverComments.isNotEmpty() || uniquePendingOptimistic.isNotEmpty()) {
+            persistentDramaComments.clear()
+            persistentDramaComments.addAll(uniquePendingOptimistic)
+            persistentDramaComments.addAll(serverComments)
+        }
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -449,7 +459,6 @@ fun PlayerScreen(
     var embedCustomView by remember { mutableStateOf<View?>(null) }
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // 🎯 ਸ্লাগ গার্ড: অন্য ড্রামার ডাটা যাতে ভুল করে সেভ না হয়
     LaunchedEffect(currentEp?.episodeNumber, slug, isCurrentDramaLoaded) {
         if (isCurrentDramaLoaded) {
             val epNum = currentEp?.episodeNumber ?: 0
@@ -646,7 +655,7 @@ fun PlayerScreen(
         currentEp?.episodeId,
         slug
     ) {
-        if (currentEp != null && isCurrentDramaLoaded) { // 👈 ড্রামা লোড না হওয়া পর্যন্ত প্লেয়ার ইউআরএল ধরবে না
+        if (currentEp != null && isCurrentDramaLoaded) {
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
                 viewModel.showEpisodeUnlockModal(currentEp)
@@ -921,6 +930,16 @@ fun PlayerScreen(
                                     return@PlayerVideoBox
                                 }
                                 if (text.isNotBlank()) {
+                                    val tempCommentId = "temp_text_${System.currentTimeMillis()}"
+                                    val optimisticComment = DramaApiComment(
+                                        rawId = tempCommentId,
+                                        rawContentId = currentContentId,
+                                        userName = currentUserName,
+                                        userAvatar = currentUserAvatar,
+                                        commentText = text,
+                                        dateDisplay = "Just now"
+                                    )
+                                    persistentDramaComments.add(0, optimisticComment)
                                     viewModel.postComment(text)
                                 }
                             },
@@ -1119,7 +1138,7 @@ fun PlayerScreen(
                                             val tempCommentId = "temp_text_${System.currentTimeMillis()}"
                                             val optimisticComment = DramaApiComment(
                                                 rawId = tempCommentId,
-                                                rawContentId = content.id,
+                                                rawContentId = currentContentId,
                                                 userName = currentUserName,
                                                 userAvatar = currentUserAvatar,
                                                 commentText = textToSend,
@@ -1144,11 +1163,14 @@ fun PlayerScreen(
                                 onRefresh = {
                                     coroutineScope.launch {
                                         isRefreshing = true
+                                        // 🎯 ১. সম্পূর্ণ ড্রামা ও নতুন ভিউ সিঙ্ক
                                         viewModel.loadDramaDetails(slug, context, forceRefresh = true)
-                                        viewModel.refreshComments()
-                                        delay(600)
+                                        delay(400)
+                                        // 🎯 ২. রেস-কন্ডিশন ছাড়াই আসল আইডি দিয়ে কমেন্ট রিফ্রেশ
+                                        viewModel.refreshComments(currentContentId)
+                                        delay(400)
                                         isRefreshing = false
-                                        Toast.makeText(context, "Updated to latest episodes and links!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Updated to latest views and comments!", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 state = pullRefreshState,
@@ -1222,16 +1244,14 @@ fun PlayerScreen(
                                                 },
                                                 onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
                                                 onLikeClick = {
-                                                    if (!isUserLoggedIn) showAuthSheet = true
-                                                    else viewModel.toggleLikeDrama()
+                                                    viewModel.toggleLikeDrama()
                                                 },
                                                 onWatchlistClick = {
                                                     if (!isUserLoggedIn) showAuthSheet = true
                                                     else viewModel.toggleWatchlist()
                                                 },
                                                 onToggleReaction = { reactionKey ->
-                                                    if (!isUserLoggedIn) showAuthSheet = true
-                                                    else viewModel.toggleReaction(reactionKey)
+                                                    viewModel.toggleReaction(reactionKey)
                                                 },
                                                 onReplyClick = {
                                                     selectedTabIndex = 1
@@ -1395,7 +1415,7 @@ fun PlayerScreen(
                             val tempId = "temp_sticker_${System.currentTimeMillis()}"
                             val optimisticSticker = DramaApiComment(
                                 rawId = tempId,
-                                rawContentId = content.id,
+                                rawContentId = currentContentId,
                                 userName = currentUserName,
                                 userAvatar = currentUserAvatar,
                                 commentText = stickerUrl,
@@ -1417,7 +1437,7 @@ fun PlayerScreen(
                             val tempId = "temp_gif_${System.currentTimeMillis()}"
                             val optimisticGif = DramaApiComment(
                                 rawId = tempId,
-                                rawContentId = content.id,
+                                rawContentId = currentContentId,
                                 userName = currentUserName,
                                 userAvatar = currentUserAvatar,
                                 commentText = gifUrl,
