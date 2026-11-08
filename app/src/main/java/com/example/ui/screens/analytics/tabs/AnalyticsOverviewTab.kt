@@ -13,7 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border // 👈 এরর সমাধানের জন্য ইমপোর্ট যুক্ত করা হলো
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -73,7 +73,6 @@ fun AnalyticsOverviewTab(
     countries: List<LiveCountryStat> = emptyList(),
     modifier: Modifier = Modifier
 ) {
-    // 🟢 রিয়েল-টাইম স্পন্দন অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "traffic_pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
@@ -85,10 +84,9 @@ fun AnalyticsOverviewTab(
         label = "pulse_scale"
     )
 
-    // 🎯 রিয়েল ভিজিটর ও ভিউজ হিসাব (যাতে ভিজিটরের চেয়ে ভিউ কম না দেখায়)
     val todayRow = overview.trafficSummary.firstOrNull { it.timeframe.equals("Today", true) }
     val rawTodayVisitors = todayRow?.visitors ?: if (overview.viewsCount > 0) overview.viewsCount else 1L
-    val rawTodayViews = maxOf(todayRow?.views ?: overview.viewsCount, rawTodayVisitors) // ভিউ সবসময় ভিজিটরের সমান বা বেশি হবে
+    val rawTodayViews = maxOf(todayRow?.views ?: overview.viewsCount, rawTodayVisitors)
 
     val sevenDaysRow = overview.trafficSummary.firstOrNull { it.timeframe.contains("7", true) }
     val rawLast7Visitors = sevenDaysRow?.visitors ?: overview.last7DaysVisitors.coerceAtLeast(rawTodayVisitors)
@@ -96,7 +94,6 @@ fun AnalyticsOverviewTab(
     val totalRow = overview.trafficSummary.firstOrNull { it.timeframe.equals("Total", true) }
     val totalHistoricalVisitors = totalRow?.visitors ?: maxOf(rawLast7Visitors, 2500L)
 
-    // ⚡ রিয়েল-টাইম ৩-সেকেন্ড কাউন্টার অ্যানিমেশন
     val animatedTodayVisitors by animateIntAsState(
         targetValue = rawTodayVisitors.toInt(),
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
@@ -108,7 +105,6 @@ fun AnalyticsOverviewTab(
         label = "anim_7d_visitors"
     )
 
-    // 📈 ট্র্যাফিক ট্রেন্ডের টাইম-পয়েন্টস
     val chartPoints = remember(rawTodayVisitors, rawTodayViews) {
         val v = rawTodayVisitors.toInt().coerceAtLeast(1)
         val p = rawTodayViews.toInt().coerceAtLeast(1)
@@ -126,7 +122,6 @@ fun AnalyticsOverviewTab(
     var selectedPointIndex by remember { mutableStateOf<Int?>(null) }
     val activePoint = selectedPointIndex?.let { chartPoints.getOrNull(it) } ?: chartPoints.last()
 
-    // 🎯 ট্র্যাফিক সামারি টেবিল
     val summaryItems = if (overview.trafficSummary.isNotEmpty()) {
         overview.trafficSummary
     } else {
@@ -139,10 +134,10 @@ fun AnalyticsOverviewTab(
         )
     }
 
-    // 🌍 দেশভিত্তিক অডিয়েন্স হিস্টোরি
+    // 🎯 Overview ট্যাবে শুধুমাত্র টপ ৫টি দেশ দেখানোর জন্য '.take(5)' যুক্ত করা হলো
     val displayCountries = remember(countries) {
         if (countries.isNotEmpty()) {
-            countries.sortedByDescending { it.percentage }
+            countries.sortedByDescending { it.percentage }.take(5) // 👈 ফিক্স: সর্বোচ্চ ৫টি দেখাবে
         } else {
             listOf(
                 LiveCountryStat("BD", "Bangladesh", "🇧🇩", 1250, 50.0),
@@ -380,7 +375,7 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (টোটাল ভিজিটরের সাথে ১০০% সামঞ্জস্যপূর্ণ)
+        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (টপ ৫টি দেশ দেখানো হবে)
         // =========================================================================
         item {
             Surface(
@@ -409,7 +404,7 @@ fun AnalyticsOverviewTab(
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
-                                text = "Audience by Country (Total History)",
+                                text = "Top Countries (Total History)",
                                 color = Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -440,7 +435,6 @@ fun AnalyticsOverviewTab(
                             label = "country_bar_${country.code}"
                         )
 
-                        // 🎯 টোটাল হিস্টোরিক্যাল ভিজিটরের সাথে আসল কাউন্ট হিসাব
                         val calculatedUsers = remember(country.count, country.percentage, totalHistoricalVisitors) {
                             if (country.count.toLong() >= totalHistoricalVisitors) {
                                 country.count.toLong()
