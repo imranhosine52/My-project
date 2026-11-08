@@ -8,7 +8,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -43,7 +42,7 @@ fun AnalyticsGrowthTab(
     growth: GrowthAnalyticsStats,
     modifier: Modifier = Modifier
 ) {
-    // 🎯 সামারি টেবিলের ডাটা প্রসেসিং
+    // 🎯 সামারি টেবিলের ডেটা প্রসেসিং (সার্ভার থেকে প্রাপ্ত তালিকার সাথে সামঞ্জস্যপূর্ণ)
     val summaryList = if (growth.growthSummary.isNotEmpty()) {
         growth.growthSummary
     } else {
@@ -60,20 +59,20 @@ fun AnalyticsGrowthTab(
     val totalItem = summaryList.find { it.timeframe.equals("Total", ignoreCase = true) }
     val todayItem = summaryList.find { it.timeframe.equals("Today", ignoreCase = true) }
 
-    val finalTotalInstalls = totalItem?.installs ?: 1L
-    val finalTotalUninstalls = totalItem?.uninstalls ?: 0L
-    val finalTodayInstalls = todayItem?.installs ?: 0L
-    val finalTodayUninstalls = todayItem?.uninstalls ?: 0L
+    val finalTotalInstalls = if (growth.lifetimeInstalls > 0) growth.lifetimeInstalls else (totalItem?.installs ?: 1L)
+    val finalTotalUninstalls = if (growth.lifetimeUninstalls > 0) growth.lifetimeUninstalls else (totalItem?.uninstalls ?: 0L)
+    val finalTodayInstalls = if (growth.todayInstalls > 0) growth.todayInstalls else (todayItem?.installs ?: 0L)
+    val finalTodayUninstalls = if (growth.todayUninstalls > 0) growth.todayUninstalls else (todayItem?.uninstalls ?: 0L)
 
-    val finalActiveBase = (finalTotalInstalls - finalTotalUninstalls).coerceAtLeast(1L)
-    val finalRetention = if (finalTotalInstalls > 0) {
+    val finalActiveBase = if (growth.activeUsersBase > 0) growth.activeUsersBase else (finalTotalInstalls - finalTotalUninstalls).coerceAtLeast(1L)
+    val finalRetention = if (growth.retentionRate > 0.0) growth.retentionRate else if (finalTotalInstalls > 0) {
         (finalActiveBase.toDouble() / finalTotalInstalls.toDouble()) * 100.0
     } else 100.0
 
     // =========================================================================
-    // ⚡ ১. রিয়েল-টাইম স্মুথ কাউন্টিং অ্যানিমেশন ইঞ্জিন (Animated Numbers)
+    // ⚡ ১. রিয়েল-টাইম ৩-সেকেন্ড স্মুথ কাউন্টিং অ্যানিমেশন ইঞ্জিন
     // =========================================================================
-    val animDuration = 900
+    val animDuration = 650
     val animEasing = FastOutSlowInEasing
 
     val animatedInstalls by animateIntAsState(
@@ -103,10 +102,10 @@ fun AnalyticsGrowthTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp) // 🎯 কার্ডের মাঝের গ্যাপ কমানো হয়েছে
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // =========================================================================
-        // 📊 ১. উপরের বোর্ড: Total Lifetime Overview (স্মুথ এনিমেটেড কাউন্টার)
+        // 📊 ১. উপরের বোর্ড: Total Lifetime Overview (স্মুথ অ্যানিমেটেড কাউন্টার)
         // =========================================================================
         item {
             Surface(
@@ -165,7 +164,7 @@ fun AnalyticsGrowthTab(
                         )
                     }
 
-                    // রো ২: এক্টিভ ইউজার ও রিটেনশন রেট
+                    // রো ২: অ্যাক্টিভ ইউজার ও রিটেনশন রেট
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -191,7 +190,7 @@ fun AnalyticsGrowthTab(
         }
 
         // =========================================================================
-        // 📋 ২. নিচের বোর্ড: আল্ট্রা-স্লিম সামারি টেবিল (অতিরিক্ত ফাঁকা স্পেস সম্পূর্ণ মুক্ত)
+        // 📋 ২. নিচের বোর্ড: আল্ট্রা-স্লিম সামারি টেবিল
         // =========================================================================
         item {
             Surface(
@@ -201,8 +200,8 @@ fun AnalyticsGrowthTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp), // 🎯 একদম স্লিম প্যাডিং
-                    verticalArrangement = Arrangement.spacedBy(5.dp) // 🎯 রো গুলোর ফাঁকা গ্যাপ কমানো হয়েছে
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -269,7 +268,7 @@ fun AnalyticsGrowthTab(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(if (isTotalRow) Color(0xFF141926).copy(alpha = 0.5f) else Color.Transparent)
-                                .padding(horizontal = if (isTotalRow) 4.dp else 0.dp, vertical = 2.5.dp), // 🎯 প্রতি লাইনে স্লিম হাইট
+                                .padding(horizontal = if (isTotalRow) 4.dp else 0.dp, vertical = 2.5.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -311,7 +310,7 @@ fun AnalyticsGrowthTab(
 }
 
 /**
- * 📦 মিনি মেট্রিক বক্স (স্লিমার ডিজাইন)
+ * 📦 মিনি মেট্রিক বক্স
  */
 @Composable
 private fun GrowthMetricBox(
@@ -328,7 +327,7 @@ private fun GrowthMetricBox(
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), // 🎯 কমপ্যাক্ট প্যাডিং
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
             verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Text(
@@ -340,7 +339,7 @@ private fun GrowthMetricBox(
             Text(
                 text = value,
                 color = valueColor,
-                fontSize = 18.sp, // 🎯 স্লিক ফন্ট সাইজ
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
