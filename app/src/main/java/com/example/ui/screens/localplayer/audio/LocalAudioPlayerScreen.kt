@@ -25,13 +25,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -84,7 +81,7 @@ private fun formatAudioTime(millis: Long): String {
 }
 
 /**
- * 🖼️ গানের কভার আর্ট লোডার (সুরক্ষিত ও মেমরি-লিক মুক্ত)
+ * 🖼️ গানের আসল কভার ফটো বা অ্যালবাম আর্ট লোডার (১০০% ক্র্যাশ-প্রুফ)
  */
 @Composable
 private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
@@ -102,8 +99,11 @@ private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
                 }
                 val rawBytes = retriever.embeddedPicture
                 retriever.release()
-                if (rawBytes != null) {
-                    embeddedArt = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                if (rawBytes != null && rawBytes.isNotEmpty()) {
+                    val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                    if (bmp != null && bmp.width > 0 && bmp.height > 0) {
+                        embeddedArt = bmp
+                    }
                 }
             }
         }
@@ -115,9 +115,10 @@ private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
             .background(Color(0xFF281C2B)),
         contentAlignment = Alignment.Center
     ) {
-        if (embeddedArt != null) {
+        val bmp = embeddedArt
+        if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
             Image(
-                bitmap = embeddedArt!!.asImageBitmap(),
+                bitmap = bmp.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -142,7 +143,7 @@ private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
 }
 
 /**
- * ⚡ আল্ট্রা-স্লিম ল্যাগ-মুক্ত ও ক্র্যাশ-প্রুফ টাইমলাইন বার (NaN নিরাপদ)
+ * ⚡ আল্ট্রা-স্লিম ল্যাগ-মুক্ত ও সুরক্ষিত টাইমলাইন বার (NaN নিরাপদ)
  */
 @Composable
 private fun UltraSlimAudioTimeline(
@@ -262,7 +263,7 @@ fun LocalAudioPlayerScreen(
         mutableStateOf(if (playlist.isNotEmpty()) playlist else listOf(initialAudio))
     }
 
-    // 🌟 গ্লোবাল প্লেব্যাক ম্যানেজার থেকে লাইভ স্টেট
+    // 🌟 গ্লোবাল প্লেব্যাক ম্যানেজার থেকে লাইভ স্টেট গ্রহণ
     val managerCurrentTrack by LocalAudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
     val isPlaying by LocalAudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
     val currentPositionMs by LocalAudioPlayerManager.currentPositionMs.collectAsStateWithLifecycle()
@@ -271,40 +272,10 @@ fun LocalAudioPlayerScreen(
 
     val currentAudio = managerCurrentTrack ?: initialAudio
 
-    // নিরাপদ ইনিশিয়াল ইনডেক্স ক্যালকুলেশন
-    val initialIndex = remember(currentAudio.id, audioPlaylist) {
-        val found = audioPlaylist.indexOfFirst { it.id == currentAudio.id }
-        if (found != -1) found else 0
-    }
-
-    val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, (audioPlaylist.size - 1).coerceAtLeast(0)),
-        pageCount = { audioPlaylist.size.coerceAtLeast(1) }
-    )
-
-    // প্রথমবার স্ক্রিনে আসলে প্লে করা
+    // প্রথমবার স্ক্রিনে আসলে নিশ্চিতভাবে প্লে করা
     LaunchedEffect(initialAudio.id) {
         if (managerCurrentTrack?.id != initialAudio.id) {
             LocalAudioPlayerManager.playTrack(context, initialAudio, audioPlaylist)
-        }
-    }
-
-    // 🎯 পেজার ও ট্র্যাকের মধ্যকার ইনফিনিট লুপ ক্র্যাশ ফিক্স
-    LaunchedEffect(managerCurrentTrack?.id) {
-        managerCurrentTrack?.let { track ->
-            val idx = audioPlaylist.indexOfFirst { it.id == track.id }
-            if (idx != -1 && idx != pagerState.currentPage && !pagerState.isScrollInProgress) {
-                pagerState.scrollToPage(idx)
-            }
-        }
-    }
-
-    LaunchedEffect(pagerState.currentPage) {
-        if (audioPlaylist.isNotEmpty() && pagerState.currentPage in audioPlaylist.indices) {
-            val swipedTrack = audioPlaylist[pagerState.currentPage]
-            if (swipedTrack.id != managerCurrentTrack?.id && !pagerState.isScrollInProgress) {
-                LocalAudioPlayerManager.playTrack(context, swipedTrack, audioPlaylist)
-            }
         }
     }
 
@@ -316,8 +287,8 @@ fun LocalAudioPlayerScreen(
     var showOptionsMenu by remember { mutableStateOf(false) }
     var showFileDetailsDialog by remember { mutableStateOf(false) }
 
-    // সাউন্ড এফএক্স
-    var isEqEnabled by remember { mutableStateOf(false) } // ডিফল্টভাবে false রাখা হয়েছে যাতে ড্রাইভার ক্র্যাশ না করে
+    // সাউন্ড এফএক্স স্টেট (ডিফল্ট false রাখা হয়েছে যেন কোনো অবস্থাতেই ক্র্যাশ না করে)
+    var isEqEnabled by remember { mutableStateOf(false) }
     var bassBoostLevel by remember { mutableFloatStateOf(0.4f) }
     var volumeBoostGain by remember { mutableFloatStateOf(0.2f) }
     var selectedPresetName by remember { mutableStateOf("Normal") }
@@ -326,7 +297,7 @@ fun LocalAudioPlayerScreen(
     var bassBoostInstance by remember { mutableStateOf<BassBoost?>(null) }
     var loudnessEnhancerInstance by remember { mutableStateOf<LoudnessEnhancer?>(null) }
 
-    // 🎯 অডিও ইফেক্ট ইনিশিয়ালাইজেশন সম্পূর্ণ নিরাপদ করা হয়েছে
+    // অডিও ইফেক্ট শুধুমাত্র শিট ওপেন করে অন করলেই রান করবে
     LaunchedEffect(audioSessionId, isEqEnabled) {
         if (isEqEnabled && audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
             runCatching {
@@ -361,7 +332,7 @@ fun LocalAudioPlayerScreen(
         }
     }
 
-    // 🎨 প্রতি গানের আলাদা অ্যাম্বিয়েন্ট কালার
+    // 🎨 অ্যাম্বিয়েন্ট ব্যাকগ্রাউন্ড কালার
     val paletteList = remember {
         listOf(
             listOf(Color(0xFF2B142D), Color(0xFF190B1B), Color(0xFF0F0611)),
@@ -373,7 +344,6 @@ fun LocalAudioPlayerScreen(
         )
     }
 
-    // 🎯 নেগেটিভ ইনডেক্স ও ক্র্যাশ-প্রুফ কালার পিকার
     val paletteIndex = remember(currentAudio.id) {
         val hash = currentAudio.id.hashCode().toLong()
         val safeIndex = (abs(hash) % paletteList.size).toInt()
@@ -501,20 +471,53 @@ fun LocalAudioPlayerScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // ২. সোয়াইপযোগ্য আসল অ্যালবাম আর্ট
-            HorizontalPager(
-                state = pagerState,
+            // =========================================================================
+            // 🎵 ২. ১০০% ক্র্যাশ-প্রুফ ফ্লুইড সোয়াইপেবল অ্যালবাম আর্ট (HorizontalPager বাদ দেওয়া হয়েছে)
+            // =========================================================================
+            var dragDistanceX by remember { mutableFloatStateOf(0f) }
+
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
-                contentPadding = PaddingValues(horizontal = 6.dp)
-            ) { page ->
-                val track = audioPlaylist.getOrNull(page)
-                if (track != null) {
+                    .aspectRatio(1f)
+                    .pointerInput(Unit) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (dragDistanceX < -80f) {
+                                    // বামে টানলে পরের গান
+                                    LocalAudioPlayerManager.playNext()
+                                } else if (dragDistanceX > 80f) {
+                                    // ডানে টানলে আগের গান
+                                    LocalAudioPlayerManager.playPreviousTrackOrRewind()
+                                }
+                                dragDistanceX = 0f
+                            },
+                            onDragCancel = { dragDistanceX = 0f },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragDistanceX += dragAmount
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedContent(
+                    targetState = currentAudio,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
+                                scaleIn(initialScale = 0.92f, animationSpec = tween(350)))
+                            .togetherWith(
+                                fadeOut(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                        scaleOut(targetScale = 1.05f, animationSpec = tween(250))
+                            )
+                    },
+                    label = "AlbumArtCrossfade"
+                ) { track ->
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .shadow(elevation = 20.dp, shape = RoundedCornerShape(26.dp), spotColor = Color.Black)
+                            .padding(6.dp)
+                            .shadow(elevation = 16.dp, shape = RoundedCornerShape(26.dp), spotColor = Color.Black)
                     ) {
                         AudioCoverArt(item = track, modifier = Modifier.fillMaxSize())
                     }
@@ -591,13 +594,7 @@ fun LocalAudioPlayerScreen(
             ) {
                 IconButton(
                     onClick = {
-                        coroutineScope.launch {
-                            if (pagerState.currentPage > 0) {
-                                pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                            } else {
-                                LocalAudioPlayerManager.playPreviousTrackOrRewind()
-                            }
-                        }
+                        LocalAudioPlayerManager.playPreviousTrackOrRewind()
                     },
                     modifier = Modifier.size(54.dp)
                 ) {
@@ -609,7 +606,6 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
-                // 🎯 ফিক্সড: ইনকম্প্যাটিবল ripple() রিমুভ করে নিরাপদ সার্কুলার বোতাম
                 Box(
                     modifier = Modifier
                         .size(68.dp)
@@ -630,13 +626,7 @@ fun LocalAudioPlayerScreen(
 
                 IconButton(
                     onClick = {
-                        coroutineScope.launch {
-                            if (pagerState.currentPage < audioPlaylist.size - 1) {
-                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                            } else {
-                                LocalAudioPlayerManager.playNext()
-                            }
-                        }
+                        LocalAudioPlayerManager.playNext()
                     },
                     modifier = Modifier.size(54.dp)
                 ) {
@@ -854,10 +844,6 @@ fun LocalAudioPlayerScreen(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (isCurrent) Color(0xFF332035) else Color.Transparent)
                                 .clickable {
-                                    val idx = audioPlaylist.indexOf(track)
-                                    if (idx != -1) {
-                                        coroutineScope.launch { pagerState.scrollToPage(idx) }
-                                    }
                                     LocalAudioPlayerManager.playTrack(context, track, audioPlaylist)
                                     showPlaylistSheet = false
                                 }
