@@ -763,13 +763,13 @@ class DramaFlixViewModel(
     }
 
     /**
-     * 🎬 সম্পূর্ণ নির্ভুল ড্রামা লোডার ও রিয়েল-টাইম লাইভ ভিউজ সিঙ্ক
+     * 🎬 ড্রামা লোডার: ভিন্ন ড্রামায় গেলে আগের ড্রামার ডাটা পুরোপুরি রিসেট হবে (কোনো Data Sticking থাকবে না)
      */
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             val isSameDrama = (_playerUiState.value.content?.slug == slug)
 
-            // 🎯 ডেটা ফ্লিকারিং ও উধাও হওয়া রোধ: যদি একই ড্রামা রিফ্রেশ হয় তবে আগের কন্টেন্ট ও কমেন্ট ধরে রাখা
+            // 🎯 অন্য ড্রামায় গেলে আগের ড্রামার লাইক, ভিউ, কমেন্ট ও রিঅ্যাকশন তাৎক্ষণিক ০ বানিয়ে ফ্রেশ স্টেট করা
             _playerUiState.update { current ->
                 if (isSameDrama) {
                     current.copy(
@@ -786,6 +786,9 @@ class DramaFlixViewModel(
                         isInWatchlist = false,
                         reactions = emptyMap(),
                         myReaction = null,
+                        likesCount = 0,        // 👈 আগের ড্রামার লাইক শূন্য করা
+                        isLiked = false,       // 👈 আগের ড্রামার হার্ট আনলাইক করা
+                        viewsCount = 0L,       // 👈 আগের ড্রামার ভিউ বাদ দেওয়া
                         content = null,
                         currentEpisode = null
                     )
@@ -855,6 +858,7 @@ class DramaFlixViewModel(
 
                 val stats = repository.getOrCreateDramaStats(contentItem.slug, 0, 0)
 
+                // 🎯 নতুন ড্রামার নিজস্ব প্রোপার্টি অ্যাসাইন করা (আগের ড্রামার ভিউজ বা লাইক ওভাররাইড হবে না)
                 _playerUiState.update { current ->
                     current.copy(
                         isLoading = false,
@@ -866,43 +870,51 @@ class DramaFlixViewModel(
                         selectedServer = initialSrv,
                         isVip = isUserVip,
                         unlockedEpisodeNumbers = unlockedNumbers,
-                        likesCount = if (current.likesCount > 0) current.likesCount else stats.likesCount,
-                        isLiked = current.isLiked || stats.isLiked,
-                        viewsCount = maxOf(current.viewsCount, contentItem.viewsCount, stats.viewsCount),
+                        likesCount = if (isSameDrama && current.likesCount > 0) current.likesCount else stats.likesCount,
+                        isLiked = if (isSameDrama) (current.isLiked || stats.isLiked) else stats.isLiked,
+                        viewsCount = if (isSameDrama) maxOf(current.viewsCount, contentItem.viewsCount, stats.viewsCount) else maxOf(contentItem.viewsCount, stats.viewsCount),
                         recommendations = _homeUiState.value.trendingDramas.filter { rec -> rec.slug != slug }.take(8)
                     )
                 }
 
-                // ⚡ ১. সার্ভার থেকে ইন্টারঅ্যাকশন স্ট্যাটাস সিঙ্ক
+                // ⚡ ১. সার্ভার থেকে ইন্টারঅ্যাকশন স্ট্যাটাস সিঙ্ক (অন্য ড্রামার রেসপন্স যেন বর্তমান ড্রামায় ওভারল্যাপ না করে)
                 val statusResult = repository.fetchInteractionStatus(contentItem.id, null)
                 if (statusResult.isSuccess) {
                     val status = statusResult.getOrNull()
                     if (status != null) {
                         _playerUiState.update { current ->
-                            current.copy(
-                                likesCount = if (status.effectiveLikes > 0L) status.effectiveLikes.toInt() else current.likesCount,
-                                isLiked = status.effectiveIsLiked,
-                                viewsCount = maxOf(current.viewsCount, status.effectiveViews),
-                                reactions = if (status.reactionsMap.isNotEmpty()) status.reactionsMap else current.reactions,
-                                myReaction = status.myReaction ?: current.myReaction
-                            )
+                            if (current.content?.id == contentItem.id || current.content?.slug == contentItem.slug) {
+                                current.copy(
+                                    likesCount = status.effectiveLikes.toInt(),
+                                    isLiked = status.effectiveIsLiked,
+                                    viewsCount = maxOf(status.effectiveViews, contentItem.viewsCount),
+                                    reactions = status.reactionsMap,
+                                    myReaction = status.myReaction
+                                )
+                            } else {
+                                current
+                            }
                         }
                     }
                 }
 
-                // ⚡ ২. ভিউ কাউন্টার বৃদ্ধি ও তৎক্ষণাৎ স্ক্রিনে ভিউ সংখ্যা আপডেট!
+                // ⚡ ২. ভিউ কাউন্টার বৃদ্ধি ও সাথে সাথে স্ক্রিনে ভিউ সংখ্যা আপডেট
                 val viewResult = repository.recordVideoInteractionView(contentItem.id, force = forceRefresh)
                 if (viewResult.isSuccess) {
                     val viewResp = viewResult.getOrNull()
                     val newViews = viewResp?.effectiveViews ?: 0L
                     if (newViews > 0L) {
                         _playerUiState.update { current ->
-                            current.copy(viewsCount = maxOf(current.viewsCount, newViews))
+                            if (current.content?.id == contentItem.id || current.content?.slug == contentItem.slug) {
+                                current.copy(viewsCount = maxOf(current.viewsCount, newViews))
+                            } else {
+                                current
+                            }
                         }
                     }
                 }
 
-                // ⚡ ৩. কমেন্ট রিফ্রেশ কল করা
+                // ⚡ ৩. কমেন্ট রিফ্রেশ করা
                 refreshComments(contentItem.id)
             } else {
                 _playerUiState.update {
@@ -1050,17 +1062,25 @@ class DramaFlixViewModel(
      * 💬 রেস কন্ডিশন মুক্ত নির্ভুল কমেন্ট রিফ্রেশ মেথড
      */
     fun refreshComments(explicitContentId: Any? = null) {
-        val contentId = explicitContentId ?: _playerUiState.value.content?.id ?: return
+        val content = _playerUiState.value.content
+        val contentId = explicitContentId ?: content?.id ?: return
+        val targetSlug = content?.slug ?: ""
+
         viewModelScope.launch {
             _playerUiState.update { it.copy(isCommentsLoading = true) }
             val commentsResult = repository.fetchCommentsList(contentId = contentId, episodeId = null)
             if (commentsResult.isSuccess) {
                 val list = commentsResult.getOrDefault(emptyList())
-                _playerUiState.update {
-                    it.copy(
-                        isCommentsLoading = false,
-                        comments = list
-                    )
+                _playerUiState.update { current ->
+                    // যদি ইউজার এখনো এই ড্রামাতেই থাকে কেবল তখনই কমেন্ট আপডেট হবে
+                    if (current.content?.id == contentId || current.content?.slug == targetSlug) {
+                        current.copy(
+                            isCommentsLoading = false,
+                            comments = list
+                        )
+                    } else {
+                        current.copy(isCommentsLoading = false)
+                    }
                 }
             } else {
                 _playerUiState.update { it.copy(isCommentsLoading = false) }
