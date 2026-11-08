@@ -167,7 +167,6 @@ class ContentRepository(
     ): Result<WatchDetailResponse> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        // ১. ম্যানুয়াল পুল-টু-রিফ্রেশ হলে কেবল এই ড্রামার ক্যাশ মুছে তাজা ডাটা আনা
         if (forceRefresh) {
             contentCacheDao.deleteCachedWatchDetail(slug)
             try {
@@ -175,7 +174,6 @@ class ContentRepository(
             } catch (_: Exception) {}
             Log.d(TAG, "✓ Cache revalidated for '$slug'.")
         } else {
-            // ২. জিরো সার্ভার লোড: লোকাল Room DB থেকে ক্যাশ রিড
             val localCached = contentCacheDao.getCachedWatchDetail(slug)
             if (localCached != null) {
                 val isFresh = (now - localCached.cachedTimestamp) < WATCH_CACHE_TTL_MS
@@ -184,7 +182,7 @@ class ContentRepository(
                 if (cachedDetail?.content != null && cachedDetail.episodes.isNotEmpty() && isFresh) {
                     Log.d(TAG, "✓ Serving watch details from Local Room DB (Zero MySQL Load).")
 
-                    // 🎯 সার্ভারে কোনো রিকোয়েস্ট না পাঠিয়েই মেমোরির তাজা ভিউ সংখ্যা ড্রামা ডিটেইলসে ইনজেক্ট করা
+                    // 🎯 মেমোরির তাজা ভিউ সংখ্যা ড্রামা ডিটেইলসে ইনজেক্ট করা
                     val contentIdStr = cachedDetail.content.id
                     val cachedLiveViews = viewsCachePrefs.getLong("cached_views_$contentIdStr", 0L)
                     val updatedContent = if (cachedLiveViews > cachedDetail.content.viewsCount) {
@@ -195,7 +193,6 @@ class ContentRepository(
 
                     val finalResponse = cachedDetail.copy(content = updatedContent)
 
-                    // ৩ সেকেন্ড প্রি-ক্যাশ ব্যাকগ্রাউন্ডে নিরাপদ রাখা
                     CoroutineScope(Dispatchers.IO).launch {
                         precacheFirst3SecondsOfEpisodes(slug, cachedDetail.episodes.take(3))
                     }
@@ -205,7 +202,6 @@ class ContentRepository(
             }
         }
 
-        // ৩. ক্যাশ না থাকলে বা মেয়াদোত্তীর্ণ হলে সার্ভার থেকে একবার হালকা কুয়েরি
         try {
             val response = apiService.getWatchDetails(slug)
             if (response.isSuccessful && response.body()?.content != null) {
@@ -223,7 +219,6 @@ class ContentRepository(
 
                 val finalBody = body.copy(servers = cleanedServers)
 
-                // নতুন ডাটা লোকাল রুমে ১০ মিনিটের জন্য সেভ
                 val jsonStr = watchDetailAdapter.toJson(finalBody)
                 contentCacheDao.saveCachedWatchDetail(
                     CachedWatchDetailEntity(
