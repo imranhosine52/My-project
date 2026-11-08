@@ -209,14 +209,20 @@ fun PlayerScreen(
         return
     }
 
-    // 🎯 স্লাগ গার্ড: বর্তমান লোড করা ড্রামা ঠিক থাকলে কন্টেন্ট রিটার্ন করা
-    val isCurrentDramaLoaded = playerState.content?.slug == slug
+    // 🎯 স্লাগ গার্ড: বর্তমান ড্রামা ঠিক এই ড্রামা কি না তা শতভাগ নিশ্চিত করা
+    val isCurrentDramaLoaded = (playerState.content?.slug == slug)
 
-    val content = if (isCurrentDramaLoaded) {
+    // সব ক্যাটাগরি সার্চ করে ড্রামার প্রিভিউ ডেটা বের করা
+    val content = if (isCurrentDramaLoaded && playerState.content != null) {
         playerState.content!!
     } else {
         homeState.popularDramas.find { it.slug == slug }
-            ?: ContentItemDto(title = "Loading...", slug = slug)
+            ?: homeState.recentlyAdded.find { it.slug == slug }
+            ?: homeState.dramaSeriesContent.find { it.slug == slug }
+            ?: homeState.banglaDubbed.find { it.slug == slug }
+            ?: homeState.hindiDubbed.find { it.slug == slug }
+            ?: homeState.trendingDramas.find { it.slug == slug }
+            ?: ContentItemDto(title = slug.replace("-", " "), slug = slug)
     }
 
     val cleanShortTitle = remember(content) {
@@ -366,13 +372,9 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 স্লাগ পরিবর্তন হলে কেবল তখনই কমেন্ট পরিষ্কার হবে
-    var lastActiveSlug by rememberSaveable { mutableStateOf("") }
+    // 🎯 ড্রামা পরিবর্তন হওয়ামাত্রই মেমোরি কমেন্ট তাৎক্ষণিক ক্লিয়ার করা
     LaunchedEffect(slug) {
-        if (lastActiveSlug != slug) {
-            persistentDramaComments.clear()
-            lastActiveSlug = slug
-        }
+        persistentDramaComments.clear()
 
         val initialTitle = homeState.popularDramas.find { it.slug == slug }?.displayName
             ?: homeState.recentlyAdded.find { it.slug == slug }?.displayName
@@ -392,9 +394,10 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
-    // 💬 কমেন্ট পর্যবেক্ষণ: লোডিংয়ের সময় আগের কমেন্ট মুছে ফেলা রোধ
-    LaunchedEffect(playerState.comments, playerState.isCommentsLoading, slug, currentContentId) {
-        if (playerState.isCommentsLoading && persistentDramaComments.isNotEmpty()) {
+    // 💬 কমেন্ট সিঙ্ক লজিক: নতুন ড্রামায় ০ কমেন্ট থাকলে ০-ই দেখাবে, আগের ড্রামার কমেন্ট ধরে রাখবে না
+    LaunchedEffect(playerState.comments, isCurrentDramaLoaded, slug, currentContentId) {
+        if (!isCurrentDramaLoaded) {
+            persistentDramaComments.clear()
             return@LaunchedEffect
         }
 
@@ -406,14 +409,13 @@ fun PlayerScreen(
         val uniquePendingOptimistic = persistentDramaComments.filter {
             (it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_") || it.id.startsWith("temp_text_")) &&
                     it.id !in deletedCommentIds &&
+                    it.rawContentId.toString() == currentContentId &&
                     it.commentText.trim() !in serverTexts
         }
 
-        if (serverComments.isNotEmpty() || uniquePendingOptimistic.isNotEmpty()) {
-            persistentDramaComments.clear()
-            persistentDramaComments.addAll(uniquePendingOptimistic)
-            persistentDramaComments.addAll(serverComments)
-        }
+        persistentDramaComments.clear()
+        persistentDramaComments.addAll(uniquePendingOptimistic)
+        persistentDramaComments.addAll(serverComments)
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -1038,7 +1040,7 @@ fun PlayerScreen(
                             ) {
                                 PlayerTabsHeader(
                                     selectedTabIndex = selectedTabIndex,
-                                    commentsCount = persistentDramaComments.size,
+                                    commentsCount = if (isCurrentDramaLoaded) persistentDramaComments.size else 0,
                                     onTabSelected = { idx -> selectedTabIndex = idx },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1163,10 +1165,8 @@ fun PlayerScreen(
                                 onRefresh = {
                                     coroutineScope.launch {
                                         isRefreshing = true
-                                        // 🎯 ১. সম্পূর্ণ ড্রামা ও নতুন ভিউ সিঙ্ক
                                         viewModel.loadDramaDetails(slug, context, forceRefresh = true)
                                         delay(400)
-                                        // 🎯 ২. রেস-কন্ডিশন ছাড়াই আসল আইডি দিয়ে কমেন্ট রিফ্রেশ
                                         viewModel.refreshComments(currentContentId)
                                         delay(400)
                                         isRefreshing = false
@@ -1222,16 +1222,17 @@ fun PlayerScreen(
                                                     )
                                                 }
                                         ) {
+                                            // 🎯 আগের ড্রামার লাইক/ভিউস নতুন ড্রামায় ওভারল্যাপ রোধক গার্ড
                                             PlayerHeaderSection(
                                                 content = content,
                                                 shortTitle = cleanShortTitle,
-                                                viewsCount = playerState.viewsCount,
-                                                likesCount = playerState.likesCount.toLong(),
-                                                isLiked = playerState.isLiked,
+                                                viewsCount = if (isCurrentDramaLoaded) playerState.viewsCount else content.viewsCount,
+                                                likesCount = if (isCurrentDramaLoaded) playerState.likesCount.toLong() else 0L,
+                                                isLiked = isCurrentDramaLoaded && playerState.isLiked,
                                                 isInWatchlist = playerState.isInWatchlist,
                                                 isDescriptionExpanded = isDescriptionExpanded,
-                                                myReaction = playerState.myReaction,
-                                                reactions = playerState.reactions,
+                                                myReaction = if (isCurrentDramaLoaded) playerState.myReaction else null,
+                                                reactions = if (isCurrentDramaLoaded) playerState.reactions else emptyMap(),
                                                 onPreviousClick = {
                                                     val currentNum = currentEp?.episodeNumber ?: 1
                                                     val prevEp = effectiveEpisodes.find { it.episodeNumber == currentNum - 1 }
@@ -1286,7 +1287,7 @@ fun PlayerScreen(
                                     stickyHeader {
                                         PlayerTabsHeader(
                                             selectedTabIndex = selectedTabIndex,
-                                            commentsCount = persistentDramaComments.size,
+                                            commentsCount = if (isCurrentDramaLoaded) persistentDramaComments.size else 0,
                                             onTabSelected = { idx ->
                                                 selectedTabIndex = idx
                                             },
