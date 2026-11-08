@@ -5,6 +5,7 @@
 
 package com.example.ui.screens.localplayer.audio
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -82,7 +84,7 @@ private fun formatAudioTime(millis: Long): String {
 }
 
 /**
- * 🖼️ গানের আসল কভার ফটো বা অ্যালবাম আর্ট লোডার
+ * 🖼️ গানের কভার আর্ট লোডার (সুরক্ষিত ও মেমরি-লিক মুক্ত)
  */
 @Composable
 private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
@@ -91,7 +93,7 @@ private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
 
     LaunchedEffect(item.id, item.path) {
         withContext(Dispatchers.IO) {
-            try {
+            runCatching {
                 val retriever = MediaMetadataRetriever()
                 if (item.path.isNotBlank() && File(item.path).exists()) {
                     retriever.setDataSource(item.path)
@@ -103,7 +105,7 @@ private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
                 if (rawBytes != null) {
                     embeddedArt = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
                 }
-            } catch (_: Exception) {}
+            }
         }
     }
 
@@ -140,7 +142,7 @@ private fun AudioCoverArt(item: LocalVideoItem, modifier: Modifier = Modifier) {
 }
 
 /**
- * ⚡ আল্ট্রা-স্লিম ল্যাগ-মুক্ত টাইমলাইন বার
+ * ⚡ আল্ট্রা-স্লিম ল্যাগ-মুক্ত ও ক্র্যাশ-প্রুফ টাইমলাইন বার (NaN নিরাপদ)
  */
 @Composable
 private fun UltraSlimAudioTimeline(
@@ -154,11 +156,14 @@ private fun UltraSlimAudioTimeline(
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(-1f) }
 
-    val currentFraction = if (totalDurationMs > 0) {
-        (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-    } else 0f
+    val currentFraction = remember(currentPositionMs, totalDurationMs) {
+        if (totalDurationMs > 0) {
+            (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+        } else 0f
+    }
 
     val effectiveProgress = if (isDragging && dragFraction in 0f..1f) dragFraction else currentFraction
+    val safeProgress = if (effectiveProgress.isNaN() || effectiveProgress.isInfinite()) 0f else effectiveProgress.coerceIn(0f, 1f)
 
     Box(
         modifier = modifier
@@ -166,7 +171,7 @@ private fun UltraSlimAudioTimeline(
             .height(20.dp)
             .pointerInput(totalDurationMs) {
                 detectTapGestures { offset ->
-                    if (totalDurationMs > 0) {
+                    if (totalDurationMs > 0 && size.width > 0) {
                         val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                         val target = (fraction * totalDurationMs).toLong()
                         onSeeking(target)
@@ -179,7 +184,7 @@ private fun UltraSlimAudioTimeline(
                     onDragStart = { offset ->
                         isDragging = true
                         onSeekStarted()
-                        if (totalDurationMs > 0) {
+                        if (totalDurationMs > 0 && size.width > 0) {
                             val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                             dragFraction = fraction
                             onSeeking((fraction * totalDurationMs).toLong())
@@ -199,7 +204,7 @@ private fun UltraSlimAudioTimeline(
                         dragFraction = -1f
                     },
                     onHorizontalDrag = { change, _ ->
-                        if (totalDurationMs > 0) {
+                        if (totalDurationMs > 0 && size.width > 0) {
                             val newFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
                             dragFraction = newFraction
                             onSeeking((newFraction * totalDurationMs).toLong())
@@ -217,18 +222,18 @@ private fun UltraSlimAudioTimeline(
 
             drawLine(
                 color = Color.White.copy(alpha = 0.20f),
-                start = androidx.compose.ui.geometry.Offset(0f, centerY),
-                end = androidx.compose.ui.geometry.Offset(trackWidth, centerY),
+                start = Offset(0f, centerY),
+                end = Offset(trackWidth, centerY),
                 strokeWidth = trackHeight,
                 cap = StrokeCap.Round
             )
 
-            val activeEnd = trackWidth * effectiveProgress
+            val activeEnd = (trackWidth * safeProgress).coerceIn(0f, trackWidth)
             if (activeEnd > 0) {
                 drawLine(
                     color = Color.White,
-                    start = androidx.compose.ui.geometry.Offset(0f, centerY),
-                    end = androidx.compose.ui.geometry.Offset(activeEnd.coerceIn(0f, trackWidth), centerY),
+                    start = Offset(0f, centerY),
+                    end = Offset(activeEnd, centerY),
                     strokeWidth = trackHeight,
                     cap = StrokeCap.Round
                 )
@@ -237,7 +242,7 @@ private fun UltraSlimAudioTimeline(
             drawCircle(
                 color = Color.White,
                 radius = thumbRadius,
-                center = androidx.compose.ui.geometry.Offset(activeEnd.coerceIn(0f, trackWidth), centerY)
+                center = Offset(activeEnd, centerY)
             )
         }
     }
@@ -253,9 +258,11 @@ fun LocalAudioPlayerScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var audioPlaylist by remember { mutableStateOf(if (playlist.isNotEmpty()) playlist else listOf(initialAudio)) }
+    var audioPlaylist by remember {
+        mutableStateOf(if (playlist.isNotEmpty()) playlist else listOf(initialAudio))
+    }
 
-    // 🌟 গ্লোবাল প্লেব্যাক ম্যানেজার থেকে লাইভ স্টেট গ্রহণ
+    // 🌟 গ্লোবাল প্লেব্যাক ম্যানেজার থেকে লাইভ স্টেট
     val managerCurrentTrack by LocalAudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
     val isPlaying by LocalAudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
     val currentPositionMs by LocalAudioPlayerManager.currentPositionMs.collectAsStateWithLifecycle()
@@ -264,37 +271,38 @@ fun LocalAudioPlayerScreen(
 
     val currentAudio = managerCurrentTrack ?: initialAudio
 
-    val initialIndex = remember(currentAudio.id) {
-        audioPlaylist.indexOfFirst { it.id == currentAudio.id }.coerceAtLeast(0)
+    // নিরাপদ ইনিশিয়াল ইনডেক্স ক্যালকুলেশন
+    val initialIndex = remember(currentAudio.id, audioPlaylist) {
+        val found = audioPlaylist.indexOfFirst { it.id == currentAudio.id }
+        if (found != -1) found else 0
     }
 
     val pagerState = rememberPagerState(
-        initialPage = initialIndex,
-        pageCount = { audioPlaylist.size }
+        initialPage = initialIndex.coerceIn(0, (audioPlaylist.size - 1).coerceAtLeast(0)),
+        pageCount = { audioPlaylist.size.coerceAtLeast(1) }
     )
 
-    // প্রথমবার স্ক্রিনে আসলে প্লে করা (যদি ইতোমধ্যে অন্য গান না বাজে)
+    // প্রথমবার স্ক্রিনে আসলে প্লে করা
     LaunchedEffect(initialAudio.id) {
         if (managerCurrentTrack?.id != initialAudio.id) {
             LocalAudioPlayerManager.playTrack(context, initialAudio, audioPlaylist)
         }
     }
 
-    // নোটিফিকেশন থেকে ট্র্যাক পরিবর্তন হলে পেজার সিঙ্ক
+    // 🎯 পেজার ও ট্র্যাকের মধ্যকার ইনফিনিট লুপ ক্র্যাশ ফিক্স
     LaunchedEffect(managerCurrentTrack?.id) {
         managerCurrentTrack?.let { track ->
             val idx = audioPlaylist.indexOfFirst { it.id == track.id }
-            if (idx != -1 && idx != pagerState.currentPage) {
+            if (idx != -1 && idx != pagerState.currentPage && !pagerState.isScrollInProgress) {
                 pagerState.scrollToPage(idx)
             }
         }
     }
 
-    // অ্যালবাম আর্টে সোয়াইপ করলে সাথে সাথে গান পরিবর্তন
     LaunchedEffect(pagerState.currentPage) {
         if (audioPlaylist.isNotEmpty() && pagerState.currentPage in audioPlaylist.indices) {
             val swipedTrack = audioPlaylist[pagerState.currentPage]
-            if (swipedTrack.id != managerCurrentTrack?.id) {
+            if (swipedTrack.id != managerCurrentTrack?.id && !pagerState.isScrollInProgress) {
                 LocalAudioPlayerManager.playTrack(context, swipedTrack, audioPlaylist)
             }
         }
@@ -309,19 +317,19 @@ fun LocalAudioPlayerScreen(
     var showFileDetailsDialog by remember { mutableStateOf(false) }
 
     // সাউন্ড এফএক্স
-    var isEqEnabled by remember { mutableStateOf(true) }
+    var isEqEnabled by remember { mutableStateOf(false) } // ডিফল্টভাবে false রাখা হয়েছে যাতে ড্রাইভার ক্র্যাশ না করে
     var bassBoostLevel by remember { mutableFloatStateOf(0.4f) }
     var volumeBoostGain by remember { mutableFloatStateOf(0.2f) }
-    var selectedPresetName by remember { mutableStateOf("Pop") }
+    var selectedPresetName by remember { mutableStateOf("Normal") }
 
     var equalizerInstance by remember { mutableStateOf<Equalizer?>(null) }
     var bassBoostInstance by remember { mutableStateOf<BassBoost?>(null) }
     var loudnessEnhancerInstance by remember { mutableStateOf<LoudnessEnhancer?>(null) }
 
-    // অডিও ইফেক্ট ইনিশিয়ালাইজেশন
+    // 🎯 অডিও ইফেক্ট ইনিশিয়ালাইজেশন সম্পূর্ণ নিরাপদ করা হয়েছে
     LaunchedEffect(audioSessionId, isEqEnabled) {
-        if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId != 0) {
-            try {
+        if (isEqEnabled && audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
+            runCatching {
                 equalizerInstance?.release()
                 bassBoostInstance?.release()
                 loudnessEnhancerInstance?.release()
@@ -337,16 +345,19 @@ fun LocalAudioPlayerScreen(
                         setTargetGain((volumeBoostGain * 1000).toInt())
                     }
                 }
-            } catch (_: Exception) {}
+            }.onFailure {
+                isEqEnabled = false
+            }
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            equalizerInstance?.release()
-            bassBoostInstance?.release()
-            loudnessEnhancerInstance?.release()
-            // 🔥 ExoPlayer release করা হচ্ছে না, যাতে ব্যাক করলেও গান চলতে থাকে!
+            runCatching {
+                equalizerInstance?.release()
+                bassBoostInstance?.release()
+                loudnessEnhancerInstance?.release()
+            }
         }
     }
 
@@ -362,8 +373,11 @@ fun LocalAudioPlayerScreen(
         )
     }
 
+    // 🎯 নেগেটিভ ইনডেক্স ও ক্র্যাশ-প্রুফ কালার পিকার
     val paletteIndex = remember(currentAudio.id) {
-        (abs(currentAudio.id.hashCode()) % paletteList.size)
+        val hash = currentAudio.id.hashCode().toLong()
+        val safeIndex = (abs(hash) % paletteList.size).toInt()
+        safeIndex.coerceIn(0, paletteList.size - 1)
     }
     val currentPalette = paletteList[paletteIndex]
 
@@ -436,7 +450,7 @@ fun LocalAudioPlayerScreen(
                             leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color.White) },
                             onClick = {
                                 showOptionsMenu = false
-                                shareSingleFile(context, currentAudio)
+                                runCatching { shareSingleFile(context, currentAudio) }
                             }
                         )
 
@@ -595,15 +609,13 @@ fun LocalAudioPlayerScreen(
                     )
                 }
 
+                // 🎯 ফিক্সড: ইনকম্প্যাটিবল ripple() রিমুভ করে নিরাপদ সার্কুলার বোতাম
                 Box(
                     modifier = Modifier
                         .size(68.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = true, radius = 34.dp)
-                        ) {
+                        .background(Color.White.copy(alpha = 0.15f))
+                        .clickable {
                             LocalAudioPlayerManager.togglePlayPause()
                         },
                     contentAlignment = Alignment.Center
@@ -713,9 +725,11 @@ fun LocalAudioPlayerScreen(
                         checked = isEqEnabled,
                         onCheckedChange = { checked ->
                             isEqEnabled = checked
-                            equalizerInstance?.enabled = checked
-                            bassBoostInstance?.enabled = checked
-                            loudnessEnhancerInstance?.enabled = checked
+                            runCatching {
+                                equalizerInstance?.enabled = checked
+                                bassBoostInstance?.enabled = checked
+                                loudnessEnhancerInstance?.enabled = checked
+                            }
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
@@ -739,7 +753,9 @@ fun LocalAudioPlayerScreen(
                         value = volumeBoostGain,
                         onValueChange = { gain ->
                             volumeBoostGain = gain
-                            loudnessEnhancerInstance?.setTargetGain((gain * 1000).toInt())
+                            runCatching {
+                                loudnessEnhancerInstance?.setTargetGain((gain * 1000).toInt())
+                            }
                         },
                         valueRange = 0f..1.5f,
                         enabled = isEqEnabled,
@@ -760,7 +776,9 @@ fun LocalAudioPlayerScreen(
                         value = bassBoostLevel,
                         onValueChange = { level ->
                             bassBoostLevel = level
-                            bassBoostInstance?.setStrength((level * 1000).toInt().toShort())
+                            runCatching {
+                                bassBoostInstance?.setStrength((level * 1000).toInt().toShort())
+                            }
                         },
                         valueRange = 0f..1f,
                         enabled = isEqEnabled,
