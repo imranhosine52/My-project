@@ -99,7 +99,6 @@ fun GlobalAnalyticsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // স্লিম ব্যাক বাটন
                         Surface(
                             shape = CircleShape,
                             color = Color(0xFF161A26),
@@ -165,7 +164,7 @@ fun GlobalAnalyticsScreen(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 // =========================================================================
-                // 🧭 ২. বাটার-স্মুথ ন্যাভিগেশন ট্যাব বার (৪টি সমান ও স্লিম ট্যাব)
+                // 🧭 ২. ন্যাভিগেশন ট্যাব বার (৪টি ট্যাব)
                 // =========================================================================
                 TabRow(
                     selectedTabIndex = pagerState.currentPage,
@@ -179,7 +178,6 @@ fun GlobalAnalyticsScreen(
                     },
                     indicator = { tabPositions ->
                         if (pagerState.currentPage < tabPositions.size) {
-                            // 🎯 স্মুথ কাস্টম রাউন্ডেড বটম ইন্ডিকেটর
                             Box(
                                 modifier = Modifier
                                     .tabIndicatorOffset(tabPositions[pagerState.currentPage])
@@ -206,7 +204,6 @@ fun GlobalAnalyticsScreen(
                             selected = isSelected,
                             onClick = {
                                 coroutineScope.launch {
-                                    // 🎯 মসৃণ স্ক্রোল অ্যানিমেশন
                                     pagerState.animateScrollToPage(
                                         page = index,
                                         animationSpec = tween(
@@ -233,7 +230,7 @@ fun GlobalAnalyticsScreen(
         }
     ) { innerPadding ->
         // =========================================================================
-        // 🔄 ৩. সোয়াইপ পেজার (প্রতিটি ট্যাবের সাথে পারফেক্ট ডাটা কানেকশন)
+        // 🔄 ৩. সোয়াইপ পেজার (লাইভ কান্ট্রি ডাটা কানেকশন সহ)
         // =========================================================================
         HorizontalPager(
             state = pagerState,
@@ -242,28 +239,29 @@ fun GlobalAnalyticsScreen(
                 .padding(innerPadding)
         ) { page ->
             when (page) {
-                // ১. Overview ট্যাব: টাচ গ্রাফ, Traffic Summary এবং নতুন দেশভিত্তিক অডিয়েন্স কার্ড
+                // ১. Overview ট্যাব: 🎯 লাইভ অনলাইন দেশসমূহ এবং রিয়েল-টাইম রেস অ্যানিমেশন
                 0 -> AnalyticsOverviewTab(
                     overview = overview,
-                    countries = audience.countries // 👈 দেশের ইতিহাস ওভারভিউতে পাস করা হলো
+                    countries = audience.countries,
+                    liveCountries = audience.liveCountries // 👈 লাইভ অনলাইন দেশ সরাসরি পাস করা হলো
                 )
 
-                // ২. Content ট্যাব: আল্ট্রা-স্লিম লিডারবোর্ড র‍্যাঙ্কিং (#1, #2, #3) এবং সংক্ষিপ্ত Display Name
+                // ২. Content ট্যাব: আল্ট্রা-স্লিম লিডারবোর্ড র‍্যাঙ্কিং
                 1 -> AnalyticsContentTab(
                     content = content,
                     onPostClick = onPostClick
                 )
 
-                // ৩. Audience ট্যাব: স্লিম সাব-ট্যাব, লাইভ স্ক্রিন লোকেশন, গোল পতাকা ব্যাজ ও ওয়াচিং মিনিট
+                // ৩. Audience ট্যাব: লাইভ স্ক্রিন লোকেশন, ড্রামা ওয়াচিং এবং বয়স বিন্যাস
                 2 -> AnalyticsAudienceTab(
                     audience = audience,
                     topPosts = content.topDramas,
                     liveOnlineCount = data.liveOnlineCount,
-                    activeScreens = data.activeScreens, // 👈 লাইভ স্ক্রিন লোকেশন কানেক্টেড
+                    activeScreens = data.activeScreens,
                     onPostClick = onPostClick
                 )
 
-                // ৪. Growth ট্যাব: লাইফটাইম ইন্সটল, আনইন্সটল ও রিয়েল-টাইম রোলিং অ্যানিমেশন
+                // ৪. Growth ট্যাব: লাইফটাইম ইন্সটল ও আনইন্সটল সামারি
                 3 -> AnalyticsGrowthTab(
                     growth = growth
                 )
