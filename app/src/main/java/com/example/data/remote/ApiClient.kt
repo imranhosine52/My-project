@@ -4,20 +4,19 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
-    private const val BASE_URL = "https://www.playdramaflix.com/api/v1/"
+    const val BASE_URL = "https://www.playdramaflix.com/api/v1/"
 
     // 🎯 সেশন এক্সপায়ার / ডিভাইস লিমিট অতিক্রান্ত হলে অটো-লগআউট লিসেনার
     var onSessionExpiredListener: (() -> Unit)? = null
     var authTokenProvider: (() -> String?)? = null
 
-    private val moshi: Moshi by lazy {
+    val moshi: Moshi by lazy {
         Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -27,6 +26,14 @@ object ApiClient {
     private val authInterceptor = Interceptor { chain ->
         val originalRequest = chain.request()
         val requestBuilder = originalRequest.newBuilder()
+
+        // স্ট্যান্ডার্ড রিকোয়েস্ট হেডার্স
+        if (originalRequest.header("Accept") == null) {
+            requestBuilder.addHeader("Accept", "application/json")
+        }
+        if (originalRequest.header("User-Agent") == null) {
+            requestBuilder.addHeader("User-Agent", "PlayDramaFlix-AndroidApp/1.0")
+        }
 
         // টোকেন থাকলে স্বয়ংক্রিয়ভাবে হেডারে যোগ হবে
         val token = authTokenProvider?.invoke()
@@ -44,9 +51,22 @@ object ApiClient {
         response
     }
 
-    private val okHttpClient: OkHttpClient by lazy {
+    // 🔒 প্রডাকশন-সেফ লগিং লেভেল ডিটেক্টর (কম্পাইল-সেফ রিফ্লেকশন)
+    private val isDebugBuild: Boolean by lazy {
+        runCatching {
+            Class.forName("com.example.BuildConfig")
+                .getField("DEBUG")
+                .get(null) as? Boolean
+        }.getOrNull() ?: false
+    }
+
+    val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (isDebugBuild) {
+                HttpLoggingInterceptor.Level.BODY
+            } else {
+                HttpLoggingInterceptor.Level.BASIC
+            }
         }
 
         OkHttpClient.Builder()
@@ -55,6 +75,7 @@ object ApiClient {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true) // 🔄 মোবাইল নেট ড্রপ হলে অটো-রিকানেক্ট
             .build()
     }
 
