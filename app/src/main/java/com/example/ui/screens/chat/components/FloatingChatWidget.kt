@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -114,7 +115,7 @@ fun FloatingCommunityChatWidget(
     currentUserEmail: String?,
     currentUserAvatar: String?,
     isVip: Boolean,
-    hasBottomNav: Boolean = true, // 👈 বটম বার অনুযায়ী পারফেক্ট প্যাডিং নিয়ন্ত্রণ
+    hasBottomNav: Boolean = true,
     onOpenFullScreenChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -298,11 +299,9 @@ fun FloatingCommunityChatWidget(
     LaunchedEffect(messages) {
         if (messages.isNotEmpty()) {
             if (!isInitialLoaded) {
-                // অ্যাপ প্রথম চালুর সময় শেষ মেসেজের টাইমস্ট্যাম্প দিয়ে শুরু
                 lastReadTimestamp = messages.lastOrNull()?.timestamp?.time ?: System.currentTimeMillis()
                 isInitialLoaded = true
             } else if (!isExpanded) {
-                // চ্যাট উইন্ডো বন্ধ থাকলে কেবল অন্যের পাঠানো নতুন মেসেজগুলো কাউন্ট হবে
                 val newIncomingCount = messages.count { msg ->
                     val msgTime = msg.timestamp?.time ?: 0L
                     msgTime > lastReadTimestamp && msg.senderId != currentUserId
@@ -312,7 +311,7 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // চ্যাট ওপেন করলেই আনরিড কাউন্ট শুন্য হয়ে যাবে
+    // চ্যাট ওপেন করলেই আনরিড কাউন্ট ০ হয়ে যাবে
     LaunchedEffect(isExpanded) {
         if (isExpanded) {
             unreadCount = 0
@@ -448,8 +447,6 @@ fun FloatingCommunityChatWidget(
     }
 
     val fixedChatBoxHeight = 480.dp
-
-    // বটম প্যাডিং হিসাব: হোমস্ক্রিনে বটম বারের উপরে (52dp), প্লেয়ার স্ক্রিনে প্রান্তের কাছে (16dp)
     val bottomOffsetPadding = if (isImeVisible) 4.dp else if (hasBottomNav) 54.dp else 18.dp
 
     Column(
@@ -976,85 +973,70 @@ fun FloatingCommunityChatWidget(
         }
 
         // =========================================================================
-        // 🔴 কলাপ্সড ফ্লোটিং বাটন (টেলিগ্রাম/হোয়াটসঅ্যাপ লাল ব্যাজ কাউন্টারসহ)
+        // 🎯 ব্যাকগ্রাউন্ড ও "Help?" ছাড়া শুধু ক্লিন চ্যাট আইকন এবং লাইভ মেসেজ কাউন্টার ব্যাজ
         // =========================================================================
         if (!isImeVisible) {
-            Surface(
+            Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(22.dp))
+                    .clip(CircleShape)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) { isExpanded = !isExpanded },
-                shape = RoundedCornerShape(22.dp),
-                color = Color(0xEB16202E),
-                border = BorderStroke(1.dp, if (unreadCount > 0) Color(0xFFFF2A4B).copy(alpha = 0.6f) else Color(0x3300E5FF)),
-                shadowElevation = 8.dp
+                    ) { isExpanded = !isExpanded }
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (isExpanded) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.5f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                        Text(
-                            text = "Close",
-                            color = Color.White,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold
+                if (isExpanded) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
-                    } else {
-                        // 🔴 আইকন ও লাল নোটিফিকেশন ব্যাজ
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.ChatBubble,
-                                contentDescription = "Help",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(20.dp)
-                            )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier.size(34.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // 💬 পরিচ্ছন্ন সায়ান চ্যাট আইকন (কোনো ডার্ক ব্যাকগ্রাউন্ড ছাড়া)
+                        Icon(
+                            imageVector = Icons.Default.ChatBubble,
+                            contentDescription = "Community Chat",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(27.dp)
+                        )
 
-                            // লাল আনরিড ব্যাজ (WhatsApp/Telegram Style)
-                            if (unreadCount > 0) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 8.dp, y = (-7).dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFFF2A4B))
-                                        .border(1.2.dp, Color(0xFF16202E), CircleShape)
-                                        .padding(horizontal = 4.dp, vertical = 1.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = if (unreadCount > 99) "99+" else "$unreadCount",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black
-                                    )
-                                }
+                        // 🔴 নতুন মেসেজ কাউন্টার ব্যাজ (আইকনের ওপরের ডান কোণায়)
+                        if (unreadCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = 6.dp, y = (-4).dp)
+                                    .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF2A4B))
+                                    .border(1.dp, Color(0xFF080C14), CircleShape)
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (unreadCount > 99) "99+" else "$unreadCount",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    lineHeight = 10.sp,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
-
-                        Text(
-                            text = "Help?",
-                            color = Color.White,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
                 }
             }
