@@ -203,11 +203,12 @@ class DramaFlixViewModel(
         loadRemoteAdsConfig()
         loadNotifications()
         loadUserActivity()
-        startLiveAnalyticsPolling(intervalMs = 3000L)
+        // 🎯 অপ্টিমাইজড: init ব্লকে অবিরাম ৩ সেকেন্ড পোলিং বন্ধ করে একবারের স্ন্যাপশট কল রাখা হয়েছে
+        fetchPublicLiveAnalytics(isInitial = false)
     }
 
     /**
-     * ⏱️ রিয়েল-টাইম লাইভ অ্যানালিটিক্স ৩ সেকেন্ড পর পর স্বয়ংক্রিয়ভাবে রিফ্রেশ লুপ
+     * ⏱️ রিয়েল-টাইম লাইভ অ্যানালিটিক্স পোলিং লুপ (Lifecycle-Aware)
      */
     fun startLiveAnalyticsPolling(intervalMs: Long = 3000L) {
         if (liveAnalyticsPollingJob?.isActive == true) return
@@ -215,7 +216,7 @@ class DramaFlixViewModel(
         liveAnalyticsPollingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 fetchPublicLiveAnalytics(isInitial = false)
-                delay(intervalMs) // 🎯 ঠিক ৩ সেকেন্ড (3000L) পর পর ব্যাকএন্ডের Redis ক্যাশ থেকে তাজা ডেটা সিঙ্ক
+                delay(intervalMs)
             }
         }
     }
@@ -766,13 +767,12 @@ class DramaFlixViewModel(
     }
 
     /**
-     * 🎬 ড্রামা লোডার: ভিন্ন ড্রামায় গেলে আগের ড্রামার ডাটা পুরোপুরি রিসেট হবে (কোনো Data Sticking থাকবে না)
+     * 🎬 ড্রামা লোডার: ভিন্ন ড্রামায় সুইচ করলে পূর্বের স্টেট ফ্রেশলি রিসেট হবে
      */
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             val isSameDrama = (_playerUiState.value.content?.slug == slug)
 
-            // 🎯 অন্য ড্রামায় গেলে আগের ড্রামার লাইক, ভিউ, কমেন্ট ও রিঅ্যাকশন তাৎক্ষণিক ০ বানিয়ে ফ্রেশ স্টেট করা
             _playerUiState.update { current ->
                 if (isSameDrama) {
                     current.copy(
@@ -879,7 +879,6 @@ class DramaFlixViewModel(
                     )
                 }
 
-                // ⚡ ১. সার্ভার থেকে ইন্টারঅ্যাকশন স্ট্যাটাস সিঙ্ক
                 val statusResult = repository.fetchInteractionStatus(contentItem.id, null)
                 if (statusResult.isSuccess) {
                     val status = statusResult.getOrNull()
@@ -900,7 +899,6 @@ class DramaFlixViewModel(
                     }
                 }
 
-                // ⚡ ২. ভিউ কাউন্টার বৃদ্ধি ও সাথে সাথে স্ক্রিনে ভিউ সংখ্যা আপডেট
                 val viewResult = repository.recordVideoInteractionView(contentItem.id, force = forceRefresh)
                 if (viewResult.isSuccess) {
                     val viewResp = viewResult.getOrNull()
@@ -916,7 +914,6 @@ class DramaFlixViewModel(
                     }
                 }
 
-                // ⚡ ৩. কমেন্ট রিফ্রেশ করা
                 refreshComments(contentItem.id)
             } else {
                 _playerUiState.update {
@@ -1060,9 +1057,6 @@ class DramaFlixViewModel(
         }
     }
 
-    /**
-     * 💬 রেস কন্ডিশন মুক্ত নির্ভুল কমেন্ট রিফ্রেশ মেথড
-     */
     fun refreshComments(explicitContentId: Any? = null) {
         val content = _playerUiState.value.content
         val contentId = explicitContentId ?: content?.id ?: return
