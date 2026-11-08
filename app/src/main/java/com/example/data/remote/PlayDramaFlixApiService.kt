@@ -58,20 +58,20 @@ interface PlayDramaFlixApiService {
         @Header("Authorization") authHeader: String? = null
     ): Response<SubscriptionSubmitResponse>
 
-    @POST("https://www.playdramaflix.com/api/v1/subscription/submit")
+    @POST("subscription/submit")
     suspend fun submitSubscriptionV1Direct(
         @Body request: SubscriptionSubmitRequest,
         @Header("Authorization") authHeader: String? = null
     ): Response<SubscriptionSubmitResponse>
 
-    @POST("https://www.playdramaflix.com/api/subscription/submit")
+    @POST("subscription/submit")
     suspend fun submitSubscriptionRootDirect(
         @Body request: SubscriptionSubmitRequest,
         @Header("Authorization") authHeader: String? = null
     ): Response<SubscriptionSubmitResponse>
 
     @FormUrlEncoded
-    @POST("https://www.playdramaflix.com/api/v1/subscription/submit")
+    @POST("subscription/submit")
     suspend fun submitSubscriptionForm(
         @Field("user_id") userId: String,
         @Field("user_name") userName: String? = null,
@@ -96,7 +96,7 @@ interface PlayDramaFlixApiService {
     ): Response<SubscriptionSubmitResponse>
 
     @FormUrlEncoded
-    @POST("https://www.playdramaflix.com/ajax/subscription.php")
+    @POST("/ajax/subscription.php")
     suspend fun submitSubscriptionAjax(
         @Field("action") action: String = "submit_payment",
         @Field("user_id") userId: String,
@@ -126,7 +126,6 @@ interface PlayDramaFlixApiService {
         @Query("email") email: String? = null
     ): Response<SubscriptionStatusResponse>
 
-    // 🎁 নতুন সংযোজন: প্রমো কোড ক্লেইম API (Promo Code Redemption)
     @POST("subscription/redeem-promo")
     suspend fun redeemPromoCode(
         @Body request: PromoCodeRedeemRequest
@@ -136,25 +135,21 @@ interface PlayDramaFlixApiService {
     // 💬 POST ENGAGEMENT & INTERACTION ENDPOINTS
     // =========================================================================
 
-    // 1. Video View Increment (POST /api/v1/interaction/view)
     @POST("interaction/view")
     suspend fun recordVideoView(
         @Body request: ViewIncrementRequest
     ): Response<ViewIncrementResponse>
 
-    // 2. Like / Unlike Toggle (POST /api/v1/interaction/like)
     @POST("interaction/like")
     suspend fun toggleInteractionLike(
         @Body request: LikeToggleRequest
     ): Response<LikeToggleResponse>
 
-    // 🌟 3. Multi-Emoji Reaction Toggle (POST /api/v1/interaction/react)
     @POST("interaction/react")
     suspend fun toggleReaction(
         @Body request: ReactionToggleRequest
     ): Response<ReactionToggleResponse>
 
-    // 4. Fetch Live Interaction Status (GET /api/v1/interaction/status)
     @GET("interaction/status")
     suspend fun getInteractionStatus(
         @Query("content_id") contentId: Any,
@@ -162,7 +157,6 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: Any? = null
     ): Response<InteractionStatusResponse>
 
-    // 5. Fetch Comments List (GET /api/v1/comments)
     @GET("comments")
     suspend fun getComments(
         @Query("content_id") contentId: Any,
@@ -170,21 +164,20 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: Any? = null
     ): Response<CommentsListResponse>
 
-    @GET("https://www.playdramaflix.com/ajax/like_comment.php")
+    @GET("/ajax/like_comment.php")
     suspend fun getCommentsAjax(
         @Query("action") action: String = "get_comments",
         @Query("content_id") contentId: Any,
         @Query("episode_id") episodeId: Any? = null
     ): Response<CommentsListResponse>
 
-    // 6. Add New Comment (POST /api/v1/comments/add)
     @POST("comments/add")
     suspend fun postComment(
         @Body request: AddCommentApiRequest
     ): Response<AddCommentResponse>
 
     @FormUrlEncoded
-    @POST("https://www.playdramaflix.com/ajax/like_comment.php")
+    @POST("/ajax/like_comment.php")
     suspend fun postCommentAjax(
         @Field("action") action: String = "add_comment",
         @Field("content_id") contentId: Any,
@@ -195,31 +188,31 @@ interface PlayDramaFlixApiService {
         @Field("comment_text") commentText: String
     ): Response<AddCommentResponse>
 
-    // 7. Toggle Comment Like (POST /api/v1/comments/like)
     @POST("comments/like")
     suspend fun toggleCommentLike(
         @Body request: CommentLikeApiRequest
     ): Response<CommentLikeApiResponse>
 
-    // 8. Record Comment Share (POST /api/v1/comments/share)
     @POST("comments/share")
     suspend fun recordCommentShare(
         @Body request: CommentShareApiRequest
     ): Response<CommentShareApiResponse>
 
-    // 9. Remote Version Check (GET /api/v1/app/version-check)
     @GET("app/version-check")
     suspend fun checkAppVersion(
         @Query("current_version") currentVersion: String
     ): Response<AppVersionCheckResponse>
 
-    // 10. Unified User Auth & Profile APIs
+    // =========================================================================
+    // 👤 UNIFIED USER AUTH & PROFILE APIS
+    // =========================================================================
+
     @POST("auth/google")
     suspend fun authenticateGoogle(
         @Body request: GoogleAuthRequest
     ): Response<GoogleAuthResponse>
 
-    @POST("https://www.playdramaflix.com/api/v1/auth/google")
+    @POST("auth/google")
     suspend fun authenticateGoogleDirect(
         @Body request: GoogleAuthRequest
     ): Response<GoogleAuthResponse>
@@ -239,27 +232,28 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: String
     ): Response<UserProfileResponse>
 
-    // 11. Remote Ad Configuration (GET /api/v1/ads-config)
+    // =========================================================================
+    // 📡 ADS CONFIGURATION & USER ACTIVITY
+    // =========================================================================
+
     @GET("ads-config")
     suspend fun getAdsConfig(): Response<AdsConfigResponse>
 
-    @GET("https://www.playdramaflix.com/api/v1/ads-config")
+    @GET("ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 
-    // 12. User Activity (Likes & Comments)
     @GET("activity")
     suspend fun getUserActivity(
         @Query("user_id") userId: Any,
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
-    @GET("https://www.playdramaflix.com/api/v1/activity")
+    @GET("activity")
     suspend fun getUserActivityDirect(
         @Query("user_id") userId: Any,
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
-    // 13. কাস্টম ভিডিও বিজ্ঞাপন কনফিগারেশন ও ইভেন্ট ট্র্যাকিং
     @GET("custom-ads")
     suspend fun getCustomAdsConfig(): Response<CustomAdsConfigResponse>
 
@@ -271,6 +265,7 @@ interface PlayDramaFlixApiService {
     // =========================================================================
     // ⚡ 14. রিয়েল-টাইম পাবলিক অ্যানালিটিক্স API (Redis Powered)
     // =========================================================================
+
     @GET("analytics/public-live")
     suspend fun getPublicLiveAnalytics(): Response<PublicLiveAnalyticsResponse>
 }
