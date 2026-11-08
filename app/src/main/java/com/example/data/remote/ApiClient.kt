@@ -15,6 +15,7 @@ object ApiClient {
     // 🎯 সেশন এক্সপায়ার / ডিভাইস লিমিট অতিক্রান্ত হলে অটো-লগআউট লিসেনার
     var onSessionExpiredListener: (() -> Unit)? = null
     var authTokenProvider: (() -> String?)? = null
+    var apiKeyProvider: (() -> String?)? = null
 
     val moshi: Moshi by lazy {
         Moshi.Builder()
@@ -22,7 +23,7 @@ object ApiClient {
             .build()
     }
 
-    // 🛡️ অটোমেটিক Bearer Token ইনজেকশন ও 401 সেশন এক্সপায়ারি ইন্টারসেপ্টর
+    // 🛡️ অটোমেটিক Bearer Token, API Key ইনজেকশন ও 401 সেশন এক্সপায়ারি ইন্টারসেপ্টর
     private val authInterceptor = Interceptor { chain ->
         val originalRequest = chain.request()
         val requestBuilder = originalRequest.newBuilder()
@@ -35,6 +36,12 @@ object ApiClient {
             requestBuilder.addHeader("User-Agent", "PlayDramaFlix-AndroidApp/1.0")
         }
 
+        // ঐচ্ছিক API Key সাপোর্ট (ApiAuth.php সামঞ্জস্য)
+        val apiKey = apiKeyProvider?.invoke()
+        if (!apiKey.isNullOrBlank() && originalRequest.header("X-API-KEY") == null) {
+            requestBuilder.addHeader("X-API-KEY", apiKey)
+        }
+
         // টোকেন থাকলে স্বয়ংক্রিয়ভাবে হেডারে যোগ হবে
         val token = authTokenProvider?.invoke()
         if (!token.isNullOrBlank() && originalRequest.header("Authorization") == null) {
@@ -43,7 +50,7 @@ object ApiClient {
 
         val response = chain.proceed(requestBuilder.build())
 
-        // 🛑 অন্য ডিভাইসে লগইন করার কারণে যদি সার্ভার 401 পাঠায়, তাহলে অ্যাপ স্বয়ংক্রিয়ভাবে সেশন এক্সপায়ারের সিগন্যাল পাবে
+        // 🛑 অন্য ডিভাইসে লগইন করার কারণে যদি সার্ভার 401 পাঠায়, তাহলে অ্যাপ সেশন এক্সপায়ারের সিগন্যাল পাবে
         if (response.code == 401) {
             onSessionExpiredListener?.invoke()
         }
@@ -51,7 +58,7 @@ object ApiClient {
         response
     }
 
-    // 🔒 প্রডাকশন-সেফ লগিং লেভেল ডিটেক্টর (কম্পাইল-সেফ রিফ্লেকশন)
+    // 🔒 প্রডাকশন-সেফ লগিং লেভেল ডিটেক্টর
     private val isDebugBuild: Boolean by lazy {
         runCatching {
             Class.forName("com.example.BuildConfig")
@@ -75,7 +82,7 @@ object ApiClient {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true) // 🔄 মোবাইল নেট ড্রপ হলে অটো-রিকানেক্ট
+            .retryOnConnectionFailure(true)
             .build()
     }
 
