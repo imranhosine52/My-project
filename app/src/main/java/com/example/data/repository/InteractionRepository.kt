@@ -7,10 +7,10 @@ import com.example.data.local.DramaStatsEntity
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
-import com.example.util.AppAnalyticsTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class InteractionRepository(
     private val context: Context,
@@ -69,7 +69,7 @@ class InteractionRepository(
             try {
                 apiService.recordView(slug)
             } catch (e: Exception) {
-                Log.d(TAG, "Server view record offline sync: ${e.message}")
+                Log.d(TAG, "Server view record offline sync notice: ${e.message}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error recording organic view", e)
@@ -97,7 +97,7 @@ class InteractionRepository(
         try {
             apiService.toggleLike(slug, mapOf("liked" to newLiked))
         } catch (e: Exception) {
-            Log.d(TAG, "Server like toggle offline sync: ${e.message}")
+            Log.d(TAG, "Server like toggle offline sync notice: ${e.message}")
         }
         updated
     }
@@ -183,7 +183,7 @@ class InteractionRepository(
                 dramaStatsDao.updateLike(slugKey, body.effectiveIsLiked, body.effectiveLikes.toInt())
                 Result.success(body)
             } else {
-                Result.failure(Exception("HTTP ${response.code()}: Failed to toggle like on server"))
+                Result.failure(Exception("HTTP ${response.code()}: লাইক আপডেট সম্পন্ন হয়নি।"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -209,7 +209,7 @@ class InteractionRepository(
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("HTTP ${response.code()}: Failed to toggle reaction"))
+                Result.failure(Exception("HTTP ${response.code()}: রিঅ্যাকশন আপডেট সম্পন্ন হয়নি।"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -234,11 +234,9 @@ class InteractionRepository(
                 }
                 Result.success(body)
             } else {
-                // সার্ভার এরর হলে ফেলিউর হিসেবে পাঠানো যাতে বর্তমান স্টেট মুছে না যায়
-                Result.failure(Exception("HTTP ${response.code()}: Failed to fetch interaction status"))
+                Result.failure(Exception("HTTP ${response.code()}: স্ট্যাটাস পাওয়া যায়নি।"))
             }
         } catch (e: Exception) {
-            // নেটওয়ার্ক টাইমআউট হলে ফেলিউর রিটার্ন করা যাতে ইউজার ইন্টারফেস ০ না হয়ে যায়
             Result.failure(e)
         }
     }
@@ -259,7 +257,7 @@ class InteractionRepository(
                 return@withContext Result.success(list)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "fetchCommentsList v1 error: ${e.message}")
+            Log.w(TAG, "fetchCommentsList primary notice: ${e.message}")
         }
 
         try {
@@ -305,11 +303,9 @@ class InteractionRepository(
                     item.copy(userAvatar = avatar, fallbackAvatar = avatar)
                 } else item
                 return@withContext Result.success(finalItem)
-            } else {
-                Log.w(TAG, "postNewComment server code: ${response.code()}")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "postNewComment error: ${e.message}")
+            Log.w(TAG, "postNewComment primary notice: ${e.message}")
         }
 
         try {
@@ -374,7 +370,10 @@ class InteractionRepository(
                 if (directResponse.isSuccessful && directResponse.body() != null) {
                     Result.success(directResponse.body()!!)
                 } else {
-                    Result.failure(Exception("HTTP ${response.code()}: Failed to fetch user activity"))
+                    val errMsg = response.errorBody()?.string()?.let {
+                        try { JSONObject(it).optString("message") } catch (_: Exception) { null }
+                    } ?: "HTTP ${response.code()}: Failed to fetch user activity"
+                    Result.failure(Exception(errMsg))
                 }
             }
         } catch (e: Exception) {
