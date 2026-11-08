@@ -10,12 +10,10 @@ import com.example.util.VipStatusNotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class SubscriptionRepository(
     private val context: Context,
@@ -27,17 +25,13 @@ class SubscriptionRepository(
 
     companion object {
         private const val TAG = "SubscriptionRepo"
-        private const val SUBMIT_API_URL = "https://www.playdramaflix.com/api/v1/subscription/submit"
+        // 🎯 সেন্ট্রাল ApiClient.BASE_URL এর সাথে সুসংহত
+        private val SUBMIT_API_URL: String
+            get() = "${ApiClient.BASE_URL}subscription/submit"
     }
 
-    private val okHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
-    }
+    // ⚡ সেন্ট্রাল কানেকশন পুল রিইউজ
+    private val httpClient get() = ApiClient.okHttpClient
 
     // =========================================================================
     // 🧾 ১. পার্মানেন্ট লোকাল ইনভয়েস স্টোরেজ
@@ -115,7 +109,6 @@ class SubscriptionRepository(
             }
             persistentInvoicePrefs.edit().putString("saved_invoices_json", jsonArray.toString()).apply()
 
-            // পুশ নোটিফিকেশন প্রদর্শন
             if (newStatus.equals("approved", true) || newStatus.equals("active", true)) {
                 VipStatusNotificationHelper.showVipApprovedNotification(context, planName)
             } else if (newStatus.equals("rejected", true) || newStatus.equals("declined", true) || newStatus.equals("failed", true)) {
@@ -199,7 +192,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 💳 ৪. আধুনিক OkHttp + Retrofit পেমেন্ট সাবমিশন (Multi-Identifier JSON Payload)
+    // 💳 ৪. আধুনিক ও অপ্টিমাইজড পেমেন্ট সাবমিশন ইঞ্জিন
     // =========================================================================
 
     suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = withContext(Dispatchers.IO) {
@@ -231,7 +224,7 @@ class SubscriptionRepository(
             Log.w(TAG, "Primary Retrofit submission notice: ${e.message}")
         }
 
-        // ২. সেকেন্ডারি চেষ্টা: OkHttp এর মাধ্যমে Multi-Identifier JSON Payload প্রেরণ
+        // ২. সেকেন্ডারি চেষ্টা: OkHttp এর মাধ্যমে Multi-Identifier JSON Payload
         val jsonPayload = JSONObject().apply {
             put("user_id", uidStr.toIntOrNull() ?: 0)
             put("account_id", userProfile?.effectiveAccountId ?: "")
@@ -255,7 +248,7 @@ class SubscriptionRepository(
                 requestBuilder.addHeader("Authorization", authHeader)
             }
 
-            val response = okHttpClient.newCall(requestBuilder.build()).execute()
+            val response = httpClient.newCall(requestBuilder.build()).execute()
             val responseText = response.body?.string() ?: ""
             val responseCode = response.code
             response.close()
@@ -327,7 +320,6 @@ class SubscriptionRepository(
                 val isInvApproved = matchingServerInv?.status == "approved"
                 val isInvDeclined = matchingServerInv?.status == "rejected"
 
-                // ১. সার্ভার এপ্রুভ করলে সাথে সাথে VIP সক্রিয় করা
                 if (isServerVip || isInvApproved) {
                     val plan = status.planName ?: localPending?.planName ?: "VIP Pass"
                     if (localPending != null) {
@@ -344,15 +336,11 @@ class SubscriptionRepository(
                     if (!wasVipBefore || localPending != null) {
                         VipStatusNotificationHelper.showVipApprovedNotification(context, plan)
                     }
-                } 
-                // ২. সার্ভার রিজেক্ট করলে পেন্ডিং ক্লিয়ার ও রিজেকশন নোটিফিকেশন দেওয়া
-                else if (isInvDeclined && localPending != null) {
+                } else if (isInvDeclined && localPending != null) {
                     updateLocalInvoiceStatusPermanently(localPending.transactionId, "rejected")
                     clearPendingSubscriptionRequest(targetUserId)
                     VipStatusNotificationHelper.showVipRejectedNotification(context, "Your payment was declined by admin.")
-                } 
-                // ৩. সার্ভার ভিআইপি না বললে ফ্রি হিসেবে সেট রাখা
-                else if (!isServerVip && localPending == null) {
+                } else if (!isServerVip && localPending == null) {
                     authRepository.saveUserSession(
                         userId = targetUserId,
                         isVip = false,
@@ -392,7 +380,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 🎁 ৬. প্রমো কোড রিডিম ইঞ্জিন (ডিভাইস আইডি ও ইনস্ট্যান্ট VIP সিঙ্ক)
+    // 🎁 ৬. প্রমো কোড রিডিম ইঞ্জিন
     // =========================================================================
 
     suspend fun redeemPromoCode(code: String): Result<PromoCodeRedeemResponse> = withContext(Dispatchers.IO) {
@@ -418,7 +406,6 @@ class SubscriptionRepository(
             val body = response.body()
 
             if (response.isSuccessful && body != null && body.success) {
-                // 👑 প্রমো কোড সফল হলে লোকাল সেশনে সাথে সাথে VIP সেভ করা
                 if (body.isVip == true) {
                     val days = body.grantedDays ?: 0
                     authRepository.saveUserSession(
