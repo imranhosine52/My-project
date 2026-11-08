@@ -45,7 +45,7 @@ object LocalAudioPlayerManager {
     private var appContext: Context? = null
     private var mediaSession: MediaSession? = null
 
-    // 🎵 প্লেব্যাক স্টেটসমূহ
+    // 🎵 প্লেব্যাক স্টেটসমূহ (থ্রেড-সেফ)
     private val _currentTrack = MutableStateFlow<LocalVideoItem?>(null)
     val currentTrack: StateFlow<LocalVideoItem?> = _currentTrack.asStateFlow()
 
@@ -245,14 +245,14 @@ object LocalAudioPlayerManager {
     }
 
     // =========================================================================
-    // 🎛️ মিডিয়া সেশন সিঙ্ক (টাইমলাইন ও ইন্টারেক্টিভ সিকবার সাপোর্ট)
+    // 🎛️ মিডিয়া সেশন সিঙ্ক (থ্রেড-সেফ)
     // =========================================================================
     private fun syncPlaybackState() {
-        val player = exoPlayer ?: return
-        val isPlayingState = player.isPlaying
-        val state = if (isPlayingState) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
-        val position = player.currentPosition.coerceAtLeast(0L)
+        // 🎯 ফিক্সড: ক্র্যাশ এড়াতে exoPlayer এর বদলে StateFlow ব্যবহার করা হলো
+        val isPlayingState = _isPlaying.value
+        val position = _currentPositionMs.value
         val speed = if (isPlayingState) 1.0f else 0f
+        val state = if (isPlayingState) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
 
         val stateBuilder = PlaybackState.Builder()
             .setActions(
@@ -340,8 +340,11 @@ object LocalAudioPlayerManager {
                 }
             } catch (_: Exception) {}
 
-            syncMediaMetadata(track, coverBitmap)
-            syncPlaybackState()
+            // 🎯 মেইন থ্রেডে ফিরে গিয়ে সিঙ্ক করা (Crash Prevention)
+            withContext(Dispatchers.Main) {
+                syncMediaMetadata(track, coverBitmap)
+                syncPlaybackState()
+            }
 
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -351,17 +354,18 @@ object LocalAudioPlayerManager {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            // 🎯 Android 14 সেফটি: setPackage(context.packageName) যুক্ত করা হয়েছে
             val prevIntent = PendingIntent.getBroadcast(
-                context, 1, Intent(ACTION_PREV), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context, 1, Intent(ACTION_PREV).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val playPauseIntent = PendingIntent.getBroadcast(
-                context, 2, Intent(ACTION_PLAY_PAUSE), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context, 2, Intent(ACTION_PLAY_PAUSE).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val nextIntent = PendingIntent.getBroadcast(
-                context, 3, Intent(ACTION_NEXT), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context, 3, Intent(ACTION_NEXT).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val stopIntent = PendingIntent.getBroadcast(
-                context, 4, Intent(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context, 4, Intent(ACTION_STOP).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
             val isCurrentlyPlaying = _isPlaying.value
@@ -371,7 +375,7 @@ object LocalAudioPlayerManager {
                 android.R.drawable.ic_media_play
             }
 
-            // 🌟 অ্যান্ড্রয়েডের আসল বিল্ট-ইন MediaStyle (কোনো এক্সটার্নাল লাইব্রেরি ছাড়াই কাজ করে)
+            // 🌟 অ্যান্ড্রয়েডের আসল বিল্ট-ইন MediaStyle
             val mediaStyle = Notification.MediaStyle()
                 .setMediaSession(session.sessionToken)
                 .setShowActionsInCompactView(0, 1, 2)
