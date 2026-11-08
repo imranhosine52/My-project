@@ -66,10 +66,11 @@ class InteractionRepository(
                 dramaStatsDao.insertOrUpdate(newStats)
             }
 
+            // 🎯 ফিক্সড: ব্রোকেন রুটের বদলে অফিসিয়াল interaction/view এন্ডপয়েন্ট ব্যবহার
             try {
-                apiService.recordView(slug)
+                apiService.recordVideoView(ViewIncrementRequest(contentId = slug))
             } catch (e: Exception) {
-                Log.d(TAG, "Server view record offline sync notice: ${e.message}")
+                Log.d(TAG, "Server view record notice: ${e.message}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error recording organic view", e)
@@ -94,10 +95,17 @@ class InteractionRepository(
         )
         dramaStatsDao.insertOrUpdate(updated)
 
+        // 🎯 ফিক্সড: ব্রোকেন রুটের বদলে অফিসিয়াল interaction/like এন্ডপয়েন্ট ব্যবহার
         try {
-            apiService.toggleLike(slug, mapOf("liked" to newLiked))
+            val uid = authRepository.getSavedUserId().takeIf { it.isNotBlank() }
+            apiService.toggleInteractionLike(
+                LikeToggleRequest(
+                    contentId = slug,
+                    userId = uid
+                )
+            )
         } catch (e: Exception) {
-            Log.d(TAG, "Server like toggle offline sync notice: ${e.message}")
+            Log.d(TAG, "Server like toggle notice: ${e.message}")
         }
         updated
     }
@@ -178,7 +186,6 @@ class InteractionRepository(
             )
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
-                // লোকাল Room ডেটাবেজে লাইক কাউন্ট সিঙ্ক করা
                 val slugKey = contentId.toString()
                 dramaStatsDao.updateLike(slugKey, body.effectiveIsLiked, body.effectiveLikes.toInt())
                 Result.success(body)
@@ -217,7 +224,7 @@ class InteractionRepository(
     }
 
     /**
-     * 📊 লাইভ স্ট্যাটাস ফেচিং (এরর হলেও আগের ডেটা ধরে রাখবে, ০ দিয়ে মুছবে না)
+     * 📊 লাইভ স্ট্যাটাস ফেচিং (ভিউ, লাইক ও রিঅ্যাকশন রিফ্রেশ)
      */
     suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> = withContext(Dispatchers.IO) {
         val savedUid = authRepository.getSavedUserId().takeIf { it.isNotBlank() }
@@ -255,19 +262,13 @@ class InteractionRepository(
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!.commentsList
                 return@withContext Result.success(list)
+            } else {
+                Result.failure(Exception("HTTP ${response.code()}: কমেন্ট লোড করা যায়নি।"))
             }
         } catch (e: Exception) {
-            Log.w(TAG, "fetchCommentsList primary notice: ${e.message}")
+            Log.w(TAG, "fetchCommentsList notice: ${e.message}")
+            Result.failure(e)
         }
-
-        try {
-            val ajaxResponse = apiService.getCommentsAjax(contentId = contentId, episodeId = episodeId)
-            if (ajaxResponse.isSuccessful && ajaxResponse.body() != null) {
-                return@withContext Result.success(ajaxResponse.body()!!.commentsList)
-            }
-        } catch (_: Exception) {}
-
-        Result.failure(Exception("Failed to load comments from server"))
     }
 
     suspend fun postNewComment(
@@ -303,31 +304,13 @@ class InteractionRepository(
                     item.copy(userAvatar = avatar, fallbackAvatar = avatar)
                 } else item
                 return@withContext Result.success(finalItem)
+            } else {
+                Result.failure(Exception("HTTP ${response.code()}: কমেন্ট পোস্ট করা যায়নি।"))
             }
         } catch (e: Exception) {
-            Log.w(TAG, "postNewComment primary notice: ${e.message}")
+            Log.w(TAG, "postNewComment notice: ${e.message}")
+            Result.failure(e)
         }
-
-        try {
-            val ajaxResponse = apiService.postCommentAjax(
-                action = "add_comment",
-                contentId = contentId,
-                episodeId = episodeId,
-                parentId = parentId,
-                userId = savedUid,
-                userName = name,
-                commentText = commentText
-            )
-            if (ajaxResponse.isSuccessful && ajaxResponse.body()?.commentItem != null) {
-                val item = ajaxResponse.body()!!.commentItem!!
-                val finalItem = if (item.userAvatar.isNullOrBlank() && !avatar.isNullOrBlank()) {
-                    item.copy(userAvatar = avatar, fallbackAvatar = avatar)
-                } else item
-                return@withContext Result.success(finalItem)
-            }
-        } catch (_: Exception) {}
-
-        Result.failure(Exception("Failed to post comment to server."))
     }
 
     suspend fun toggleCommentLike(commentId: Any, userId: Any? = null): Result<CommentLikeApiResponse> = withContext(Dispatchers.IO) {
@@ -366,15 +349,10 @@ class InteractionRepository(
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                val directResponse = apiService.getUserActivityDirect(userId = userId, type = "all")
-                if (directResponse.isSuccessful && directResponse.body() != null) {
-                    Result.success(directResponse.body()!!)
-                } else {
-                    val errMsg = response.errorBody()?.string()?.let {
-                        try { JSONObject(it).optString("message") } catch (_: Exception) { null }
-                    } ?: "HTTP ${response.code()}: Failed to fetch user activity"
-                    Result.failure(Exception(errMsg))
-                }
+                val errMsg = response.errorBody()?.string()?.let {
+                    try { JSONObject(it).optString("message") } catch (_: Exception) { null }
+                } ?: "HTTP ${response.code()}: Failed to fetch user activity"
+                Result.failure(Exception(errMsg))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch user activity: ${e.message}", e)
