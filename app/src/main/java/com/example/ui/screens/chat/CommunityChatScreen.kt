@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/chat/CommunityChatScreen.kt ---
+
 @file:OptIn(
     ExperimentalMaterial3Api::class,
     ExperimentalLayoutApi::class,
@@ -55,6 +57,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
@@ -213,7 +218,7 @@ fun CommunityChatScreen(
             if (alreadyJoined) {
                 isUserJoined = true
                 chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
+                // Presence will be handled by the Lifecycle DisposableEffect
             }
         }
     }
@@ -254,8 +259,66 @@ fun CommunityChatScreen(
     var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioMediaPlayer = remember { MediaPlayer() }
 
-    DisposableEffect(Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // =========================================================================
+    // 💡 Smart Real-time Presence Observer
+    // =========================================================================
+    DisposableEffect(lifecycleOwner, currentUserId, isUserJoined, isUserVip) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (isUserJoined) {
+                when (event) {
+                    Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
+                        FirebaseChatManager.updateUserPresence(
+                            userId = currentUserId,
+                            userName = currentUserName,
+                            userAvatar = currentUserAvatar,
+                            userEmail = currentUserEmail,
+                            isVip = isUserVip,
+                            isOnline = true
+                        )
+                    }
+                    Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                        FirebaseChatManager.updateUserPresence(
+                            userId = currentUserId,
+                            userName = currentUserName,
+                            userAvatar = currentUserAvatar,
+                            userEmail = currentUserEmail,
+                            isVip = isUserVip,
+                            isOnline = false
+                        )
+                    }
+                    else -> {}
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        if (isUserJoined) {
+            FirebaseChatManager.subscribeToUserTopic(currentUserId)
+            FirebaseChatManager.updateUserPresence(
+                userId = currentUserId,
+                userName = currentUserName,
+                userAvatar = currentUserAvatar,
+                userEmail = currentUserEmail,
+                isVip = isUserVip,
+                isOnline = true
+            )
+        }
+
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (isUserJoined) {
+                FirebaseChatManager.updateUserPresence(
+                    userId = currentUserId,
+                    userName = currentUserName,
+                    userAvatar = currentUserAvatar,
+                    userEmail = currentUserEmail,
+                    isVip = isUserVip,
+                    isOnline = false
+                )
+            }
             try { audioMediaPlayer.release() } catch (_: Exception) {}
             try {
                 mediaRecorder?.release()
@@ -303,16 +366,6 @@ fun CommunityChatScreen(
 
     val isCurrentUserBlocked by produceState(initialValue = false) {
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
-    }
-
-    LaunchedEffect(currentUserId, isUserJoined, isUserVip) {
-        if (isUserJoined) {
-            FirebaseChatManager.subscribeToUserTopic(currentUserId)
-            while (isUserJoined) {
-                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
-                delay(25000L)
-            }
-        }
     }
 
     val multiImagePickerLauncher = rememberLauncherForActivityResult(
