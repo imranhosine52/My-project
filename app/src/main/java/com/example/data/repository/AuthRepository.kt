@@ -321,7 +321,7 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🌐 ৩. GOOGLE AUTHENTICATION (Device ID + IP লিমিট ভেরিফিকেশন সহ)
+    // 🌐 ৩. GOOGLE AUTHENTICATION (একক ও সুরক্ষিত এন্ডপয়েন্ট কল)
     // =========================================================================
     suspend fun authenticateWithGoogle(
         googleId: String,
@@ -340,11 +340,8 @@ class AuthRepository(
         )
         
         try {
-            val response = try {
-                apiService.authenticateGoogle(request)
-            } catch (e: Exception) {
-                apiService.authenticateGoogleDirect(request)
-            }
+            // 🎯 ডুপ্লিকেট fallback মুছে একক Retrofit মেথড ব্যবহার
+            val response = apiService.authenticateGoogle(request)
 
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val body = response.body()!!
