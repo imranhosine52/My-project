@@ -23,6 +23,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,8 +47,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -108,6 +115,108 @@ private fun formatMiniActiveActionsText(actions: List<UserChatStatus>): String {
     }
 }
 
+/**
+ * 🎨 আপনার দেওয়া ছবির হুবহু ভেক্টর আইকন (ভেতরে ৩টি বার এবং নির্দিষ্ট স্থানে লাইভ ব্যাজ)
+ */
+@Composable
+fun CustomWaveformChatIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFF00E5FF),
+    unreadCount: Int = 0
+) {
+    Box(
+        modifier = modifier.size(42.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val strokeW = 2.4.dp.toPx()
+
+            // ১. বাইরের রাউন্ডেড স্পিচ বাবল (Speech Bubble with tail)
+            val cx = w * 0.50f
+            val cy = h * 0.44f
+            val r = w * 0.40f
+
+            val bubblePath = Path().apply {
+                arcTo(
+                    rect = Rect(cx - r, cy - r, cx + r, cy + r),
+                    startAngleDegrees = 125f,
+                    sweepAngleDegrees = 330f,
+                    forceMoveTo = true
+                )
+                // নিচে-বামের লেজ (Pointer)
+                lineTo(w * 0.16f, h * 0.92f)
+                lineTo(w * 0.32f, cy + r * 0.85f)
+            }
+
+            drawPath(
+                path = bubblePath,
+                color = tint,
+                style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // ২. ভেতরের ৩টি উল্লম্ব বার (Waveform bars)
+            val barWidth = 2.6.dp.toPx()
+            val barYCenter = h * 0.44f
+
+            // বাম পাশের বার (ছোট)
+            val leftBarH = h * 0.22f
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.38f, barYCenter - leftBarH / 2f),
+                end = Offset(w * 0.38f, barYCenter + leftBarH / 2f),
+                strokeWidth = barWidth,
+                cap = StrokeCap.Round
+            )
+
+            // মাঝের বার (লম্বা)
+            val midBarH = h * 0.38f
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.50f, barYCenter - midBarH / 2f),
+                end = Offset(w * 0.50f, barYCenter + midBarH / 2f),
+                strokeWidth = barWidth,
+                cap = StrokeCap.Round
+            )
+
+            // ডান পাশের বার (ছোট)
+            val rightBarH = h * 0.22f
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.62f, barYCenter - rightBarH / 2f),
+                end = Offset(w * 0.62f, barYCenter + rightBarH / 2f),
+                strokeWidth = barWidth,
+                cap = StrokeCap.Round
+            )
+        }
+
+        // 🎯 ৩. ঠিক ছবির লাল গোল দাগ দেওয়া অংশে (Top-Right inside the bubble) লাইভ মেসেজ কাউন্টার ব্যাজ
+        if (unreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-4).dp, y = 5.dp) // ছবির নির্দিষ্ট চিহ্নিত স্থান
+                    .defaultMinSize(minWidth = 14.dp, minHeight = 14.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF2A4B))
+                    .border(0.8.dp, Color(0xFF080C14), CircleShape)
+                    .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (unreadCount > 99) "99+" else "$unreadCount",
+                    color = Color.White,
+                    fontSize = 7.5.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 8.5.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun FloatingCommunityChatWidget(
     currentUserId: String,
@@ -130,7 +239,11 @@ fun FloatingCommunityChatWidget(
 
     val isImeVisible = WindowInsets.isImeVisible
 
-    // উইন্ডো জাম্প বন্ধ রাখতে SOFT_INPUT_ADJUST_NOTHING
+    // 🛡️ রিয়েল-টাইম ব্লক চেকার (অ্যাডমিন ব্লক করলে তাৎক্ষণিক শনাক্ত হবে)
+    val isUserBlocked by produceState(initialValue = false, currentUserId) {
+        FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
+    }
+
     DisposableEffect(isExpanded, activity) {
         if (isExpanded) {
             val originalMode = activity?.window?.attributes?.softInputMode ?: WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -192,6 +305,11 @@ fun FloatingCommunityChatWidget(
     }
 
     fun startRecording() {
+        if (isUserBlocked) {
+            Toast.makeText(context, "You are blocked by admin and cannot record voice notes.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         try {
             val audioFile = File(context.cacheDir, "mini_voice_${System.currentTimeMillis()}.m4a")
             tempAudioFile = audioFile
@@ -237,6 +355,11 @@ fun FloatingCommunityChatWidget(
     }
 
     fun toggleVoiceRecord() {
+        if (isUserBlocked) {
+            Toast.makeText(context, "You are blocked from sending voice notes.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         if (!isRecordingVoice) {
             val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             if (hasPerm) startRecording()
@@ -290,7 +413,7 @@ fun FloatingCommunityChatWidget(
     }
 
     // =========================================================================
-    // 🔴 লাইভ আনরিড (Unread) মেসেজ কাউন্টার ট্র্যাকার
+    // 🔴 লাইভ আনরিড (Unread) মেসেজ কাউন্টার
     // =========================================================================
     var lastReadTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var unreadCount by remember { mutableIntStateOf(0) }
@@ -311,7 +434,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // চ্যাট ওপেন করলেই আনরিড কাউন্ট ০ হয়ে যাবে
     LaunchedEffect(isExpanded) {
         if (isExpanded) {
             unreadCount = 0
@@ -366,6 +488,11 @@ fun FloatingCommunityChatWidget(
 
     fun sendStickerOrGif(mediaUrl: String) {
         if (isSending) return
+        if (isUserBlocked) {
+            Toast.makeText(context, "You are blocked by admin and cannot send stickers.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         showMediaPicker = false
         val replyTarget = replyingToMessage
         replyingToMessage = null
@@ -385,6 +512,13 @@ fun FloatingCommunityChatWidget(
 
     fun sendMediaOrTextMessage() {
         if (isSending) return
+
+        // 🛡️ ব্লক গার্ড: ব্লক থাকলে মেসেজ সেন্ড পুরোপুরি বন্ধ
+        if (isUserBlocked) {
+            Toast.makeText(context, "🚫 You are blocked by admin and cannot send messages.", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val text = messageInput.trim()
         val images = selectedImageUris
         val video = selectedVideoUri
@@ -858,110 +992,144 @@ fun FloatingCommunityChatWidget(
                         )
                     }
 
-                    // টাইপিং ইনপুট বার
+                    // =====================================================================
+                    // 🛡️ টাইপিং ইনপুট বার (ব্লক করা হলে লাল নোটিশ এবং ইনপুট লক)
+                    // =====================================================================
                     Surface(
                         color = Color(0xFF141A24),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF0E131C),
-                            border = BorderStroke(1.dp, Color(0xFF222C3E)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                                if (isRecordingVoice) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().height(32.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
+                        if (isUserBlocked) {
+                            // 🚫 ব্লকড ইউজারদের জন্য ইনপুট ডিজেবল ব্যানার
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF261014))
+                                    .border(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Block,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF5252),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "You are blocked by admin and cannot send messages.",
+                                        color = Color(0xFFFF8A80),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF0E131C),
+                                border = BorderStroke(1.dp, Color(0xFF222C3E)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                    if (isRecordingVoice) {
                                         Row(
+                                            modifier = Modifier.fillMaxWidth().height(32.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
-                                            Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
+                                                Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("Cancel", color = Color(0xFFFF5252), fontSize = 11.sp, modifier = Modifier.clickable { cancelVoiceRecord() })
+                                                Text("Send", color = Color(0xFF00E676), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { toggleVoiceRecord() })
+                                            }
                                         }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text("Cancel", color = Color(0xFFFF5252), fontSize = 11.sp, modifier = Modifier.clickable { cancelVoiceRecord() })
-                                            Text("Send", color = Color(0xFF00E676), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { toggleVoiceRecord() })
-                                        }
-                                    }
-                                } else {
-                                    BasicTextField(
-                                        value = messageInput,
-                                        onValueChange = {
-                                            messageInput = it
-                                            if (it.isNotBlank()) {
-                                                typingStatusJob?.cancel()
-                                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
-                                                typingStatusJob = coroutineScope.launch {
-                                                    delay(3000L)
+                                    } else {
+                                        BasicTextField(
+                                            value = messageInput,
+                                            onValueChange = {
+                                                messageInput = it
+                                                if (it.isNotBlank()) {
+                                                    typingStatusJob?.cancel()
+                                                    FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
+                                                    typingStatusJob = coroutineScope.launch {
+                                                        delay(3000L)
+                                                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                                                    }
+                                                } else {
+                                                    typingStatusJob?.cancel()
                                                     FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
                                                 }
-                                            } else {
-                                                typingStatusJob?.cancel()
-                                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                                            }
-                                        },
-                                        textStyle = TextStyle(color = Color.White, fontSize = 12.sp, lineHeight = 15.sp),
-                                        cursorBrush = SolidColor(Color(0xFF00E676)),
-                                        singleLine = false,
-                                        maxLines = 3,
-                                        decorationBox = { inner ->
-                                            if (messageInput.isEmpty() && selectedImageUris.isEmpty() && selectedVideoUri == null) {
-                                                Text("Compose your message...", color = Color(0xFF717D94), fontSize = 11.5.sp)
-                                            }
-                                            inner()
-                                        },
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp, max = 46.dp)
-                                    )
+                                            },
+                                            textStyle = TextStyle(color = Color.White, fontSize = 12.sp, lineHeight = 15.sp),
+                                            cursorBrush = SolidColor(Color(0xFF00E676)),
+                                            singleLine = false,
+                                            maxLines = 3,
+                                            decorationBox = { inner ->
+                                                if (messageInput.isEmpty() && selectedImageUris.isEmpty() && selectedVideoUri == null) {
+                                                    Text("Compose your message...", color = Color(0xFF717D94), fontSize = 11.5.sp)
+                                                }
+                                                inner()
+                                            },
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp, max = 46.dp)
+                                        )
 
-                                    Spacer(modifier = Modifier.height(2.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                                contentDescription = "Emojis & Stickers",
-                                                tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { showMediaPicker = !showMediaPicker }
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                                                    contentDescription = "Emojis & Stickers",
+                                                    tint = Color(0xFF8692A6),
+                                                    modifier = Modifier.size(17.dp).clickable { showMediaPicker = !showMediaPicker }
+                                                )
 
-                                            Icon(
-                                                imageVector = Icons.Outlined.AttachFile,
-                                                contentDescription = "Attach",
-                                                tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { showAttachSheet = true }
-                                            )
+                                                Icon(
+                                                    imageVector = Icons.Outlined.AttachFile,
+                                                    contentDescription = "Attach",
+                                                    tint = Color(0xFF8692A6),
+                                                    modifier = Modifier.size(17.dp).clickable { showAttachSheet = true }
+                                                )
 
-                                            Icon(
-                                                imageVector = Icons.Default.GraphicEq,
-                                                contentDescription = "Voice",
-                                                tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { toggleVoiceRecord() }
-                                            )
-                                        }
+                                                Icon(
+                                                    imageVector = Icons.Default.GraphicEq,
+                                                    contentDescription = "Voice",
+                                                    tint = Color(0xFF8692A6),
+                                                    modifier = Modifier.size(17.dp).clickable { toggleVoiceRecord() }
+                                                )
+                                            }
 
-                                        IconButton(
-                                            onClick = { sendMediaOrTextMessage() },
-                                            enabled = messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null,
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Send",
-                                                tint = if (messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null) Color(0xFF00E676) else Color(0xFF384354),
-                                                modifier = Modifier.size(15.dp)
-                                            )
+                                            IconButton(
+                                                onClick = { sendMediaOrTextMessage() },
+                                                enabled = messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null,
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                                    contentDescription = "Send",
+                                                    tint = if (messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null) Color(0xFF00E676) else Color(0xFF384354),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -973,7 +1141,7 @@ fun FloatingCommunityChatWidget(
         }
 
         // =========================================================================
-        // 🎯 ব্যাকগ্রাউন্ড ও "Help?" ছাড়া শুধু ক্লিন চ্যাট আইকন এবং লাইভ মেসেজ কাউন্টার ব্যাজ
+        // 💬 কলাপ্সড ফ্লোটিং বাটন (ছবির হুবহু কাস্টম আইকন ও লাল গোল দাগের ভেতরের ব্যাজ)
         // =========================================================================
         if (!isImeVisible) {
             Box(
@@ -983,13 +1151,13 @@ fun FloatingCommunityChatWidget(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) { isExpanded = !isExpanded }
-                    .padding(4.dp),
+                    .padding(2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (isExpanded) {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.65f)),
                         contentAlignment = Alignment.Center
@@ -998,46 +1166,15 @@ fun FloatingCommunityChatWidget(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 } else {
-                    Box(
-                        modifier = Modifier.size(34.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // 💬 পরিচ্ছন্ন সায়ান চ্যাট আইকন (কোনো ডার্ক ব্যাকগ্রাউন্ড ছাড়া)
-                        Icon(
-                            imageVector = Icons.Default.ChatBubble,
-                            contentDescription = "Community Chat",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(27.dp)
-                        )
-
-                        // 🔴 নতুন মেসেজ কাউন্টার ব্যাজ (আইকনের ওপরের ডান কোণায়)
-                        if (unreadCount > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(x = 6.dp, y = (-4).dp)
-                                    .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFFF2A4B))
-                                    .border(1.dp, Color(0xFF080C14), CircleShape)
-                                    .padding(horizontal = 4.dp, vertical = 1.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (unreadCount > 99) "99+" else "$unreadCount",
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black,
-                                    lineHeight = 10.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
+                    // 🎯 ছবির হুবহু ৩-বার বিশিষ্ট স্পিচ বাবল আইকন (ভেতরে চিহ্নিত স্থানে ব্যাজ সহ)
+                    CustomWaveformChatIcon(
+                        tint = Color(0xFF00E5FF),
+                        unreadCount = unreadCount
+                    )
                 }
             }
         }
