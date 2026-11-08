@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens.analytics.tabs
 
@@ -9,7 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border // 👈 এরর মুক্ত করার জন্য নিশ্চিত ইমপোর্ট
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +44,7 @@ import com.example.data.model.LiveCountryStat
 import com.example.data.model.LivePostStat
 import com.example.data.model.LiveScreenStat
 import com.example.data.model.PublicLiveAnalyticsResponse
+import java.util.Locale
 
 // 🎨 ইউটিউব স্টুডিও ডার্ক থিম কালার প্যালেট
 private val CardBg = Color(0xFF10141F)
@@ -65,7 +69,7 @@ fun AnalyticsAudienceTab(
     val subTabs = listOf("Live & Activity", "Country & Age")
 
     // 🟢 লাইভ স্পন্দন অ্যানিমেশন
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val infiniteTransition = rememberInfiniteTransition(label = "audience_pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
         targetValue = 1.25f,
@@ -103,7 +107,7 @@ fun AnalyticsAudienceTab(
                     val isSelected = (selectedSubTab == index)
                     Box(
                         modifier = Modifier
-                            .height(28.dp) // 🎯 চিকন স্লিম উচ্চতা
+                            .height(28.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .background(if (isSelected) Color.White else Color.Transparent)
                             .clickable { selectedSubTab = index }
@@ -113,7 +117,7 @@ fun AnalyticsAudienceTab(
                         Text(
                             text = title,
                             color = if (isSelected) Color.Black else TextMuted,
-                            fontSize = 11.5.sp, // 🎯 কমপ্যাক্ট ফন্ট
+                            fontSize = 11.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }
@@ -159,6 +163,13 @@ private fun LiveAndActivitySubTab(
     pulseScale: Float,
     onPostClick: (slug: String) -> Unit
 ) {
+    // ⚡ ৩-সেকেন্ড লাইভ অনলাইন কাউন্টার অ্যানিমেশন
+    val animatedLiveCount by animateIntAsState(
+        targetValue = liveCount.coerceAtLeast(1),
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        label = "anim_live_count"
+    )
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -197,7 +208,7 @@ private fun LiveAndActivitySubTab(
                         )
 
                         Text(
-                            text = PublicLiveAnalyticsResponse.formatMetric(liveCount.toLong()),
+                            text = PublicLiveAnalyticsResponse.formatMetric(animatedLiveCount.toLong()),
                             color = Color.White,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black
@@ -365,7 +376,6 @@ private fun LiveAndActivitySubTab(
             }
         } else {
             items(topPosts) { post ->
-                // 🎯 লম্বা SEO টাইটেল ফিল্টার করে সুন্দর সংক্ষিপ্ত Display Name বানানো
                 val cleanDisplayName = remember(post.title) {
                     val raw = post.title.split("|")[0].split(" - Ep")[0].trim()
                     if (raw.contains("Dubbed", ignoreCase = true)) {
@@ -417,7 +427,7 @@ private fun LiveAndActivitySubTab(
 
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text(
-                                    text = cleanDisplayName, // 👈 সংক্ষিপ্ত পরিষ্কার ডিসপ্লে নাম
+                                    text = cleanDisplayName,
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -450,7 +460,6 @@ private fun LiveAndActivitySubTab(
                                     fontWeight = FontWeight.Bold
                                 )
 
-                                // কত মিনিট ধরে ইউজার আছে তা প্রদর্শন
                                 val durationText = post.durationText ?: "${post.durationMinutes ?: 1}m"
                                 Text(
                                     text = "• $durationText",
@@ -518,6 +527,12 @@ private fun CountryAndAgeSubTab(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     countries.forEach { country ->
+                        val animatedPercentage by animateFloatAsState(
+                            targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
+                            animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                            label = "country_bar_${country.code}"
+                        )
+
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -528,7 +543,6 @@ private fun CountryAndAgeSubTab(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // 🎯 দেশের পতাকা গোল সার্কেল ব্যাজে
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
@@ -557,7 +571,7 @@ private fun CountryAndAgeSubTab(
                             }
 
                             LinearProgressIndicator(
-                                progress = { (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f) },
+                                progress = { animatedPercentage },
                                 color = CyanText,
                                 trackColor = Color(0xFF181F2E),
                                 modifier = Modifier
@@ -615,7 +629,7 @@ private fun CountryAndAgeSubTab(
                     finalAgeList.forEach { ageItem ->
                         val animatedRatio by animateFloatAsState(
                             targetValue = ageItem.ratio,
-                            animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
                             label = "age_bar_${ageItem.group}"
                         )
 
