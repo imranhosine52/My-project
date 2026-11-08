@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.drawable.Icon
 import android.media.MediaMetadata
 import android.media.MediaMetadataRetriever
 import android.media.session.MediaSession
@@ -69,6 +70,9 @@ object LocalAudioPlayerManager {
 
     private var positionJob: Job? = null
     private var isReceiverRegistered = false
+
+    // 🖼️ হাই-পারফরম্যান্স কভার আর্ট ক্যাশিং (যাতে Play/Pause করলে ফ্লিকার না করে)
+    private var cachedCoverBitmap: Bitmap? = null
 
     // 📻 নোটিফিকেশন বাটন রিসিভার
     private val notificationReceiver = object : BroadcastReceiver() {
@@ -161,7 +165,30 @@ object LocalAudioPlayerManager {
         player.prepare()
         player.play()
 
-        syncMediaMetadata(track, null)
+        // গান প্লে হওয়ার সাথে সাথেই ব্যাকগ্রাউন্ডে কভার ফটো লোড করা হবে
+        scope.launch(Dispatchers.IO) {
+            cachedCoverBitmap = extractAlbumArt(context, track)
+            withContext(Dispatchers.Main) {
+                syncMediaMetadata(track, cachedCoverBitmap)
+                updateNotification()
+            }
+        }
+    }
+
+    private fun extractAlbumArt(context: Context, track: LocalVideoItem): Bitmap? {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            if (track.path.isNotBlank() && File(track.path).exists()) {
+                retriever.setDataSource(track.path)
+            } else {
+                retriever.setDataSource(context, Uri.parse(track.contentUriString))
+            }
+            val raw = retriever.embeddedPicture
+            retriever.release()
+            if (raw != null) BitmapFactory.decodeByteArray(raw, 0, raw.size) else null
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun resume() {
@@ -203,7 +230,7 @@ object LocalAudioPlayerManager {
         playPrevious()
     }
 
-    fun playPrevious() {
+    private fun playPrevious() {
         val current = _currentTrack.value ?: return
         val list = _playlist.value
         val currentIndex = list.indexOfFirst { it.id == current.id }
@@ -221,6 +248,7 @@ object LocalAudioPlayerManager {
         exoPlayer?.stop()
         _isPlaying.value = false
         _isMiniPlayerVisible.value = false
+        cachedCoverBitmap = null
         stopPositionTracker()
         mediaSession?.isActive = false
         cancelNotification()
@@ -248,7 +276,6 @@ object LocalAudioPlayerManager {
     // 🎛️ মিডিয়া সেশন সিঙ্ক (থ্রেড-সেফ)
     // =========================================================================
     private fun syncPlaybackState() {
-        // 🎯 ফিক্সড: ক্র্যাশ এড়াতে exoPlayer এর বদলে StateFlow ব্যবহার করা হলো
         val isPlayingState = _isPlaying.value
         val position = _currentPositionMs.value
         val speed = if (isPlayingState) 1.0f else 0f
@@ -322,94 +349,60 @@ object LocalAudioPlayerManager {
         val track = _currentTrack.value ?: return
         val session = mediaSession ?: return
 
-        scope.launch(Dispatchers.IO) {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            var coverBitmap: Bitmap? = null
-            try {
-                val retriever = MediaMetadataRetriever()
-                if (track.path.isNotBlank() && File(track.path).exists()) {
-                    retriever.setDataSource(track.path)
-                } else {
-                    retriever.setDataSource(context, Uri.parse(track.contentUriString))
-                }
-                val raw = retriever.embeddedPicture
-                retriever.release()
-                if (raw != null) {
-                    coverBitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size)
-                }
-            } catch (_: Exception) {}
-
-            // 🎯 মেইন থ্রেডে ফিরে গিয়ে সিঙ্ক করা (Crash Prevention)
-            withContext(Dispatchers.Main) {
-                syncMediaMetadata(track, coverBitmap)
-                syncPlaybackState()
-            }
-
-            val openAppIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val contentPendingIntent = PendingIntent.getActivity(
-                context, 0, openAppIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // 🎯 Android 14 সেফটি: setPackage(context.packageName) যুক্ত করা হয়েছে
-            val prevIntent = PendingIntent.getBroadcast(
-                context, 1, Intent(ACTION_PREV).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val playPauseIntent = PendingIntent.getBroadcast(
-                context, 2, Intent(ACTION_PLAY_PAUSE).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val nextIntent = PendingIntent.getBroadcast(
-                context, 3, Intent(ACTION_NEXT).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val stopIntent = PendingIntent.getBroadcast(
-                context, 4, Intent(ACTION_STOP).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val isCurrentlyPlaying = _isPlaying.value
-            val playPauseIcon = if (isCurrentlyPlaying) {
-                android.R.drawable.ic_media_pause
-            } else {
-                android.R.drawable.ic_media_play
-            }
-
-            // 🌟 অ্যান্ড্রয়েডের আসল বিল্ট-ইন MediaStyle
-            val mediaStyle = Notification.MediaStyle()
-                .setMediaSession(session.sessionToken)
-                .setShowActionsInCompactView(0, 1, 2)
-
-            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(context, CHANNEL_ID)
-            } else {
-                @Suppress("DEPRECATION")
-                Notification.Builder(context)
-            }
-
-            val notification = builder
-                .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle(track.displayName.ifBlank { track.title })
-                .setContentText(track.folderName.ifBlank { "Music" })
-                .setSubText(track.folderName.ifBlank { "Local Audio" })
-                .setContentIntent(contentPendingIntent)
-                .setDeleteIntent(stopIntent)
-                .setOngoing(isCurrentlyPlaying)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setStyle(mediaStyle)
-                // আসল প্রফেশনাল মিডিয়া আইকন বাটন
-                .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
-                .addAction(playPauseIcon, if (isCurrentlyPlaying) "Pause" else "Play", playPauseIntent)
-                .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
-                .apply {
-                    if (coverBitmap != null) {
-                        setLargeIcon(coverBitmap)
-                    }
-                }
-                .build()
-
-            notificationManager.notify(NOTIFICATION_ID, notification)
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context, 0, openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 🎯 Android 14 সেফটি: setPackage(context.packageName)
+        val prevIntent = PendingIntent.getBroadcast(context, 1, Intent(ACTION_PREV).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val playPauseIntent = PendingIntent.getBroadcast(context, 2, Intent(ACTION_PLAY_PAUSE).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val nextIntent = PendingIntent.getBroadcast(context, 3, Intent(ACTION_NEXT).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stopIntent = PendingIntent.getBroadcast(context, 4, Intent(ACTION_STOP).setPackage(context.packageName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+        val isCurrentlyPlaying = _isPlaying.value
+        val playPauseIcon = if (isCurrentlyPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+
+        // 🌟 অ্যান্ড্রয়েডের আসল বিল্ট-ইন MediaStyle
+        val mediaStyle = Notification.MediaStyle()
+            .setMediaSession(session.sessionToken)
+            .setShowActionsInCompactView(0, 1, 2) // Prev, Play/Pause, Next (Close will be hidden in compact mode)
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(context)
+        }
+
+        val notification = builder
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(track.displayName.ifBlank { track.title })
+            .setContentText(track.folderName.ifBlank { "Music" })
+            .setSubText("PlayDramaFlix Audio")
+            .setContentIntent(contentPendingIntent)
+            .setDeleteIntent(stopIntent) // 👈 পজ থাকা অবস্থায় সোয়াইপ করলে প্লেয়ার পুরোপুরি বন্ধ হয়ে যাবে
+            .setOngoing(isCurrentlyPlaying) // 👈 প্লে থাকা অবস্থায় নোটিফিকেশন মোছা যাবে না, পজ করলে মোছা যাবে
+            .setVisibility(Notification.VISIBILITY_PUBLIC) // লক স্ক্রিনে সুন্দরভাবে দেখাবে
+            .setStyle(mediaStyle)
+            // 🔘 ৫টি প্রফেশনাল মিডিয়া আইকন বাটন
+            .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
+            .addAction(playPauseIcon, if (isCurrentlyPlaying) "Pause" else "Play", playPauseIntent)
+            .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Close", stopIntent) // ✕ ক্লোজ বাটন
+            .apply {
+                if (cachedCoverBitmap != null) {
+                    setLargeIcon(cachedCoverBitmap) // কভার আর্ট ব্যাকগ্রাউন্ড হবে
+                }
+            }
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun cancelNotification() {
