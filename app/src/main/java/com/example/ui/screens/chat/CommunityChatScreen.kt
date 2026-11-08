@@ -1,5 +1,3 @@
---- START OF FILE ui/screens/chat/CommunityChatScreen.kt ---
-
 @file:OptIn(
     ExperimentalMaterial3Api::class,
     ExperimentalLayoutApi::class,
