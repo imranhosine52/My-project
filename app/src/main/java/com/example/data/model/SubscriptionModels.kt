@@ -137,11 +137,11 @@ data class GatewayItemDto(
 
 @JsonClass(generateAdapter = true)
 data class SubscriptionSubmitRequest(
-    @Json(name = "user_id") val userId: Any,
+    @Json(name = "user_id") val userId: String,
     @Json(name = "user_name") val userName: String? = null,
     @Json(name = "user_email") val userEmail: String? = null,
     @Json(name = "user_phone") val userPhone: String? = null,
-    @Json(name = "plan_id") val planId: Any,
+    @Json(name = "plan_id") val planId: String,
     @Json(name = "plan_name") val planName: String? = null,
     @Json(name = "payment_method") val paymentMethod: String,
     @Json(name = "crypto_network") val cryptoNetwork: String? = null,
@@ -149,7 +149,35 @@ data class SubscriptionSubmitRequest(
     @Json(name = "sender_number") val senderNumber: String? = null,
     @Json(name = "amount") val amount: Double? = null,
     @Json(name = "notes") val notes: String? = null
-)
+) {
+    constructor(
+        userId: Any,
+        userName: String? = null,
+        userEmail: String? = null,
+        userPhone: String? = null,
+        planId: Any,
+        planName: String? = null,
+        paymentMethod: String,
+        cryptoNetwork: String? = null,
+        trxId: String,
+        senderNumber: String? = null,
+        amount: Double? = null,
+        notes: String? = null
+    ) : this(
+        userId = userId.toString(),
+        userName = userName,
+        userEmail = userEmail,
+        userPhone = userPhone,
+        planId = planId.toString(),
+        planName = planName,
+        paymentMethod = paymentMethod,
+        cryptoNetwork = cryptoNetwork,
+        trxId = trxId,
+        senderNumber = senderNumber,
+        amount = amount,
+        notes = notes
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class InvoiceItemDto(
@@ -257,7 +285,7 @@ data class SubscriptionStatusResponse(
 }
 
 // =============================================================================
-// 🎁 নতুন সংযোজন: প্রমো কোড রিকোয়েস্ট ও রেসপন্স মডেল (PHP API এর সাথে ১০০% সামঞ্জস্যপূর্ণ)
+// 🎁 প্রমো কোড রিকোয়েস্ট ও রেসপন্স মডেল
 // =============================================================================
 
 @JsonClass(generateAdapter = true)
