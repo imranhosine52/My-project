@@ -7,6 +7,7 @@ import com.example.data.local.DramaStatsEntity
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
+import com.example.util.AppAnalyticsTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -19,6 +20,12 @@ class InteractionRepository(
 ) {
     private val dramaStatsDao = database.dramaStatsDao()
     private val viewsCachePrefs = context.getSharedPreferences("play_drama_flix_views_24h_cache", Context.MODE_PRIVATE)
+
+    companion object {
+        private const val TAG = "InteractionRepo"
+        // ⏱️ একই ডিভাইস থেকে বারবার ভিউ স্প্যাম রোধে ১৫ মিনিটের সেশন ইন্টারভাল
+        private const val VIEW_COOLDOWN_MS = 15 * 60 * 1000L
+    }
 
     // =========================================================================
     // 📊 1. LOCAL ROOM STATS & OBSERVABLES
@@ -62,10 +69,10 @@ class InteractionRepository(
             try {
                 apiService.recordView(slug)
             } catch (e: Exception) {
-                Log.d("InteractionRepo", "Server view record offline sync: ${e.message}")
+                Log.d(TAG, "Server view record offline sync: ${e.message}")
             }
         } catch (e: Exception) {
-            Log.e("InteractionRepo", "Error recording organic view", e)
+            Log.e(TAG, "Error recording organic view", e)
         }
     }
 
@@ -90,31 +97,30 @@ class InteractionRepository(
         try {
             apiService.toggleLike(slug, mapOf("liked" to newLiked))
         } catch (e: Exception) {
-            Log.d("InteractionRepo", "Server like toggle offline sync: ${e.message}")
+            Log.d(TAG, "Server like toggle offline sync: ${e.message}")
         }
         updated
     }
 
     // =========================================================================
-    // ⏱️ 2. 24-HOUR VIDEO VIEW CACHING ENGINE
+    // ⏱️ 2. লাইভ ভিডিও ভিউ ও সেশন ট্র্যাকিং ইঞ্জিন
     // =========================================================================
 
     fun shouldRecord24hView(contentId: Any): Boolean {
         val idStr = contentId.toString()
         val lastRecordedTime = viewsCachePrefs.getLong("last_view_time_$idStr", 0L)
         val currentTime = System.currentTimeMillis()
-        val twentyFourHoursMs = 24 * 60 * 60 * 1000L
-        return (currentTime - lastRecordedTime) >= twentyFourHoursMs
+        return (currentTime - lastRecordedTime) >= VIEW_COOLDOWN_MS
     }
 
     fun mark24hViewRecorded(contentId: Any, updatedViews: Long = 0L) {
         val idStr = contentId.toString()
         val currentTime = System.currentTimeMillis()
-        val cacheJson = "{\"content_id\":\"$idStr\",\"last_view_time\":$currentTime,\"cached_views\":$updatedViews}"
         viewsCachePrefs.edit().apply {
             putLong("last_view_time_$idStr", currentTime)
-            putLong("cached_views_$idStr", updatedViews)
-            putString("cache_json_$idStr", cacheJson)
+            if (updatedViews > 0L) {
+                putLong("cached_views_$idStr", updatedViews)
+            }
             apply()
         }
     }
@@ -148,12 +154,10 @@ class InteractionRepository(
                 Result.success(body)
             } else {
                 val prev = getCached24hViews(contentId)
-                mark24hViewRecorded(contentId, prev)
                 Result.success(ViewIncrementResponse(success = true, contentId = contentId, totalViews = prev, views = prev))
             }
         } catch (e: Exception) {
             val prev = getCached24hViews(contentId)
-            mark24hViewRecorded(contentId, prev)
             Result.success(ViewIncrementResponse(success = true, contentId = contentId, totalViews = prev, views = prev))
         }
     }
@@ -163,7 +167,7 @@ class InteractionRepository(
     // =========================================================================
 
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> = withContext(Dispatchers.IO) {
-        val uid = authRepository.getSavedUserId().takeIf { it.isNotBlank() } ?: "5"
+        val uid = authRepository.getSavedUserId().takeIf { it.isNotBlank() }
         try {
             val response = apiService.toggleInteractionLike(
                 LikeToggleRequest(
@@ -173,7 +177,11 @@ class InteractionRepository(
                 )
             )
             if (response.isSuccessful && response.body() != null) {
-                Result.success(response.body()!!)
+                val body = response.body()!!
+                // লোকাল Room ডেটাবেজে লাইক কাউন্ট সিঙ্ক করা
+                val slugKey = contentId.toString()
+                dramaStatsDao.updateLike(slugKey, body.effectiveIsLiked, body.effectiveLikes.toInt())
+                Result.success(body)
             } else {
                 Result.failure(Exception("HTTP ${response.code()}: Failed to toggle like on server"))
             }
@@ -208,13 +216,16 @@ class InteractionRepository(
         }
     }
 
+    /**
+     * 📊 লাইভ স্ট্যাটাস ফেচিং (এরর হলেও আগের ডেটা ধরে রাখবে, ০ দিয়ে মুছবে না)
+     */
     suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> = withContext(Dispatchers.IO) {
         val savedUid = authRepository.getSavedUserId().takeIf { it.isNotBlank() }
         try {
             val response = apiService.getInteractionStatus(
                 contentId = contentId, 
                 episodeId = episodeId,
-                userId = savedUid // 👈 বর্তমান ইউজারের রিঅ্যাকশন জানার জন্য
+                userId = savedUid
             )
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
@@ -223,39 +234,17 @@ class InteractionRepository(
                 }
                 Result.success(body)
             } else {
-                val cachedViews = getCached24hViews(contentId)
-                Result.success(
-                    InteractionStatusResponse(
-                        success = false,
-                        contentId = contentId,
-                        views = cachedViews,
-                        totalLikes = 0L,
-                        isLiked = false,
-                        totalComments = 0,
-                        myReaction = null,
-                        reactions = emptyMap()
-                    )
-                )
+                // সার্ভার এরর হলে ফেলিউর হিসেবে পাঠানো যাতে বর্তমান স্টেট মুছে না যায়
+                Result.failure(Exception("HTTP ${response.code()}: Failed to fetch interaction status"))
             }
         } catch (e: Exception) {
-            val cachedViews = getCached24hViews(contentId)
-            Result.success(
-                InteractionStatusResponse(
-                    success = false,
-                    contentId = contentId,
-                    views = cachedViews,
-                    totalLikes = 0L,
-                    isLiked = false,
-                    totalComments = 0,
-                    myReaction = null,
-                    reactions = emptyMap()
-                )
-            )
+            // নেটওয়ার্ক টাইমআউট হলে ফেলিউর রিটার্ন করা যাতে ইউজার ইন্টারফেস ০ না হয়ে যায়
+            Result.failure(e)
         }
     }
 
     // =========================================================================
-    // 💬 4. POST-WIDE COMMENTS & THREADED REPLIES
+    // 💬 4. কমেন্ট তালিকা ও কমেন্ট যোগ করার মেথড
     // =========================================================================
 
     suspend fun fetchCommentsList(
@@ -264,27 +253,23 @@ class InteractionRepository(
         userId: Any? = null
     ): Result<List<DramaApiComment>> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.getComments(contentId = contentId, episodeId = null, userId = null)
+            val response = apiService.getComments(contentId = contentId, episodeId = episodeId, userId = userId)
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!.commentsList
-                if (list.isNotEmpty()) {
-                    return@withContext Result.success(list)
-                }
+                return@withContext Result.success(list)
             }
         } catch (e: Exception) {
-            Log.w("InteractionRepo", "fetchCommentsList v1 notice: ${e.message}")
+            Log.w(TAG, "fetchCommentsList v1 error: ${e.message}")
         }
 
         try {
-            val ajaxResponse = apiService.getCommentsAjax(contentId = contentId, episodeId = null)
+            val ajaxResponse = apiService.getCommentsAjax(contentId = contentId, episodeId = episodeId)
             if (ajaxResponse.isSuccessful && ajaxResponse.body() != null) {
                 return@withContext Result.success(ajaxResponse.body()!!.commentsList)
             }
-        } catch (e: Exception) {
-            Log.w("InteractionRepo", "fetchCommentsList ajax notice: ${e.message}")
-        }
+        } catch (_: Exception) {}
 
-        Result.success(emptyList())
+        Result.failure(Exception("Failed to load comments from server"))
     }
 
     suspend fun postNewComment(
@@ -297,15 +282,15 @@ class InteractionRepository(
         authorAvatar: String? = null
     ): Result<DramaApiComment> = withContext(Dispatchers.IO) {
         val savedProfile = authRepository.getSavedUserProfile()
-        val savedUid = userId ?: savedProfile?.id?.takeIf { it.isNotBlank() } ?: "user_${System.currentTimeMillis()}"
+        val savedUid = userId ?: savedProfile?.id?.takeIf { it.isNotBlank() }
         val name = authorName?.takeIf { it.isNotBlank() } ?: savedProfile?.displayName ?: "DramaFlix Viewer"
         val avatar = authorAvatar?.takeIf { it.isNotBlank() } 
             ?: savedProfile?.avatar?.takeIf { it.isNotBlank() } 
-            ?: "https://lh3.googleusercontent.com/a/default-user"
+            ?: "https://ui-avatars.com/api/?name=${name}&background=1E293B&color=FACC15&bold=true"
 
         val request = AddCommentApiRequest(
             contentId = contentId,
-            episodeId = null,
+            episodeId = episodeId,
             parentId = parentId,
             userId = savedUid,
             userName = name,
@@ -320,16 +305,18 @@ class InteractionRepository(
                     item.copy(userAvatar = avatar, fallbackAvatar = avatar)
                 } else item
                 return@withContext Result.success(finalItem)
+            } else {
+                Log.w(TAG, "postNewComment server code: ${response.code()}")
             }
         } catch (e: Exception) {
-            Log.w("InteractionRepo", "postNewComment v1 notice: ${e.message}")
+            Log.w(TAG, "postNewComment error: ${e.message}")
         }
 
         try {
             val ajaxResponse = apiService.postCommentAjax(
                 action = "add_comment",
                 contentId = contentId,
-                episodeId = null,
+                episodeId = episodeId,
                 parentId = parentId,
                 userId = savedUid,
                 userName = name,
@@ -342,28 +329,9 @@ class InteractionRepository(
                 } else item
                 return@withContext Result.success(finalItem)
             }
-        } catch (e: Exception) {
-            Log.w("InteractionRepo", "postNewComment ajax notice: ${e.message}")
-        }
+        } catch (_: Exception) {}
 
-        Result.success(
-            DramaApiComment(
-                rawId = System.currentTimeMillis(),
-                rawContentId = contentId,
-                rawEpisodeId = null,
-                rawParentId = parentId,
-                rawUserId = savedUid,
-                userName = name,
-                userAvatar = avatar,
-                fallbackAvatar = avatar,
-                commentText = commentText,
-                dateDisplay = "Just now",
-                rawLikesCount = 0,
-                isLikedVal = false,
-                rawSharesCount = 0,
-                rawRepliesCount = 0
-            )
-        )
+        Result.failure(Exception("Failed to post comment to server."))
     }
 
     suspend fun toggleCommentLike(commentId: Any, userId: Any? = null): Result<CommentLikeApiResponse> = withContext(Dispatchers.IO) {
@@ -374,7 +342,7 @@ class InteractionRepository(
                 return@withContext Result.success(response.body()!!)
             }
         } catch (e: Exception) {
-            Log.w("InteractionRepo", "toggleCommentLike notice: ${e.message}")
+            Log.w(TAG, "toggleCommentLike error: ${e.message}")
         }
         Result.success(CommentLikeApiResponse(success = true, isLiked = true, totalLikes = 1))
     }
@@ -387,7 +355,7 @@ class InteractionRepository(
                 return@withContext Result.success(response.body()!!)
             }
         } catch (e: Exception) {
-            Log.w("InteractionRepo", "recordCommentShare notice: ${e.message}")
+            Log.w(TAG, "recordCommentShare error: ${e.message}")
         }
         Result.success(CommentShareApiResponse(success = true, totalShares = 1))
     }
@@ -410,7 +378,7 @@ class InteractionRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.e("InteractionRepo", "Failed to fetch user activity: ${e.message}", e)
+            Log.e(TAG, "Failed to fetch user activity: ${e.message}", e)
             Result.failure(e)
         }
     }
