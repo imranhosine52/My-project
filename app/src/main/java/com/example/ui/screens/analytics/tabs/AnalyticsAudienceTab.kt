@@ -138,12 +138,12 @@ fun AnalyticsAudienceTab(
                     liveCount = liveOnlineCount,
                     topPosts = topPosts,
                     activeScreens = activeScreens,
-                    countries = audience.countries,
+                    liveCountries = audience.liveCountries, // 👈 🎯 শুধুমাত্র লাইভ থাকা ইউজারদের দেশ পাস করা হলো
                     pulseScale = pulseScale,
                     onPostClick = onPostClick
                 )
                 1 -> CountryAndAgeSubTab(
-                    countries = audience.countries,
+                    countries = audience.countries, // 👈 🌍 এখানে হিস্টোরিক্যাল টোটাল দেশের তালিকা থাকবে
                     ageDemographics = audience.ageDemographics
                 )
             }
@@ -159,7 +159,7 @@ private fun LiveAndActivitySubTab(
     liveCount: Int,
     topPosts: List<LivePostStat>,
     activeScreens: List<LiveScreenStat>,
-    countries: List<LiveCountryStat>,
+    liveCountries: List<LiveCountryStat>, // 👈 🎯 শুধু লাইভ দেশ
     pulseScale: Float,
     onPostClick: (slug: String) -> Unit
 ) {
@@ -233,14 +233,14 @@ private fun LiveAndActivitySubTab(
                             )
                         }
 
-                        // 🎯 বর্তমানে অনলাইন দেশের গোল পতাকা ব্যাজ
-                        if (countries.isNotEmpty()) {
+                        // 🎯 বর্তমানে অনলাইন দেশের গোল পতাকা ব্যাজ (সঠিক লাইভ ডেটা দিয়ে রেন্ডার হচ্ছে)
+                        if (liveCountries.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                items(countries) { country ->
+                                items(liveCountries) { country ->
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
                                         color = Color(0xFF161C2A),
@@ -481,7 +481,7 @@ private fun LiveAndActivitySubTab(
 // =============================================================================
 @Composable
 private fun CountryAndAgeSubTab(
-    countries: List<LiveCountryStat>,
+    countries: List<LiveCountryStat>, // 👈 🌍 এখানে হিস্টোরিক্যাল টোটাল দেশের তালিকা থাকবে
     ageDemographics: List<AgeDemographicItem>
 ) {
     val finalAgeList = remember(ageDemographics) {
@@ -521,7 +521,7 @@ private fun CountryAndAgeSubTab(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.Public, contentDescription = null, tint = CyanText, modifier = Modifier.size(15.dp))
-                        Text("Top Countries & Regions Online", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("Top Countries & Regions (History)", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(2.dp))
@@ -529,7 +529,7 @@ private fun CountryAndAgeSubTab(
                     countries.forEach { country ->
                         val animatedPercentage by animateFloatAsState(
                             targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
-                            animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
                             label = "country_bar_${country.code}"
                         )
 
@@ -543,6 +543,7 @@ private fun CountryAndAgeSubTab(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
+                                    // 🎯 দেশের পতাকা গোল সার্কেল ব্যাজে
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
@@ -563,7 +564,7 @@ private fun CountryAndAgeSubTab(
                                 }
 
                                 Text(
-                                    text = "${country.percentage}% (${country.formattedCount} users)",
+                                    text = "${country.percentage}%",
                                     color = CyanText,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
@@ -629,7 +630,7 @@ private fun CountryAndAgeSubTab(
                     finalAgeList.forEach { ageItem ->
                         val animatedRatio by animateFloatAsState(
                             targetValue = ageItem.ratio,
-                            animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
                             label = "age_bar_${ageItem.group}"
                         )
 
