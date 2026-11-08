@@ -9,13 +9,13 @@ import com.example.util.AppAnalyticsTracker
 import com.example.util.VipStatusNotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 
 class SubscriptionRepository(
     private val context: Context,
@@ -28,6 +28,15 @@ class SubscriptionRepository(
     companion object {
         private const val TAG = "SubscriptionRepo"
         private const val SUBMIT_API_URL = "https://www.playdramaflix.com/api/v1/subscription/submit"
+    }
+
+    private val okHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
     }
 
     // =========================================================================
@@ -190,7 +199,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 💳 ৪. ১০০% সার্ভার-অথরিটেটিভ পেমেন্ট সাবমিশন (Multi-Identifier JSON Payload)
+    // 💳 ৪. আধুনিক OkHttp + Retrofit পেমেন্ট সাবমিশন (Multi-Identifier JSON Payload)
     // =========================================================================
 
     suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = withContext(Dispatchers.IO) {
@@ -209,8 +218,20 @@ class SubscriptionRepository(
         val planIdInt = request.planId.toString().filter { it.isDigit() }.toIntOrNull() ?: 1
         val amountDouble = request.amount ?: 59.0
         val paymentMethod = request.paymentMethod.ifBlank { "bKash" }
+        val token = authRepository.getSavedAuthToken()
+        val authHeader = if (!token.isNullOrBlank()) "Bearer $token" else null
 
-        // আইডি, একাউন্ট আইডি, ইমেইল ও নাম একসাথে পাঠানো হচ্ছে
+        // ১. প্রাইমারি চেষ্টা: Retrofit ইন্টারফেসের মাধ্যমে
+        try {
+            val retrofitResponse = apiService.submitSubscription(request, authHeader)
+            if (retrofitResponse.isSuccessful && retrofitResponse.body() != null && retrofitResponse.body()!!.success) {
+                return@withContext Result.success(retrofitResponse.body()!!)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Primary Retrofit submission notice: ${e.message}")
+        }
+
+        // ২. সেকেন্ডারি চেষ্টা: OkHttp এর মাধ্যমে Multi-Identifier JSON Payload প্রেরণ
         val jsonPayload = JSONObject().apply {
             put("user_id", uidStr.toIntOrNull() ?: 0)
             put("account_id", userProfile?.effectiveAccountId ?: "")
@@ -223,28 +244,21 @@ class SubscriptionRepository(
             put("amount", amountDouble)
         }
 
-        var conn: HttpURLConnection? = null
         try {
-            val url = URL(SUBMIT_API_URL)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "PlayDramaFlix-AndroidApp/1.0")
-                connectTimeout = 15000
-                readTimeout = 15000
-                doOutput = true
-                instanceFollowRedirects = true
+            val requestBuilder = Request.Builder()
+                .url(SUBMIT_API_URL)
+                .post(jsonPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+                .addHeader("Accept", "application/json")
+                .addHeader("User-Agent", "PlayDramaFlix-AndroidApp/1.0")
+
+            if (!authHeader.isNullOrBlank()) {
+                requestBuilder.addHeader("Authorization", authHeader)
             }
 
-            OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                writer.write(jsonPayload.toString())
-                writer.flush()
-            }
-
-            val responseCode = conn.responseCode
-            val inputStream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-            val responseText = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
+            val response = okHttpClient.newCall(requestBuilder.build()).execute()
+            val responseText = response.body?.string() ?: ""
+            val responseCode = response.code
+            response.close()
 
             Log.i(TAG, "Server Response [$responseCode]: $responseText")
 
@@ -272,9 +286,7 @@ class SubscriptionRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Connection error: ${e.message}", e)
-            Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা যায়নি: ${e.message}"))
-        } finally {
-            conn?.disconnect()
+            Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা যায়নি: ${e.localizedMessage ?: e.message}"))
         }
     }
 
@@ -380,7 +392,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 🎁 ৬. নতুন সংযোজন: প্রমো কোড রিডিম ইঞ্জিন (ডিভাইস আইডি ও ইনস্ট্যান্ট VIP সিঙ্ক)
+    // 🎁 ৬. প্রমো কোড রিডিম ইঞ্জিন (ডিভাইস আইডি ও ইনস্ট্যান্ট VIP সিঙ্ক)
     // =========================================================================
 
     suspend fun redeemPromoCode(code: String): Result<PromoCodeRedeemResponse> = withContext(Dispatchers.IO) {
@@ -420,7 +432,6 @@ class SubscriptionRepository(
                 }
                 Result.success(body)
             } else {
-                // 🛑 সার্ভার থেকে পাঠানো ৪০০, ৪০৪ বা ৪০৯ এরর মেসেজ সরাসরি পড়া
                 val errorMsg = response.errorBody()?.string()?.let {
                     try { JSONObject(it).optString("message", null) } catch (_: Exception) { null }
                 } ?: body?.message ?: "প্রমো কোডটি সক্রিয় করা সম্ভব হয়নি।"
