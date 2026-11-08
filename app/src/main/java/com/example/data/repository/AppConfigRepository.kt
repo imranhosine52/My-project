@@ -72,7 +72,7 @@ class AppConfigRepository(
             apiService.registerDevice(req)
             Log.d("AppConfigRepo", "✓ Device token registered to server successfully.")
         } catch (e: Exception) {
-            Log.e("AppConfigRepo", "Device registration error: ${e.message}")
+            Log.e("AppConfigRepo", "Device registration notice: ${e.message}")
         }
     }
 
