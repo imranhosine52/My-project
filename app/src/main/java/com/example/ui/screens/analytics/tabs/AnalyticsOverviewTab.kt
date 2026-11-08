@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border // 👈 এরর সমাধানের জন্য ইমপোর্ট যুক্ত করা হলো
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -439,7 +440,7 @@ fun AnalyticsOverviewTab(
                             label = "country_bar_${country.code}"
                         )
 
-                        // 🎯 টোটাল হিস্টোরিক্যাল ভিজিটরের সাথে আসল কাউন্ট হিসাব (৪ জনের বদলে পূর্ণাঙ্গ ইউজার প্রদর্শন)
+                        // 🎯 টোটাল হিস্টোরিক্যাল ভিজিটরের সাথে আসল কাউন্ট হিসাব
                         val calculatedUsers = remember(country.count, country.percentage, totalHistoricalVisitors) {
                             if (country.count.toLong() >= totalHistoricalVisitors) {
                                 country.count.toLong()
