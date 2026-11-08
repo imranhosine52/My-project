@@ -15,16 +15,17 @@ import java.net.URL
 
 /**
  * ⚡ হাই-পারফরম্যান্স রিয়েল-টাইম অ্যানালিটিক্স ও হার্টবিট ট্র্যাকার
- * স্বয়ংক্রিয় ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম, শর্টস সোয়াইপ ও ২৪-ঘণ্টা ভিউ ফিল্টারিং সহ
+ * স্বয়ংক্রিয় ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম, শর্টস সোয়াইপ ও ইনস্ট্যান্ট অফলাইন ডিসকানেক্ট সহ
  */
 object AppAnalyticsTracker {
     private const val TAG = "ANALYTICS_TRACKER"
     
-    // 🎯 ফিক্সড: www যুক্ত করা হয়েছে যাতে 301 রিডাইরেক্টে POST ডাটা মুছে না যায়
+    // 🎯 অফিসিয়াল অ্যানালিটিক্স পিং এন্ডপয়েন্ট
     private const val PING_URL = "https://www.playdramaflix.com/api/v1/analytics/ping"
     
-    private const val HEARTBEAT_INTERVAL_MS = 40_000L // ৪০ সেকেন্ড পর পর লাইভ হার্টবিট
-    private const val MIN_SCREEN_INTERVAL_MS = 2_500L // পরপর দ্রুত স্ক্রিন চেঞ্জের স্প্যাম প্রটেকশন
+    // ⏱️ সার্ভারের ২০ সেকেন্ডের Redis টাইমআউটের সাথে নিখুঁত মিল রাখতে ১২ সেকেন্ড পর পর লাইভ হার্টবিট
+    private const val HEARTBEAT_INTERVAL_MS = 12_000L 
+    private const val MIN_SCREEN_INTERVAL_MS = 2_500L // স্ক্রিন চেঞ্জ স্প্যাম প্রটেকশন
 
     private const val PREFS_NAME = "drama_analytics_prefs"
     private const val KEY_FIRST_OPEN_TRACKED = "has_reported_first_install"
@@ -223,6 +224,47 @@ object AppAnalyticsTracker {
         }
     }
 
+    /**
+     * 🛑 ৩ সেকেন্ডের মধ্যে অফলাইন করার ইনস্ট্যান্ট সিগন্যাল (App Background / Exit)
+     * ইউজার অ্যাপ থেকে বের হলে সাথে সাথে এই মেথড কল হবে।
+     */
+    fun sendOfflineSignal(context: Context) {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+
+        trackerScope.launch {
+            try {
+                val deviceId = getDeviceId(context)
+                val jsonPayload = JSONObject().apply {
+                    put("device_id", deviceId)
+                    put("is_offline", true)
+                    put("action", "offline")
+                }
+
+                val url = URL(PING_URL)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    setRequestProperty("Accept", "application/json")
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    doOutput = true
+                }
+
+                OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
+                    writer.write(jsonPayload.toString())
+                    writer.flush()
+                }
+
+                val code = conn.responseCode
+                Log.d(TAG, "✓ Instant offline signal sent [$code] for device: $deviceId")
+                conn.disconnect()
+            } catch (t: Throwable) {
+                Log.w(TAG, "Offline signal error: ${t.message}")
+            }
+        }
+    }
+
     private fun startHeartbeatLoop(appContext: Context) {
         if (heartbeatJob?.isActive == true) return
 
@@ -265,7 +307,7 @@ object AppAnalyticsTracker {
             val elapsedSec = if (lastPingTimestamp > 0L) {
                 ((now - lastPingTimestamp) / 1000L).coerceIn(5L, 120L).toInt()
             } else {
-                30
+                15
             }
             lastPingTimestamp = now
 
@@ -290,18 +332,15 @@ object AppAnalyticsTracker {
                 put("device_id", deviceId)
                 put("screen_name", screen)
                 put("post_title", resolvedPostTitle)
-                put("post_slug", postSlug) // 🎯 আসল স্লাগ নিশ্চিত করা হচ্ছে
+                put("post_slug", postSlug)
                 put("user_id", userId ?: 0)
                 put("is_first_open", isFirstOpen)
                 put("device_brand", brand)
                 put("device_model", model)
                 put("os_version", osVersion)
                 put("age_group", ageGroup)
-
-                // ⏱️ ওয়াচ-টাইম সেকেন্ড
                 put("watch_seconds", elapsedSec)
 
-                // 🔍 সার্চ টার্ম ও শর্টস সোয়াইপ
                 if (searchQuery.isNotBlank()) put("search_query", searchQuery)
                 if (shortAction.isNotBlank()) put("short_action", shortAction)
             }
