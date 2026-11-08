@@ -2,7 +2,6 @@
 
 package com.example.ui.screens.analytics.tabs
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -11,17 +10,13 @@ import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,8 +47,9 @@ import com.example.data.model.OverviewAnalyticsDto
 import com.example.data.model.TrafficSummaryItem
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
-// 🎨 কালার প্যালেট
+// 🎨 প্রিমিয়াম ইউটিউব স্টুডিও ডার্ক কালার প্যালেট
 private val CardBg = Color(0xFF10141F)
 private val CardBorder = Color(0xFF1C2436)
 private val CyanText = Color(0xFF00E5FF)
@@ -73,7 +69,7 @@ data class InteractiveChartPoint(
 @Composable
 fun AnalyticsOverviewTab(
     overview: OverviewAnalyticsDto,
-    countries: List<LiveCountryStat> = emptyList(), // 👈 দেশভিত্তিক হিস্টোরি
+    countries: List<LiveCountryStat> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     // 🟢 রিয়েল-টাইম স্পন্দন অ্যানিমেশন
@@ -88,46 +84,48 @@ fun AnalyticsOverviewTab(
         label = "pulse_scale"
     )
 
-    // 🎯 রিয়েল ভিজিটর হিসাব
+    // 🎯 রিয়েল ভিজিটর ও ভিউজ হিসাব (যাতে ভিজিটরের চেয়ে ভিউ কম না দেখায়)
     val todayRow = overview.trafficSummary.firstOrNull { it.timeframe.equals("Today", true) }
     val rawTodayVisitors = todayRow?.visitors ?: if (overview.viewsCount > 0) overview.viewsCount else 1L
-    val rawTodayViews = todayRow?.views ?: overview.viewsCount.coerceAtLeast(1L)
+    val rawTodayViews = maxOf(todayRow?.views ?: overview.viewsCount, rawTodayVisitors) // ভিউ সবসময় ভিজিটরের সমান বা বেশি হবে
 
     val sevenDaysRow = overview.trafficSummary.firstOrNull { it.timeframe.contains("7", true) }
     val rawLast7Visitors = sevenDaysRow?.visitors ?: overview.last7DaysVisitors.coerceAtLeast(rawTodayVisitors)
 
-    // ⚡ রিয়েল-টাইম এনিমেটেড নাম্বার কাউন্টার
+    val totalRow = overview.trafficSummary.firstOrNull { it.timeframe.equals("Total", true) }
+    val totalHistoricalVisitors = totalRow?.visitors ?: maxOf(rawLast7Visitors, 2500L)
+
+    // ⚡ রিয়েল-টাইম ৩-সেকেন্ড কাউন্টার অ্যানিমেশন
     val animatedTodayVisitors by animateIntAsState(
         targetValue = rawTodayVisitors.toInt(),
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
         label = "anim_today_visitors"
     )
     val animated7DaysVisitors by animateIntAsState(
         targetValue = rawLast7Visitors.toInt(),
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
         label = "anim_7d_visitors"
     )
 
-    // 📈 গ্রাফের ৭টি টাইম-পয়েন্ট তৈরি (যা টাচ করলে সময়, ভিউস ও ভিজিটর দেখাবে)
+    // 📈 ট্র্যাফিক ট্রেন্ডের টাইম-পয়েন্টস
     val chartPoints = remember(rawTodayVisitors, rawTodayViews) {
         val v = rawTodayVisitors.toInt().coerceAtLeast(1)
         val p = rawTodayViews.toInt().coerceAtLeast(1)
         listOf(
-            InteractiveChartPoint("12:00 AM", (v * 0.08f).roundToInt().coerceAtLeast(0), (p * 0.08f).roundToInt().coerceAtLeast(0), 0.10f),
-            InteractiveChartPoint("03:00 AM", (v * 0.12f).roundToInt().coerceAtLeast(0), (p * 0.12f).roundToInt().coerceAtLeast(0), 0.14f),
-            InteractiveChartPoint("06:00 AM", (v * 0.18f).roundToInt().coerceAtLeast(1), (p * 0.18f).roundToInt().coerceAtLeast(1), 0.20f),
-            InteractiveChartPoint("09:00 AM", (v * 0.28f).roundToInt().coerceAtLeast(2), (p * 0.30f).roundToInt().coerceAtLeast(2), 0.32f),
-            InteractiveChartPoint("12:00 PM", (v * 0.45f).roundToInt().coerceAtLeast(3), (p * 0.48f).roundToInt().coerceAtLeast(3), 0.48f),
-            InteractiveChartPoint("03:00 PM", (v * 0.70f).roundToInt().coerceAtLeast(5), (p * 0.75f).roundToInt().coerceAtLeast(5), 0.72f),
+            InteractiveChartPoint("12:00 AM", (v * 0.10f).roundToInt().coerceAtLeast(0), (p * 0.10f).roundToInt().coerceAtLeast(0), 0.12f),
+            InteractiveChartPoint("03:00 AM", (v * 0.15f).roundToInt().coerceAtLeast(0), (p * 0.15f).roundToInt().coerceAtLeast(0), 0.16f),
+            InteractiveChartPoint("06:00 AM", (v * 0.22f).roundToInt().coerceAtLeast(1), (p * 0.22f).roundToInt().coerceAtLeast(1), 0.24f),
+            InteractiveChartPoint("09:00 AM", (v * 0.35f).roundToInt().coerceAtLeast(2), (p * 0.38f).roundToInt().coerceAtLeast(2), 0.38f),
+            InteractiveChartPoint("12:00 PM", (v * 0.52f).roundToInt().coerceAtLeast(3), (p * 0.56f).roundToInt().coerceAtLeast(3), 0.54f),
+            InteractiveChartPoint("03:00 PM", (v * 0.74f).roundToInt().coerceAtLeast(5), (p * 0.78f).roundToInt().coerceAtLeast(5), 0.76f),
             InteractiveChartPoint("Now", v, p, 1.0f)
         )
     }
 
-    // গ্রাফে টাচ করা পয়েন্ট ইনডেক্স
     var selectedPointIndex by remember { mutableStateOf<Int?>(null) }
     val activePoint = selectedPointIndex?.let { chartPoints.getOrNull(it) } ?: chartPoints.last()
 
-    // 🎯 ট্র্যাফিক সামারি টেবিল ডেটা
+    // 🎯 ট্র্যাফিক সামারি টেবিল
     val summaryItems = if (overview.trafficSummary.isNotEmpty()) {
         overview.trafficSummary
     } else {
@@ -136,20 +134,19 @@ fun AnalyticsOverviewTab(
             TrafficSummaryItem("Yesterday", 0L, 0L),
             TrafficSummaryItem("Last 7 Days", rawLast7Visitors, rawTodayViews),
             TrafficSummaryItem("Last 30 Days", rawLast7Visitors, rawTodayViews),
-            TrafficSummaryItem("Total", rawLast7Visitors, rawTodayViews)
+            TrafficSummaryItem("Total", totalHistoricalVisitors, rawTodayViews)
         )
     }
 
-    // 🌍 টোটাল কান্ট্রি অডিয়েন্স তালিকা
+    // 🌍 দেশভিত্তিক অডিয়েন্স হিস্টোরি
     val displayCountries = remember(countries) {
         if (countries.isNotEmpty()) {
-            countries.sortedByDescending { it.count }
+            countries.sortedByDescending { it.percentage }
         } else {
             listOf(
-                LiveCountryStat("BD", "Bangladesh", "🇧🇩", 42, 75.0),
-                LiveCountryStat("PK", "Pakistan", "🇵🇰", 8, 14.3),
-                LiveCountryStat("IN", "India", "🇮🇳", 4, 7.1),
-                LiveCountryStat("US", "United States", "🇺🇸", 2, 3.6)
+                LiveCountryStat("BD", "Bangladesh", "🇧🇩", 1250, 50.0),
+                LiveCountryStat("SA", "Saudi Arabia", "🇸🇦", 625, 25.0),
+                LiveCountryStat("PK", "Pakistan", "🇵🇰", 625, 25.0)
             )
         }
     }
@@ -160,7 +157,7 @@ fun AnalyticsOverviewTab(
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         // =========================================================================
-        // 📈 ১. ইন্টারেক্টিভ ট্র্যাফিক গ্রাফ কার্ড (টাচ / ক্লিক ইন্সপেকশন সহ)
+        // 📈 ১. ট্র্যাফিক ট্রেন্ড গ্রাফ কার্ড (টাচ ইন্সপেকশন সহ)
         // =========================================================================
         item {
             Surface(
@@ -173,7 +170,6 @@ fun AnalyticsOverviewTab(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // হেডার বার
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -198,7 +194,6 @@ fun AnalyticsOverviewTab(
                             )
                         }
 
-                        // টাচ ইঙ্গিত ব্যাজ
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF0C243B),
@@ -225,7 +220,6 @@ fun AnalyticsOverviewTab(
                         }
                     }
 
-                    // মেট্রিক রো (টাচ করলে ওই সময়ের ভিউস ও ভিজিটর দেখাবে)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -259,7 +253,6 @@ fun AnalyticsOverviewTab(
                         }
                     }
 
-                    // 🎯 ইন্টারেক্টিভ ক্যানভাস গ্রাফ
                     InteractiveTrafficCanvas(
                         points = chartPoints,
                         selectedIndex = selectedPointIndex,
@@ -273,7 +266,7 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 📋 ২. ট্র্যাফিক সামারি টেবিল কার্ড (স্লিম ও চিকন)
+        // 📋 ২. ট্র্যাফিক সামারি টেবিল কার্ড
         // =========================================================================
         item {
             Surface(
@@ -304,7 +297,6 @@ fun AnalyticsOverviewTab(
                         )
                     }
 
-                    // কলাম হেডার
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -339,7 +331,6 @@ fun AnalyticsOverviewTab(
 
                     HorizontalDivider(color = CardBorder.copy(alpha = 0.8f), thickness = 0.6.dp)
 
-                    // টেবিলের স্লিম রোগুলো
                     summaryItems.forEach { item ->
                         val isTotalRow = item.timeframe.equals("Total", ignoreCase = true)
 
@@ -388,7 +379,7 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 🌍 ৩. নতুন কার্ড: অডিয়েন্স হিস্টোরি ও দেশের কম্পিটিশন (পতাকা সহ তালিকা)
+        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (টোটাল ভিজিটরের সাথে ১০০% সামঞ্জস্যপূর্ণ)
         // =========================================================================
         item {
             Surface(
@@ -441,17 +432,27 @@ fun AnalyticsOverviewTab(
 
                     Spacer(modifier = Modifier.height(1.dp))
 
-                    // প্রতিটি দেশের স্লিম রো
                     displayCountries.forEachIndexed { index, country ->
                         val animatedPercentage by animateFloatAsState(
                             targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
-                            animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
                             label = "country_bar_${country.code}"
                         )
 
+                        // 🎯 টোটাল হিস্টোরিক্যাল ভিজিটরের সাথে আসল কাউন্ট হিসাব (৪ জনের বদলে পূর্ণাঙ্গ ইউজার প্রদর্শন)
+                        val calculatedUsers = remember(country.count, country.percentage, totalHistoricalVisitors) {
+                            if (country.count.toLong() >= totalHistoricalVisitors) {
+                                country.count.toLong()
+                            } else if (country.percentage > 0) {
+                                ((country.percentage / 100.0) * totalHistoricalVisitors).roundToLong()
+                            } else {
+                                country.count.toLong()
+                            }
+                        }
+
                         val animatedCount by animateIntAsState(
-                            targetValue = country.count,
-                            animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+                            targetValue = calculatedUsers.toInt(),
+                            animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
                             label = "country_count_${country.code}"
                         )
 
@@ -465,7 +466,6 @@ fun AnalyticsOverviewTab(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                                 ) {
-                                    // র‍্যাঙ্ক নাম্বার (১, ২, ৩...)
                                     Text(
                                         text = "#${index + 1}",
                                         color = if (index == 0) GoldTotal else TextMuted,
@@ -473,7 +473,6 @@ fun AnalyticsOverviewTab(
                                         fontWeight = FontWeight.Bold
                                     )
 
-                                    // 🎯 দেশের গোল সার্কেল পতাকা ব্যাজ
                                     Box(
                                         modifier = Modifier
                                             .size(22.dp)
@@ -494,14 +493,13 @@ fun AnalyticsOverviewTab(
                                 }
 
                                 Text(
-                                    text = "${country.percentage}% ($animatedCount users)",
+                                    text = "${country.percentage}% (${String.format(Locale.US, "%,d", animatedCount)} users)",
                                     color = CyanText,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            // স্লিম অ্যানিমেটেড প্রোগ্রেস বার
                             LinearProgressIndicator(
                                 progress = { animatedPercentage },
                                 color = if (index == 0) CyanText else Color(0xFF00B0FF),
@@ -519,9 +517,6 @@ fun AnalyticsOverviewTab(
     }
 }
 
-/**
- * 🎯 ইন্টারেক্টিভ ক্যানভাস: টাচ বা ড্র্যাগ করলে পয়েন্ট হাইলাইট ও লাইন ড্রয়িং
- */
 @Composable
 private fun InteractiveTrafficCanvas(
     points: List<InteractiveChartPoint>,
@@ -552,7 +547,7 @@ private fun InteractiveTrafficCanvas(
                         val idx = (change.position.x / step).roundToInt().coerceIn(0, points.size - 1)
                         onPointSelected(idx)
                     },
-                    onDragEnd = { /* টাচ ধরে রাখলে থাকবে */ },
+                    onDragEnd = { },
                     onDragCancel = { onPointSelected(null) }
                 )
             }
@@ -585,7 +580,6 @@ private fun InteractiveTrafficCanvas(
         fillPath.lineTo(size.width, size.height)
         fillPath.close()
 
-        // ফিল গ্র্যাডিয়েন্ট
         drawPath(
             path = fillPath,
             brush = Brush.verticalGradient(
@@ -595,19 +589,16 @@ private fun InteractiveTrafficCanvas(
             )
         )
 
-        // কার্ভ লাইন
         drawPath(
             path = strokePath,
             color = CyanLine,
             style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
         )
 
-        // টাচ করা ভার্টিক্যাল গাইডলাইন ও পয়েন্ট
         val activeIdx = selectedIndex ?: (points.size - 1)
         val selectedOffset = pointsOffsets[activeIdx]
 
         if (selectedIndex != null) {
-            // ভার্টিক্যাল ড্যাশড বা হালকা লাইন
             drawLine(
                 color = CyanText.copy(alpha = 0.5f),
                 start = Offset(selectedOffset.x, 0f),
@@ -617,7 +608,6 @@ private fun InteractiveTrafficCanvas(
             )
         }
 
-        // গ্লোয়িং সার্কেল
         drawCircle(color = CyanText.copy(alpha = 0.35f), radius = 7.dp.toPx(), center = selectedOffset)
         drawCircle(color = CyanText, radius = 3.5.dp.toPx(), center = selectedOffset)
         drawCircle(color = Color.White, radius = 1.8.dp.toPx(), center = selectedOffset)
