@@ -48,7 +48,6 @@ import com.example.data.model.OverviewAnalyticsDto
 import com.example.data.model.TrafficSummaryItem
 import java.util.Locale
 import kotlin.math.roundToInt
-import kotlin.math.roundToLong
 
 // 🎨 প্রিমিয়াম ইউটিউব স্টুডিও ডার্ক কালার প্যালেট
 private val CardBg = Color(0xFF10141F)
@@ -134,16 +133,12 @@ fun AnalyticsOverviewTab(
         )
     }
 
-    // 🎯 Overview ট্যাবে শুধুমাত্র টপ ৫টি দেশ দেখানোর জন্য '.take(5)' যুক্ত করা হলো
+    // 🎯 Overview ট্যাবে শুধুমাত্র টপ ৫টি দেশ আসল হিস্ট্রি অনুযায়ী বাছাই
     val displayCountries = remember(countries) {
         if (countries.isNotEmpty()) {
-            countries.sortedByDescending { it.percentage }.take(5) // 👈 ফিক্স: সর্বোচ্চ ৫টি দেখাবে
+            countries.sortedByDescending { it.percentage }.take(5)
         } else {
-            listOf(
-                LiveCountryStat("BD", "Bangladesh", "🇧🇩", 1250, 50.0),
-                LiveCountryStat("SA", "Saudi Arabia", "🇸🇦", 625, 25.0),
-                LiveCountryStat("PK", "Pakistan", "🇵🇰", 625, 25.0)
-            )
+            emptyList()
         }
     }
 
@@ -375,135 +370,129 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (টপ ৫টি দেশ দেখানো হবে)
+        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (🎯 ফিক্সড: আসল ডেটাবেজের সংখ্যা ও শতকরা হার)
         // =========================================================================
-        item {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = CardBg,
-                border = BorderStroke(1.dp, CardBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(11.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+        if (displayCountries.isNotEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CardBg,
+                    border = BorderStroke(1.dp, CardBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(11.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Public,
-                                contentDescription = null,
-                                tint = CyanText,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = "Top Countries (Total History)",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFF141926),
-                            border = BorderStroke(0.6.dp, CardBorder)
-                        ) {
-                            Text(
-                                text = "Ranked",
-                                color = TextMuted,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(1.dp))
-
-                    displayCountries.forEachIndexed { index, country ->
-                        val animatedPercentage by animateFloatAsState(
-                            targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
-                            animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                            label = "country_bar_${country.code}"
-                        )
-
-                        val calculatedUsers = remember(country.count, country.percentage, totalHistoricalVisitors) {
-                            if (country.count.toLong() >= totalHistoricalVisitors) {
-                                country.count.toLong()
-                            } else if (country.percentage > 0) {
-                                ((country.percentage / 100.0) * totalHistoricalVisitors).roundToLong()
-                            } else {
-                                country.count.toLong()
-                            }
-                        }
-
-                        val animatedCount by animateIntAsState(
-                            targetValue = calculatedUsers.toInt(),
-                            animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                            label = "country_count_${country.code}"
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                                ) {
-                                    Text(
-                                        text = "#${index + 1}",
-                                        color = if (index == 0) GoldTotal else TextMuted,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF1E283C))
-                                            .border(0.6.dp, Color(0xFF2E3B52), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(text = country.flag, fontSize = 12.sp)
-                                    }
-
-                                    Text(
-                                        text = country.name,
-                                        color = TextLight,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
+                                Icon(
+                                    imageVector = Icons.Default.Public,
+                                    contentDescription = null,
+                                    tint = CyanText,
+                                    modifier = Modifier.size(15.dp)
+                                )
                                 Text(
-                                    text = "${country.percentage}% (${String.format(Locale.US, "%,d", animatedCount)} users)",
-                                    color = CyanText,
-                                    fontSize = 10.5.sp,
+                                    text = "Top Countries (Total History)",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            LinearProgressIndicator(
-                                progress = { animatedPercentage },
-                                color = if (index == 0) CyanText else Color(0xFF00B0FF),
-                                trackColor = Color(0xFF181F2E),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(2.8.dp)
-                                    .clip(RoundedCornerShape(2.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF141926),
+                                border = BorderStroke(0.6.dp, CardBorder)
+                            ) {
+                                Text(
+                                    text = "Ranked",
+                                    color = TextMuted,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(1.dp))
+
+                        displayCountries.forEachIndexed { index, country ->
+                            val animatedPercentage by animateFloatAsState(
+                                targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
+                                animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+                                label = "country_bar_${country.code}"
                             )
+
+                            // 🎯 ফিক্সড: কোনো কৃত্রিম গুণ/ভাগ ছাড়া সরাসরি সার্ভার থেকে আসা আসল সংখ্যা ব্যবহার করা হচ্ছে
+                            val animatedCount by animateIntAsState(
+                                targetValue = country.count,
+                                animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+                                label = "country_count_${country.code}"
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                    ) {
+                                        Text(
+                                            text = "#${index + 1}",
+                                            color = if (index == 0) GoldTotal else TextMuted,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF1E283C))
+                                                .border(0.6.dp, Color(0xFF2E3B52), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(text = country.flag, fontSize = 12.sp)
+                                        }
+
+                                        Text(
+                                            text = country.name,
+                                            color = TextLight,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+
+                                    // 🎯 সঠিক আসল ডেটা: আসল শতকরা হার ও আসল ইউজার কাউন্ট
+                                    Text(
+                                        text = "${country.percentage}% (${String.format(Locale.US, "%,d", animatedCount)} users)",
+                                        color = CyanText,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                LinearProgressIndicator(
+                                    progress = { animatedPercentage },
+                                    color = if (index == 0) CyanText else Color(0xFF00B0FF),
+                                    trackColor = Color(0xFF181F2E),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(2.8.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                )
+                            }
                         }
                     }
                 }
