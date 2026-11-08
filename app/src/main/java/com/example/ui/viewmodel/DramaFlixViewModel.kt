@@ -680,16 +680,12 @@ class DramaFlixViewModel(
         }
     }
 
-    // =========================================================================
-    // 🎁 নতুন সংযোজন: প্রমো কোড ক্লেইম মেথড (ViewModel Wrapper)
-    // =========================================================================
     fun redeemPromoCode(code: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             val result = repository.redeemPromoCode(code)
             if (result.isSuccess) {
                 val response = result.getOrNull()
                 val message = response?.message ?: "🎉 প্রমো কোড সফলভাবে সক্রিয় হয়েছে!"
-                // VIP স্ট্যাটাস তৎক্ষণাৎ রিফ্রেশ করা
                 refreshVipStatusAndProfile()
                 onResult(true, message)
             } else {
@@ -766,20 +762,34 @@ class DramaFlixViewModel(
         }
     }
 
+    /**
+     * 🎬 সম্পূর্ণ নির্ভুল ড্রামা লোডার ও রিয়েল-টাইম লাইভ ভিউজ সিঙ্ক
+     */
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _playerUiState.update { 
-                it.copy(
-                    isLoading = true, 
-                    isNotFound = false,
-                    errorMessage = null, 
-                    comments = emptyList(),
-                    isInWatchlist = false,
-                    reactions = emptyMap(),
-                    myReaction = null,
-                    content = null,
-                    currentEpisode = null
-                ) 
+            val isSameDrama = (_playerUiState.value.content?.slug == slug)
+
+            // 🎯 ডেটা ফ্লিকারিং ও উধাও হওয়া রোধ: যদি একই ড্রামা রিফ্রেশ হয় তবে আগের কন্টেন্ট ও কমেন্ট ধরে রাখা
+            _playerUiState.update { current ->
+                if (isSameDrama) {
+                    current.copy(
+                        isLoading = false,
+                        isNotFound = false,
+                        errorMessage = null
+                    )
+                } else {
+                    current.copy(
+                        isLoading = true,
+                        isNotFound = false,
+                        errorMessage = null,
+                        comments = emptyList(),
+                        isInWatchlist = false,
+                        reactions = emptyMap(),
+                        myReaction = null,
+                        content = null,
+                        currentEpisode = null
+                    )
+                }
             }
 
             watchlistObserverJob?.cancel()
@@ -845,8 +855,8 @@ class DramaFlixViewModel(
 
                 val stats = repository.getOrCreateDramaStats(contentItem.slug, 0, 0)
 
-                _playerUiState.update {
-                    it.copy(
+                _playerUiState.update { current ->
+                    current.copy(
                         isLoading = false,
                         isNotFound = false,
                         content = contentItem,
@@ -856,31 +866,44 @@ class DramaFlixViewModel(
                         selectedServer = initialSrv,
                         isVip = isUserVip,
                         unlockedEpisodeNumbers = unlockedNumbers,
-                        likesCount = stats.likesCount,
-                        isLiked = stats.isLiked,
-                        viewsCount = stats.viewsCount,
+                        likesCount = if (current.likesCount > 0) current.likesCount else stats.likesCount,
+                        isLiked = current.isLiked || stats.isLiked,
+                        viewsCount = maxOf(current.viewsCount, contentItem.viewsCount, stats.viewsCount),
                         recommendations = _homeUiState.value.trendingDramas.filter { rec -> rec.slug != slug }.take(8)
                     )
                 }
 
+                // ⚡ ১. সার্ভার থেকে ইন্টারঅ্যাকশন স্ট্যাটাস সিঙ্ক
                 val statusResult = repository.fetchInteractionStatus(contentItem.id, null)
                 if (statusResult.isSuccess) {
                     val status = statusResult.getOrNull()
                     if (status != null) {
                         _playerUiState.update { current ->
                             current.copy(
-                                likesCount = status.effectiveLikes.toInt(),
+                                likesCount = if (status.effectiveLikes > 0L) status.effectiveLikes.toInt() else current.likesCount,
                                 isLiked = status.effectiveIsLiked,
-                                viewsCount = status.effectiveViews,
-                                reactions = status.reactionsMap,
-                                myReaction = status.myReaction
+                                viewsCount = maxOf(current.viewsCount, status.effectiveViews),
+                                reactions = if (status.reactionsMap.isNotEmpty()) status.reactionsMap else current.reactions,
+                                myReaction = status.myReaction ?: current.myReaction
                             )
                         }
                     }
                 }
 
-                repository.recordVideoInteractionView(contentItem.id)
-                refreshComments()
+                // ⚡ ২. ভিউ কাউন্টার বৃদ্ধি ও তৎক্ষণাৎ স্ক্রিনে ভিউ সংখ্যা আপডেট!
+                val viewResult = repository.recordVideoInteractionView(contentItem.id, force = forceRefresh)
+                if (viewResult.isSuccess) {
+                    val viewResp = viewResult.getOrNull()
+                    val newViews = viewResp?.effectiveViews ?: 0L
+                    if (newViews > 0L) {
+                        _playerUiState.update { current ->
+                            current.copy(viewsCount = maxOf(current.viewsCount, newViews))
+                        }
+                    }
+                }
+
+                // ⚡ ৩. কমেন্ট রিফ্রেশ কল করা
+                refreshComments(contentItem.id)
             } else {
                 _playerUiState.update {
                     it.copy(
@@ -930,7 +953,7 @@ class DramaFlixViewModel(
                     _playerUiState.update {
                         it.copy(
                             myReaction = resp.myReaction,
-                            reactions = resp.reactions
+                            reactions = if (resp.reactions.isNotEmpty()) resp.reactions else currentReactions
                         )
                     }
                 }
@@ -1005,8 +1028,8 @@ class DramaFlixViewModel(
                 if (resp != null) {
                     _playerUiState.update {
                         it.copy(
-                            isLiked = resp.isLiked ?: newLiked,
-                            likesCount = resp.totalLikes?.toInt() ?: resp.likes?.toInt() ?: optimisticCount
+                            isLiked = resp.effectiveIsLiked,
+                            likesCount = resp.effectiveLikes.toInt()
                         )
                     }
                 }
@@ -1023,17 +1046,24 @@ class DramaFlixViewModel(
         }
     }
 
-    fun refreshComments() {
-        val content = _playerUiState.value.content ?: return
+    /**
+     * 💬 রেস কন্ডিশন মুক্ত নির্ভুল কমেন্ট রিফ্রেশ মেথড
+     */
+    fun refreshComments(explicitContentId: Any? = null) {
+        val contentId = explicitContentId ?: _playerUiState.value.content?.id ?: return
         viewModelScope.launch {
             _playerUiState.update { it.copy(isCommentsLoading = true) }
-            val commentsResult = repository.fetchCommentsList(contentId = content.id, episodeId = null)
-            val list = commentsResult.getOrDefault(emptyList())
-            _playerUiState.update {
-                it.copy(
-                    isCommentsLoading = false,
-                    comments = list
-                )
+            val commentsResult = repository.fetchCommentsList(contentId = contentId, episodeId = null)
+            if (commentsResult.isSuccess) {
+                val list = commentsResult.getOrDefault(emptyList())
+                _playerUiState.update {
+                    it.copy(
+                        isCommentsLoading = false,
+                        comments = list
+                    )
+                }
+            } else {
+                _playerUiState.update { it.copy(isCommentsLoading = false) }
             }
         }
     }
