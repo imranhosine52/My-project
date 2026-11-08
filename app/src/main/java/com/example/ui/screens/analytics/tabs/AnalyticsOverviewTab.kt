@@ -133,7 +133,7 @@ fun AnalyticsOverviewTab(
         )
     }
 
-    // 🎯 Overview ট্যাবে শুধুমাত্র টপ ৫টি দেশ আসল হিস্ট্রি অনুযায়ী বাছাই
+    // 🎯 টপ ৫টি দেশ বাছাই (কোনো ডেমো ফলব্যাক ছাড়া)
     val displayCountries = remember(countries) {
         if (countries.isNotEmpty()) {
             countries.sortedByDescending { it.percentage }.take(5)
@@ -370,72 +370,78 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (🎯 ফিক্সড: আসল ডেটাবেজের সংখ্যা ও শতকরা হার)
+        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (🎯 ইউজার সংখ্যা বাদ দিয়ে শুধু % ডিসপ্লে)
         // =========================================================================
-        if (displayCountries.isNotEmpty()) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = CardBg,
-                    border = BorderStroke(1.dp, CardBorder),
-                    modifier = Modifier.fillMaxWidth()
+        item {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = CardBg,
+                border = BorderStroke(1.dp, CardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(11.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(11.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Public,
-                                    contentDescription = null,
-                                    tint = CyanText,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Text(
-                                    text = "Top Countries (Total History)",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF141926),
-                                border = BorderStroke(0.6.dp, CardBorder)
-                            ) {
-                                Text(
-                                    text = "Ranked",
-                                    color = TextMuted,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = null,
+                                tint = CyanText,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "Top Countries (Total History)",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
 
-                        Spacer(modifier = Modifier.height(1.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF141926),
+                            border = BorderStroke(0.6.dp, CardBorder)
+                        ) {
+                            Text(
+                                text = "Ranked",
+                                color = TextMuted,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
 
+                    Spacer(modifier = Modifier.height(1.dp))
+
+                    if (displayCountries.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No country analytics recorded yet",
+                                color = TextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    } else {
                         displayCountries.forEachIndexed { index, country ->
                             val animatedPercentage by animateFloatAsState(
                                 targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
                                 animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
                                 label = "country_bar_${country.code}"
-                            )
-
-                            // 🎯 ফিক্সড: কোনো কৃত্রিম গুণ/ভাগ ছাড়া সরাসরি সার্ভার থেকে আসা আসল সংখ্যা ব্যবহার করা হচ্ছে
-                            val animatedCount by animateIntAsState(
-                                targetValue = country.count,
-                                animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                                label = "country_count_${country.code}"
                             )
 
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -474,11 +480,11 @@ fun AnalyticsOverviewTab(
                                         )
                                     }
 
-                                    // 🎯 সঠিক আসল ডেটা: আসল শতকরা হার ও আসল ইউজার কাউন্ট
+                                    // 🎯 ফিক্সড: ইউজার সংখ্যা সম্পূর্ণ মুছে দেওয়া হয়েছে, এখন শুধু পার্সেন্টেজ (%) রয়েছে
                                     Text(
-                                        text = "${country.percentage}% (${String.format(Locale.US, "%,d", animatedCount)} users)",
+                                        text = "${country.percentage}%",
                                         color = CyanText,
-                                        fontSize = 10.5.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
