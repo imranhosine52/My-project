@@ -25,7 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
@@ -39,8 +38,9 @@ class AuthRepository(
     private val authPrefs = context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
     private val r2WorkerUploadUrl = "https://dramaflixbucket.imranhosine52.workers.dev"
 
+    // ⚡ ApiClient-এর কানেকশন পুল রিইউজ করে আপলোডের জন্য অপ্টিমাইজড ক্লায়েন্ট
     private val httpClient by lazy {
-        OkHttpClient.Builder()
+        ApiClient.okHttpClient.newBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(45, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
@@ -175,7 +175,7 @@ class AuthRepository(
                         put("avatar", r2Url)
                     }
                     val updateReq = Request.Builder()
-                        .url("https://playdramaflix.com/api/v1/auth/profile")
+                        .url("${ApiClient.BASE_URL}auth/profile")
                         .post(updatePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
                         .build()
                     val srvRes = httpClient.newCall(updateReq).execute()
@@ -340,7 +340,12 @@ class AuthRepository(
         )
         
         try {
-            val response = apiService.authenticateGoogle(request)
+            val response = try {
+                apiService.authenticateGoogle(request)
+            } catch (e: Exception) {
+                apiService.authenticateGoogleDirect(request)
+            }
+
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val body = response.body()!!
                 val user = body.user
