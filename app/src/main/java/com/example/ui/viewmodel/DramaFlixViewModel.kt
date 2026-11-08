@@ -203,16 +203,19 @@ class DramaFlixViewModel(
         loadRemoteAdsConfig()
         loadNotifications()
         loadUserActivity()
-        startLiveAnalyticsPolling()
+        startLiveAnalyticsPolling(intervalMs = 3000L)
     }
 
-    fun startLiveAnalyticsPolling() {
+    /**
+     * ⏱️ রিয়েল-টাইম লাইভ অ্যানালিটিক্স ৩ সেকেন্ড পর পর স্বয়ংক্রিয়ভাবে রিফ্রেশ লুপ
+     */
+    fun startLiveAnalyticsPolling(intervalMs: Long = 3000L) {
         if (liveAnalyticsPollingJob?.isActive == true) return
 
         liveAnalyticsPollingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 fetchPublicLiveAnalytics(isInitial = false)
-                delay(4000L)
+                delay(intervalMs) // 🎯 ঠিক ৩ সেকেন্ড (3000L) পর পর ব্যাকএন্ডের Redis ক্যাশ থেকে তাজা ডেটা সিঙ্ক
             }
         }
     }
@@ -786,9 +789,9 @@ class DramaFlixViewModel(
                         isInWatchlist = false,
                         reactions = emptyMap(),
                         myReaction = null,
-                        likesCount = 0,        // 👈 আগের ড্রামার লাইক শূন্য করা
-                        isLiked = false,       // 👈 আগের ড্রামার হার্ট আনলাইক করা
-                        viewsCount = 0L,       // 👈 আগের ড্রামার ভিউ বাদ দেওয়া
+                        likesCount = 0,
+                        isLiked = false,
+                        viewsCount = 0L,
                         content = null,
                         currentEpisode = null
                     )
@@ -858,7 +861,6 @@ class DramaFlixViewModel(
 
                 val stats = repository.getOrCreateDramaStats(contentItem.slug, 0, 0)
 
-                // 🎯 নতুন ড্রামার নিজস্ব প্রোপার্টি অ্যাসাইন করা (আগের ড্রামার ভিউজ বা লাইক ওভাররাইড হবে না)
                 _playerUiState.update { current ->
                     current.copy(
                         isLoading = false,
@@ -877,7 +879,7 @@ class DramaFlixViewModel(
                     )
                 }
 
-                // ⚡ ১. সার্ভার থেকে ইন্টারঅ্যাকশন স্ট্যাটাস সিঙ্ক (অন্য ড্রামার রেসপন্স যেন বর্তমান ড্রামায় ওভারল্যাপ না করে)
+                // ⚡ ১. সার্ভার থেকে ইন্টারঅ্যাকশন স্ট্যাটাস সিঙ্ক
                 val statusResult = repository.fetchInteractionStatus(contentItem.id, null)
                 if (statusResult.isSuccess) {
                     val status = statusResult.getOrNull()
@@ -1072,7 +1074,6 @@ class DramaFlixViewModel(
             if (commentsResult.isSuccess) {
                 val list = commentsResult.getOrDefault(emptyList())
                 _playerUiState.update { current ->
-                    // যদি ইউজার এখনো এই ড্রামাতেই থাকে কেবল তখনই কমেন্ট আপডেট হবে
                     if (current.content?.id == contentId || current.content?.slug == targetSlug) {
                         current.copy(
                             isCommentsLoading = false,
