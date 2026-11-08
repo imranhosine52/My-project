@@ -28,13 +28,14 @@ class ContentRepository(
     private val watchHistoryDao = database.watchHistoryDao()
     private val watchlistDao = database.watchlistDao()
     private val contentCacheDao = database.contentCacheDao()
+    private val viewsCachePrefs = context.getSharedPreferences("play_drama_flix_views_24h_cache", Context.MODE_PRIVATE)
 
     companion object {
         private const val TAG = "ContentRepository"
-        // ⏱️ হোম ফিড ক্যাশ মেয়াদ ৩ মিনিট
+        // ⏱️ হোম ফিড ক্যাশ মেয়াদ ৩ মিনিট (ডাটাবেজ লোড প্রটেকশন)
         private const val FEED_CACHE_TTL_MS = 3 * 60 * 1000L
-        // ⏱️ ওয়াচ ডিটেইলস ক্যাশ মেয়াদ ২০ মিনিট
-        private const val WATCH_CACHE_TTL_MS = 20 * 60 * 1000L
+        // ⏱️ পর্ব ও স্ট্রিমিং সার্ভারের ভারী ডাটার ক্যাশ মেয়াদ ১০ মিনিট
+        private const val WATCH_CACHE_TTL_MS = 10 * 60 * 1000L
     }
 
     // ⚡ Moshi JSON অ্যাডাপ্টার
@@ -103,7 +104,7 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // 🎬 ১. হোম ফিড কনটেন্ট (রিফ্রেশে ক্যাশ ক্লিয়ার সহ)
+    // 🎬 ১. হোম ফিড কনটেন্ট (স্মার্ট ক্যাশিং - ডাটাবেজের ওপর কোনো চাপ ছাড়া)
     // =========================================================================
 
     suspend fun getContents(forceRefresh: Boolean = false): Result<List<ContentItemDto>> = withContext(Dispatchers.IO) {
@@ -119,7 +120,7 @@ class ContentRepository(
                 val cachedList = runCatching { contentListAdapter.fromJson(localFeed.jsonPayload) }.getOrNull()
 
                 if (!cachedList.isNullOrEmpty() && isFresh) {
-                    Log.d(TAG, "✓ Home feed loaded from Local Room DB (Fresh cache).")
+                    Log.d(TAG, "✓ Home feed loaded from Local Room DB (Zero DB load).")
                     return@withContext Result.success(cachedList)
                 }
             }
@@ -138,7 +139,7 @@ class ContentRepository(
                         cachedTimestamp = now
                     )
                 )
-                Log.d(TAG, "✓ Fresh home feed fetched directly from server and cached.")
+                Log.d(TAG, "✓ Fresh home feed cached.")
                 Result.success(serverItems)
             } else {
                 val fallbackList = runCatching {
@@ -147,7 +148,7 @@ class ContentRepository(
                 Result.success(fallbackList ?: getFallbackContents())
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Server connection failed, serving from offline Room DB: ${e.message}")
+            Log.w(TAG, "Server connection notice, serving offline Room DB: ${e.message}")
             val fallbackList = runCatching {
                 contentCacheDao.getCachedHomeFeed("primary_home_feed")?.let { contentListAdapter.fromJson(it.jsonPayload) }
             }.getOrNull()
@@ -156,7 +157,7 @@ class ContentRepository(
     }
 
     // =========================================================================
-    // ⚡ ২. ওয়াচ ডিটেইলস (পোস্ট ক্যাশ ও ৩টি পর্বের ৩ সেকেন্ড প্রি-ডাউনলোড)
+    // ⚡ ২. ওয়াচ ডিটেইলস (জিরো-ডাটাবেজ লোড + রিয়েল-টাইম লাইভ ভিউজ সিঙ্ক)
     // =========================================================================
 
     suspend fun getWatchDetails(
@@ -166,33 +167,45 @@ class ContentRepository(
     ): Result<WatchDetailResponse> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        // 🎯 ইউজার পেজ রিফ্রেশ করলে আগের ক্যাশ মুছে নতুন করে সার্ভার থেকে আনা
+        // ১. ম্যানুয়াল পুল-টু-রিফ্রেশ হলে কেবল এই ড্রামার ক্যাশ মুছে তাজা ডাটা আনা
         if (forceRefresh) {
             contentCacheDao.deleteCachedWatchDetail(slug)
             try {
                 File(context.cacheDir, "precache_streams/$slug").deleteRecursively()
             } catch (_: Exception) {}
-            Log.d(TAG, "✓ Cache & precache cleared for '$slug' due to forceRefresh.")
+            Log.d(TAG, "✓ Cache revalidated for '$slug'.")
         } else {
+            // ২. জিরো সার্ভার লোড: লোকাল Room DB থেকে ক্যাশ রিড
             val localCached = contentCacheDao.getCachedWatchDetail(slug)
             if (localCached != null) {
                 val isFresh = (now - localCached.cachedTimestamp) < WATCH_CACHE_TTL_MS
                 val cachedDetail = runCatching { watchDetailAdapter.fromJson(localCached.jsonPayload) }.getOrNull()
 
                 if (cachedDetail?.content != null && cachedDetail.episodes.isNotEmpty() && isFresh) {
-                    Log.d(TAG, "✓ Watch details for '$slug' loaded from Room DB.")
+                    Log.d(TAG, "✓ Serving watch details from Local Room DB (Zero MySQL Load).")
 
-                    // ব্যাকগ্রাউন্ডে প্রথম ৩টি পর্বের ৩ সেকেন্ড প্রি-ক্যাশ সক্রিয় রাখা
+                    // 🎯 সার্ভারে কোনো রিকোয়েস্ট না পাঠিয়েই মেমোরির তাজা ভিউ সংখ্যা ড্রামা ডিটেইলসে ইনজেক্ট করা
+                    val contentIdStr = cachedDetail.content.id
+                    val cachedLiveViews = viewsCachePrefs.getLong("cached_views_$contentIdStr", 0L)
+                    val updatedContent = if (cachedLiveViews > cachedDetail.content.viewsCount) {
+                        cachedDetail.content.copy(rawViews = cachedLiveViews)
+                    } else {
+                        cachedDetail.content
+                    }
+
+                    val finalResponse = cachedDetail.copy(content = updatedContent)
+
+                    // ৩ সেকেন্ড প্রি-ক্যাশ ব্যাকগ্রাউন্ডে নিরাপদ রাখা
                     CoroutineScope(Dispatchers.IO).launch {
                         precacheFirst3SecondsOfEpisodes(slug, cachedDetail.episodes.take(3))
                     }
 
-                    return@withContext Result.success(cachedDetail)
+                    return@withContext Result.success(finalResponse)
                 }
             }
         }
 
-        // সার্ভার থেকে সম্পূর্ণ পোস্ট ও পর্বের লিঙ্ক ফেচ করা
+        // ৩. ক্যাশ না থাকলে বা মেয়াদোত্তীর্ণ হলে সার্ভার থেকে একবার হালকা কুয়েরি
         try {
             val response = apiService.getWatchDetails(slug)
             if (response.isSuccessful && response.body()?.content != null) {
@@ -210,6 +223,7 @@ class ContentRepository(
 
                 val finalBody = body.copy(servers = cleanedServers)
 
+                // নতুন ডাটা লোকাল রুমে ১০ মিনিটের জন্য সেভ
                 val jsonStr = watchDetailAdapter.toJson(finalBody)
                 contentCacheDao.saveCachedWatchDetail(
                     CachedWatchDetailEntity(
@@ -218,9 +232,7 @@ class ContentRepository(
                         cachedTimestamp = now
                     )
                 )
-                Log.d(TAG, "✓ Fresh watch details for '$slug' fetched and saved in Room DB.")
 
-                // ⚡ প্রথম ৩টি পর্বের প্রথম ৩ সেকেন্ড স্বয়ংক্রিয়ভাবে প্রি-ক্যাশ করা
                 if (finalBody.episodes.isNotEmpty()) {
                     CoroutineScope(Dispatchers.IO).launch {
                         precacheFirst3SecondsOfEpisodes(slug, finalBody.episodes.take(3))
@@ -238,11 +250,11 @@ class ContentRepository(
                 } else if (fallbackContent != null) {
                     Result.success(getFallbackWatchDetails(slug, fallbackContent))
                 } else {
-                    Result.failure(Exception("Content not found on server: $slug"))
+                    Result.failure(Exception("Content not found: $slug"))
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Watch details API failed: ${e.message}")
+            Log.w(TAG, "Watch details offline fallback: ${e.message}")
             val fallbackCached = runCatching {
                 contentCacheDao.getCachedWatchDetail(slug)?.let { watchDetailAdapter.fromJson(it.jsonPayload) }
             }.getOrNull()
@@ -300,12 +312,11 @@ class ContentRepository(
             val url = URL(urlStr)
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 6000
-                readTimeout = 8000
+                connectTimeout = 4000
+                readTimeout = 6000
                 instanceFollowRedirects = true
-                // প্রথম 512 KB (৩-৪ সেকেন্ডের ভিডিও ও হেডার ডাটা) রেঞ্জ রিকোয়েস্ট
                 setRequestProperty("Range", "bytes=0-524287")
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Precache")
+                setRequestProperty("User-Agent", "PlayDramaFlix Precache")
                 connect()
             }
 
@@ -317,7 +328,6 @@ class ContentRepository(
                         inStream.copyTo(outStream)
                     }
                 }
-                Log.d(TAG, "✓ Pre-cached 3s chunk for Ep $epNum of MP4.")
             }
         } catch (_: Exception) {
         } finally {
@@ -328,13 +338,18 @@ class ContentRepository(
     private fun precacheHlsFirstSegment(m3u8UrlStr: String, precacheDir: File, epNum: Int) {
         var conn: HttpURLConnection? = null
         try {
+            val targetFile = File(precacheDir, "ep_${epNum}_seg0.ts")
+            if (targetFile.exists() && targetFile.length() >= 1000L) {
+                return
+            }
+
             val url = URL(m3u8UrlStr)
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 5000
-                readTimeout = 6000
+                connectTimeout = 4000
+                readTimeout = 5000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Precache")
+                setRequestProperty("User-Agent", "PlayDramaFlix Precache")
                 connect()
             }
 
@@ -354,25 +369,21 @@ class ContentRepository(
                         "$baseUrl/$firstSegmentLine"
                     }
 
-                    val segmentFile = File(precacheDir, "ep_${epNum}_seg0.ts")
-                    if (!segmentFile.exists() || segmentFile.length() < 1000L) {
-                        val segConn = (URL(segmentUrl).openConnection() as HttpURLConnection).apply {
-                            requestMethod = "GET"
-                            connectTimeout = 5000
-                            readTimeout = 6000
-                            instanceFollowRedirects = true
-                            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) PlayDramaFlix Precache")
-                        }
-                        if (segConn.responseCode in 200..299) {
-                            segConn.inputStream.use { input ->
-                                FileOutputStream(segmentFile).use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                            Log.d(TAG, "✓ Pre-cached 1st HLS segment (3s) for Ep $epNum.")
-                        }
-                        segConn.disconnect()
+                    val segConn = (URL(segmentUrl).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 4000
+                        readTimeout = 5000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "PlayDramaFlix Precache")
                     }
+                    if (segConn.responseCode in 200..299) {
+                        segConn.inputStream.use { input ->
+                            FileOutputStream(targetFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                    segConn.disconnect()
                 }
             }
         } catch (_: Exception) {
@@ -397,11 +408,9 @@ class ContentRepository(
                         cachedTimestamp = System.currentTimeMillis()
                     )
                 )
-                Log.i(TAG, "✓ Real-time sync complete: '$slug' pre-downloaded to Room DB.")
                 true
             } else false
         } catch (e: Exception) {
-            Log.e(TAG, "Real-time sync error for '$slug': ${e.message}")
             false
         }
     }
@@ -418,17 +427,12 @@ class ContentRepository(
                         cachedTimestamp = System.currentTimeMillis()
                     )
                 )
-                Log.i(TAG, "✓ Home feed synced to Room DB via background sync.")
                 true
             } else false
         } catch (e: Exception) {
             false
         }
     }
-
-    // =========================================================================
-    // ⚡ অফলাইন ফলব্যাক কনটেন্ট
-    // =========================================================================
 
     fun getFallbackContents(): List<ContentItemDto> {
         return listOf(
