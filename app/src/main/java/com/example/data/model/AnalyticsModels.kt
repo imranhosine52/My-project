@@ -24,6 +24,7 @@ data class PublicLiveAnalyticsResponse(
 
     // 🎯 ফলব্যাক হেল্পার প্রোপার্টিজ
     val countries: List<LiveCountryStat> get() = audienceAnalytics?.countries ?: emptyList()
+    val liveCountries: List<LiveCountryStat> get() = audienceAnalytics?.liveCountries ?: emptyList()
     val topPosts: List<LivePostStat> get() = contentAnalytics?.topDramas ?: emptyList()
     val topBrands: List<LiveBrandStat> get() = audienceAnalytics?.topBrands ?: emptyList()
     val ageDemographics: List<AgeDemographicItem> get() = audienceAnalytics?.ageDemographics ?: emptyList()
@@ -104,6 +105,7 @@ data class AudienceAnalyticsDto(
     @Json(name = "active_heatmap_matrix") val activeHeatmapMatrix: List<List<Float>> = emptyList(),
     @Json(name = "top_brands") val topBrands: List<LiveBrandStat> = emptyList(),
     @Json(name = "countries") val countries: List<LiveCountryStat> = emptyList(),
+    @Json(name = "live_countries") val liveCountries: List<LiveCountryStat> = emptyList(), // 👈 নতুন ফিল্ড: শুধুমাত্র লাইভ ইউজারদের দেশ
     @Json(name = "age_demographics") val ageDemographics: List<AgeDemographicItem> = emptyList()
 )
 
@@ -178,8 +180,8 @@ data class LivePostStat(
     @Json(name = "title") val title: String = "",
     @Json(name = "slug") val slug: String = "",
     @Json(name = "watching_count") val watchingCount: Int = 0,
-    @Json(name = "duration_text") val durationText: String? = null,       // 👈 নতুন ফিল্ড: কত সময় ধরে দেখছে
-    @Json(name = "duration_minutes") val durationMinutes: Int? = null     // 👈 নতুন ফিল্ড: কত মিনিট
+    @Json(name = "duration_text") val durationText: String? = null,
+    @Json(name = "duration_minutes") val durationMinutes: Int? = null
 ) {
     val formattedWatchingCount: String get() = PublicLiveAnalyticsResponse.formatMetric(watchingCount.toLong())
     val formattedDuration: String get() = durationText ?: "${durationMinutes ?: 1}m watching"
