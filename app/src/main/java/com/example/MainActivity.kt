@@ -182,6 +182,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 🚀 ব্যবহারকারী অ্যাপে ফিরে এলে তৎক্ষণাৎ অনলাইন উপস্থিতি পাঠানো ও হার্টবিট লুপ চালু করা
+        try {
+            val savedUserId = viewModel.repository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
+            AppAnalyticsTracker.init(applicationContext, savedUserId)
+        } catch (_: Exception) {}
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // 🛑 ব্যবহারকারী হোম বাটন চেপে বা অ্যাপ থেকে বের হওয়া মাত্রই ইনস্ট্যান্ট অফলাইন সিগন্যাল সার্ভারে পাঠানো
+        try {
+            AppAnalyticsTracker.sendOfflineSignal(applicationContext)
+        } catch (_: Exception) {}
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -829,8 +846,7 @@ private fun MainAppContent(
         }
 
         // =========================================================================
-        // 🎵 গ্লোবাল ভাসমান পপ-আপ মিনি প্লেয়ার (ছবি ২ ও ৩)
-        // 🔥 পুরো অ্যাপের যেকোনো পেজে ইউজার গেলে এটি ড্র্যাগেবল অবস্থায় ভাসতে থাকবে
+        // 🎵 গ্লোবাল ভাসমান পপ-আপ মিনি প্লেয়ার
         // =========================================================================
         val shouldHideFloatingAudio = currentScreen is Screen.LocalAudioPlayer ||
                 currentScreen is Screen.LocalPlayer ||
