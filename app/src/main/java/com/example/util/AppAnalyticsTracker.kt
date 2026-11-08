@@ -5,23 +5,23 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import com.example.data.remote.ApiClient
 import kotlinx.coroutines.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * ⚡ হাই-পারফরম্যান্স রিয়েল-টাইম অ্যানালিটিক্স ও হার্টবিট ট্র্যাকার
- * স্বয়ংক্রিয় ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম, শর্টস সোয়াইপ ও ইনস্ট্যান্ট অফলাইন ডিসকানেক্ট সহ
+ * OkHttp কানেকশন পুল, ওয়াচ-টাইম (সেকেন্ড), সার্চ টার্ম, শর্টস সোয়াইপ ও ইনস্ট্যান্ট অফলাইন ডিসকানেক্ট সহ
  */
 object AppAnalyticsTracker {
     private const val TAG = "ANALYTICS_TRACKER"
     
-    // 🎯 অফিসিয়াল অ্যানালিটিক্স পিং এন্ডপয়েন্ট
-    private const val PING_URL = "https://www.playdramaflix.com/api/v1/analytics/ping"
+    // 🎯 সেন্ট্রাল ApiClient.BASE_URL এর সাথে সুসংহত
+    private val PING_URL: String
+        get() = "${ApiClient.BASE_URL}analytics/ping"
     
     // ⏱️ সার্ভারের ২০ সেকেন্ডের Redis টাইমআউটের সাথে নিখুঁত মিল রাখতে ১২ সেকেন্ড পর পর লাইভ হার্টবিট
     private const val HEARTBEAT_INTERVAL_MS = 12_000L 
@@ -35,6 +35,9 @@ object AppAnalyticsTracker {
 
     private val trackerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var heartbeatJob: Job? = null
+
+    // ⚡ সেন্ট্রাল কানেকশন পুল রিইউজ
+    private val httpClient get() = ApiClient.okHttpClient
 
     @Volatile
     private var currentScreenName: String = "Home Screen"
@@ -226,7 +229,7 @@ object AppAnalyticsTracker {
 
     /**
      * 🛑 ৩ সেকেন্ডের মধ্যে অফলাইন করার ইনস্ট্যান্ট সিগন্যাল (App Background / Exit)
-     * ইউজার অ্যাপ থেকে বের হলে সাথে সাথে এই মেথড কল হবে।
+     * ইউজার অ্যাপ থেকে বের হলে সাথে সাথে OkHttp দিয়ে কল পাঠানো হয়।
      */
     fun sendOfflineSignal(context: Context) {
         heartbeatJob?.cancel()
@@ -241,24 +244,19 @@ object AppAnalyticsTracker {
                     put("action", "offline")
                 }
 
-                val url = URL(PING_URL)
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                    setRequestProperty("Accept", "application/json")
-                    connectTimeout = 3000
-                    readTimeout = 3000
-                    doOutput = true
-                }
+                val requestBody = jsonPayload.toString()
+                    .toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
 
-                OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                    writer.write(jsonPayload.toString())
-                    writer.flush()
-                }
+                val request = Request.Builder()
+                    .url(PING_URL)
+                    .post(requestBody)
+                    .addHeader("Accept", "application/json")
+                    .build()
 
-                val code = conn.responseCode
+                val response = httpClient.newCall(request).execute()
+                val code = response.code
+                response.close()
                 Log.d(TAG, "✓ Instant offline signal sent [$code] for device: $deviceId")
-                conn.disconnect()
             } catch (t: Throwable) {
                 Log.w(TAG, "Offline signal error: ${t.message}")
             }
@@ -286,7 +284,7 @@ object AppAnalyticsTracker {
     }
 
     /**
-     * 🌐 ক্লাউডফ্লেয়ার ও Redis এর সাথে আল্ট্রা-লাইটওয়েট পিং মেথড
+     * 🌐 OkHttp কানেকশন পুল সহ অপ্টিমাইজড নেটওয়ার্ক পিং মেথড
      */
     private fun sendPing(
         context: Context,
@@ -299,7 +297,6 @@ object AppAnalyticsTracker {
         shortAction: String = "",
         ageGroup: String = DEFAULT_AGE_GROUP
     ) {
-        var conn: HttpURLConnection? = null
         try {
             val now = System.currentTimeMillis()
 
@@ -345,40 +342,27 @@ object AppAnalyticsTracker {
                 if (shortAction.isNotBlank()) put("short_action", shortAction)
             }
 
-            val url = URL(PING_URL)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("Connection", "Keep-Alive")
-                setRequestProperty(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android ${Build.VERSION.RELEASE}; ${Build.MODEL}) PlayDramaFlixApp/1.0"
-                )
-                connectTimeout = 5000
-                readTimeout = 5000
-                doOutput = true
-                instanceFollowRedirects = true
-            }
+            val requestBody = jsonPayload.toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
 
-            OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                writer.write(jsonPayload.toString())
-                writer.flush()
-            }
+            val request = Request.Builder()
+                .url(PING_URL)
+                .post(requestBody)
+                .addHeader("Accept", "application/json")
+                .build()
 
-            val responseCode = conn.responseCode
+            val response = httpClient.newCall(request).execute()
+            val responseCode = response.code
+            response.close()
+
             if (responseCode in 200..299) {
                 Log.d(TAG, "✓ Ping OK [$responseCode]: $screen | ${elapsedSec}s | Age: $ageGroup")
             } else {
-                val stream = conn.errorStream ?: conn.inputStream
-                val errText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
-                Log.w(TAG, "Ping notice [$responseCode]: $errText")
+                Log.w(TAG, "Ping notice [$responseCode]")
             }
 
         } catch (t: Throwable) {
             Log.w(TAG, "Ping failed (silent): ${t.message}")
-        } finally {
-            conn?.disconnect()
         }
     }
 }
