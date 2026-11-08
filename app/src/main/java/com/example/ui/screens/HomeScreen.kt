@@ -31,7 +31,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.TopNavigationBar
-import com.example.ui.screens.GlobalAnalyticsScreen
 import com.example.ui.screens.categories.*
 import com.example.ui.screens.profile.components.VersionScannerDialog
 import com.example.ui.theme.*
@@ -65,9 +64,25 @@ fun HomeScreen(
     var showVersionScannerDialog by remember { mutableStateOf(false) }
     val installedVersion = remember { viewModel.getInstalledAppVersion() }
 
+    // ⚡ অ্যানালিটিক্স ড্যাশবোর্ড ওপেন থাকলে প্রতি ৩ সেকেন্ডে পোলিং চলবে, বন্ধ হলে পোলিং থেমে যাবে
+    LaunchedEffect(showGlobalAnalyticsScreen) {
+        if (showGlobalAnalyticsScreen) {
+            viewModel.fetchPublicLiveAnalytics(isInitial = true)
+            viewModel.startLiveAnalyticsPolling(intervalMs = 3000L) // 🎯 ঠিক ৩ সেকেন্ড পর পর ফ্রেশ ডেটা আনবে
+        } else {
+            viewModel.stopLiveAnalyticsPolling() // 🎯 ড্যাশবোর্ড বন্ধ করলে অহেতুক পোলিং বন্ধ থাকবে
+        }
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refreshVipStatusAndProfile()
-        viewModel.fetchPublicLiveAnalytics() // অ্যাপে ফিরে আসার সাথে সাথে লাইভ কাউন্টার আপডেট
+        viewModel.fetchPublicLiveAnalytics(isInitial = false) // অ্যাপে ফিরে আসার সাথে সাথে লাইভ কাউন্টার আপডেট
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        if (showGlobalAnalyticsScreen) {
+            viewModel.stopLiveAnalyticsPolling()
+        }
     }
 
     val categories = remember {
@@ -140,14 +155,14 @@ fun HomeScreen(
         }
     }
 
-    // 🎙️ ভয়েস সার্চ লাউঞ্চার (সার্চ কি-ওয়ার্ড ট্র্যাকার সহ)
+    // 🎙️ ভয়েস সার্চ লাউঞ্চার
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spokenText.isNullOrBlank()) {
-                AppAnalyticsTracker.trackSearch(context, spokenText) // 👈 সার্চ কি-ওয়ার্ড ট্র্যাকিং
+                AppAnalyticsTracker.trackSearch(context, spokenText)
                 viewModel.onSearchQueryChanged(spokenText)
                 onNavigateToSearch()
             }
@@ -192,7 +207,7 @@ fun HomeScreen(
                         isRefreshing = true
                         viewModel.loadHomeContent(forceRefresh = true)
                         viewModel.refreshVipStatusAndProfile()
-                        viewModel.fetchPublicLiveAnalytics()
+                        viewModel.fetchPublicLiveAnalytics(isInitial = false)
                         delay(500)
                         isRefreshing = false
                     }
@@ -309,7 +324,6 @@ fun HomeScreen(
                 },
                 liveOnlineFormatted = liveAnalyticsState.liveData?.formattedLiveCount ?: liveAnalyticsState.liveOnlineCount.toString(),
                 onLiveAnalyticsClick = {
-                    viewModel.fetchPublicLiveAnalytics() // ক্লিক করার সাথে সাথে ফ্রেশ রিয়েল-টাইম ডাটা ফেচ
                     showGlobalAnalyticsScreen = true
                 },
                 onSearchClick = onNavigateToSearch,
