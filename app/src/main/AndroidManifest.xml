@@ -12,13 +12,14 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন -->
+    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন (Android 14+ সাপোর্টেড) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- 👈 স্ক্রিন অফ থাকলেও গান সচল রাখার জন্য -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /> <!-- 👈 অডিও সার্ভিসের জন্য আবশ্যক -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- 🎬 ৪. লোকাল মিডিয়া ও মাইক্রোফোন পারমিশন -->
@@ -57,6 +58,12 @@
             </intent-filter>
         </service>
 
+        <!-- 🎵 নতুন: ব্যাকগ্রাউন্ড অডিও প্লেয়ার সার্ভিস (MX Player / Spotify স্টাইল মিডিয়া নোটিফিকেশন) -->
+        <service
+            android:name=".service.AudioPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
         <!-- 📥 ব্যাকগ্রাউন্ড হাই-স্পিড ভিডিও ডাউনলোড সার্ভিস -->
         <service
             android:name=".service.VideoDownloadService"
@@ -84,7 +91,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask" 
             android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
