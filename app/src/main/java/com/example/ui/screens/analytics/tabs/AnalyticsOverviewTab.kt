@@ -1,27 +1,35 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens.analytics.tabs
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.TrendingUp
@@ -54,8 +62,10 @@ private val CardBg = Color(0xFF10141F)
 private val CardBorder = Color(0xFF1C2436)
 private val CyanText = Color(0xFF00E5FF)
 private val CyanLine = Color(0xFF00B0FF)
-private val GoldTotal = Color(0xFFFFB300)
-private val GreenTotal = Color(0xFF00E676)
+private val NeonGreen = Color(0xFF00E676)
+private val GoldRank = Color(0xFFFFB300)
+private val SilverRank = Color(0xFF00E5FF)
+private val BronzeRank = Color(0xFFFF7A00)
 private val TextMuted = Color(0xFF8E95A5)
 private val TextLight = Color(0xFFCBD5E1)
 
@@ -70,6 +80,7 @@ data class InteractiveChartPoint(
 fun AnalyticsOverviewTab(
     overview: OverviewAnalyticsDto,
     countries: List<LiveCountryStat> = emptyList(),
+    liveCountries: List<LiveCountryStat> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "traffic_pulse")
@@ -133,13 +144,21 @@ fun AnalyticsOverviewTab(
         )
     }
 
-    // 🎯 টপ ৫টি দেশ বাছাই (কোনো ডেমো ফলব্যাক ছাড়া)
-    val displayCountries = remember(countries) {
-        if (countries.isNotEmpty()) {
-            countries.sortedByDescending { it.percentage }.take(5)
-        } else {
-            emptyList()
-        }
+    // =========================================================================
+    // 🎯 রিয়েল-টাইম লাইভ অনলাইন কান্ট্রি ও কম্পিটিশন সর্টিং ইঞ্জিন
+    // =========================================================================
+    val activeCountryList = remember(liveCountries, countries) {
+        liveCountries.ifEmpty { countries }
+    }
+
+    val sortedLiveCountries = remember(activeCountryList) {
+        activeCountryList
+            .filter { it.count > 0 || it.percentage > 0.0 }
+            .sortedWith(
+                compareByDescending<LiveCountryStat> { it.count }
+                    .thenByDescending { it.percentage }
+            )
+            .take(6)
     }
 
     LazyColumn(
@@ -336,7 +355,7 @@ fun AnalyticsOverviewTab(
                         ) {
                             Text(
                                 text = item.timeframe,
-                                color = if (isTotalRow) GoldTotal else TextLight,
+                                color = if (isTotalRow) GoldRank else TextLight,
                                 fontSize = 11.5.sp,
                                 fontWeight = if (isTotalRow) FontWeight.Black else FontWeight.Medium,
                                 modifier = Modifier.weight(1.3f)
@@ -353,7 +372,7 @@ fun AnalyticsOverviewTab(
 
                             Text(
                                 text = item.formattedViews,
-                                color = if (isTotalRow) GreenTotal else CyanText,
+                                color = if (isTotalRow) NeonGreen else CyanText,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.End,
@@ -370,7 +389,7 @@ fun AnalyticsOverviewTab(
         }
 
         // =========================================================================
-        // 🌍 ৩. দেশভিত্তিক হিস্টোরি কার্ড (🎯 ইউজার সংখ্যা বাদ দিয়ে শুধু % ডিসপ্লে)
+        // 🌍 ৩. রিয়েল-টাইম লাইভ কান্ট্রি কম্পিটিশন কার্ড (স্লাইডিং এনিমেশন সহ)
         // =========================================================================
         item {
             Surface(
@@ -392,112 +411,177 @@ fun AnalyticsOverviewTab(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Public,
-                                contentDescription = null,
-                                tint = CyanText,
-                                modifier = Modifier.size(15.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .scale(pulseScale)
+                                    .clip(CircleShape)
+                                    .background(NeonGreen)
                             )
                             Text(
-                                text = "Top Countries (Total History)",
+                                text = "Live Countries Online",
                                 color = Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
 
+                        // লাইভ কম্পিটিশন ব্যাজ
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFF141926),
-                            border = BorderStroke(0.6.dp, CardBorder)
+                            color = NeonGreen.copy(alpha = 0.12f),
+                            border = BorderStroke(0.6.dp, NeonGreen.copy(alpha = 0.4f))
                         ) {
-                            Text(
-                                text = "Ranked",
-                                color = TextMuted,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Leaderboard,
+                                    contentDescription = null,
+                                    tint = NeonGreen,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Text(
+                                    text = "Live Race",
+                                    color = NeonGreen,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(1.dp))
 
-                    if (displayCountries.isEmpty()) {
+                    if (sortedLiveCountries.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 14.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "No country analytics recorded yet",
+                                text = "Waiting for live audience connections...",
                                 color = TextMuted,
                                 fontSize = 11.sp
                             )
                         }
                     } else {
-                        displayCountries.forEachIndexed { index, country ->
-                            val animatedPercentage by animateFloatAsState(
-                                targetValue = (country.percentage / 100f).toFloat().coerceIn(0.02f, 1f),
-                                animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                                label = "country_bar_${country.code}"
-                            )
+                        // 🎯 কম্পিটিশন আইটেম লিস্ট
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            sortedLiveCountries.forEachIndexed { index, country ->
+                                key(country.code) {
+                                    val animatedPercentage by animateFloatAsState(
+                                        targetValue = (country.percentage / 100f).toFloat().coerceIn(0.04f, 1f),
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        ),
+                                        label = "live_country_bar_${country.code}"
+                                    )
 
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                                    ) {
-                                        Text(
-                                            text = "#${index + 1}",
-                                            color = if (index == 0) GoldTotal else TextMuted,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-
-                                        Box(
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF1E283C))
-                                                .border(0.6.dp, Color(0xFF2E3B52), CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(text = country.flag, fontSize = 12.sp)
-                                        }
-
-                                        Text(
-                                            text = country.name,
-                                            color = TextLight,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                                    val rank = index + 1
+                                    val rankBadgeBg = when (rank) {
+                                        1 -> GoldRank.copy(alpha = 0.15f)
+                                        2 -> SilverRank.copy(alpha = 0.12f)
+                                        3 -> BronzeRank.copy(alpha = 0.15f)
+                                        else -> Color(0xFF141926)
+                                    }
+                                    val rankBadgeBorder = when (rank) {
+                                        1 -> GoldRank.copy(alpha = 0.6f)
+                                        2 -> SilverRank.copy(alpha = 0.5f)
+                                        3 -> BronzeRank.copy(alpha = 0.5f)
+                                        else -> Color(0xFF222B3D)
+                                    }
+                                    val rankTextColor = when (rank) {
+                                        1 -> GoldRank
+                                        2 -> SilverRank
+                                        3 -> BronzeRank
+                                        else -> TextMuted
                                     }
 
-                                    // 🎯 ফিক্সড: ইউজার সংখ্যা সম্পূর্ণ মুছে দেওয়া হয়েছে, এখন শুধু পার্সেন্টেজ (%) রয়েছে
-                                    Text(
-                                        text = "${country.percentage}%",
-                                        color = CyanText,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 1.dp),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                            ) {
+                                                // 🥇🥈🥉 মেডেল র‍্যাঙ্ক ব্যাজ
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = rankBadgeBg,
+                                                    border = BorderStroke(0.6.dp, rankBadgeBorder),
+                                                    modifier = Modifier
+                                                        .width(22.dp)
+                                                        .height(18.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = "#$rank",
+                                                            color = rankTextColor,
+                                                            fontSize = 9.5.sp,
+                                                            fontWeight = FontWeight.Black
+                                                        )
+                                                    }
+                                                }
 
-                                LinearProgressIndicator(
-                                    progress = { animatedPercentage },
-                                    color = if (index == 0) CyanText else Color(0xFF00B0FF),
-                                    trackColor = Color(0xFF181F2E),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(2.8.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                )
+                                                // দেশের গোল পতাকা
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(20.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF1E283C))
+                                                        .border(0.6.dp, Color(0xFF2E3B52), CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(text = country.flag, fontSize = 11.sp)
+                                                }
+
+                                                Text(
+                                                    text = country.name,
+                                                    color = if (rank == 1) Color.White else TextLight,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = if (rank == 1) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            }
+
+                                            // 🎯 শুধু পরিচ্ছন্ন শতকরা হার (%)
+                                            Text(
+                                                text = "${country.percentage}%",
+                                                color = if (rank == 1) GoldRank else CyanText,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        // লাইভ রেস প্রোগ্রেস বার
+                                        LinearProgressIndicator(
+                                            progress = { animatedPercentage },
+                                            color = when (rank) {
+                                                1 -> GoldRank
+                                                2 -> CyanText
+                                                3 -> BronzeRank
+                                                else -> Color(0xFF00B0FF)
+                                            },
+                                            trackColor = Color(0xFF181F2E),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(2.5.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
