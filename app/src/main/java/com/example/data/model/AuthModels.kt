@@ -9,7 +9,7 @@ data class GoogleAuthRequest(
     @Json(name = "email") val email: String,
     @Json(name = "name") val name: String,
     @Json(name = "avatar") val avatar: String? = null,
-    @Json(name = "device_id") val deviceId: String? = null // 👈 সার্ভারে ডিভাইস লিমিট চেকের জন্য
+    @Json(name = "device_id") val deviceId: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -27,15 +27,14 @@ data class AuthRegisterRequest(
     @Json(name = "email_or_phone") val emailOrPhone: String,
     @Json(name = "password") val password: String,
     @Json(name = "avatar") val avatar: String? = null,
-    @Json(name = "device_id") val deviceId: String? = null // 👈 সার্ভারে ডিভাইস লিমিট চেকের জন্য
+    @Json(name = "device_id") val deviceId: String? = null
 )
 
-// 🎯 লগইন রিকোয়েস্টে device_id যুক্ত করা হলো (সর্বোচ্চ ২টি ডিভাইসের সীমা কার্যকর করতে)
 @JsonClass(generateAdapter = true)
 data class AuthLoginRequest(
     @Json(name = "email_or_phone") val emailOrPhone: String,
     @Json(name = "password") val password: String,
-    @Json(name = "device_id") val deviceId: String? = null // 👈 নতুন: ২টা ডিভাইস লিমিট চেকের জন্য
+    @Json(name = "device_id") val deviceId: String? = null
 )
 
 @JsonClass(generateAdapter = true)
