@@ -17,6 +17,7 @@ import android.provider.Settings
 import android.util.Rational
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -75,13 +76,12 @@ private fun findActivity(context: Context): Activity? {
 
 /**
  * 🌍 ইন্টেলিজেন্ট অডিও ল্যাঙ্গুয়েজ রেজলভার ও অ্যান্টি-স্প্যাম ফিল্টার
- * ওয়েবসাইটের বিজ্ঞাপন বা স্প্যাম লেবেল এড়িয়ে ISO কোড থেকে আসল ভাষার নাম বের করে।
  */
 private fun resolveLanguageDisplayName(langCode: String?, label: String?, trackNumber: Int): String {
     val cleanCode = langCode?.trim()?.lowercase() ?: ""
     val cleanLabel = label?.trim() ?: ""
 
-    // ১. ISO 639-1 / 639-2 ল্যাঙ্গুয়েজ কোড থেকে নিশ্চিত ভাষা শনাক্তকরণ
+    // ১. ISO কোড থেকে ভাষা শনাক্তকরণ
     val detectedFromCode = when {
         cleanCode in listOf("hi", "hin", "hindi") -> "Hindi"
         cleanCode in listOf("bn", "ben", "bangla", "bengali") -> "Bengali"
@@ -116,7 +116,7 @@ private fun resolveLanguageDisplayName(langCode: String?, label: String?, trackN
         else -> null
     }
 
-    // ২. লেবেল টেক্সটের ভেতর কোনো ভাষার নাম লেখা আছে কি না যাচাই
+    // ২. লেবেলের ভেতরের টেক্সট থেকে শনাক্তকরণ
     val detectedFromLabel = when {
         cleanLabel.contains("bengali", true) || cleanLabel.contains("bangla", true) -> "Bengali"
         cleanLabel.contains("hindi", true) || cleanLabel.contains("hin", true) -> "Hindi"
@@ -126,6 +126,7 @@ private fun resolveLanguageDisplayName(langCode: String?, label: String?, trackN
         cleanLabel.contains("chinese", true) || cleanLabel.contains("chi", true) -> "Chinese"
         cleanLabel.contains("tamil", true) || cleanLabel.contains("tam", true) -> "Tamil"
         cleanLabel.contains("telugu", true) || cleanLabel.contains("tel", true) -> "Telugu"
+        cleanLabel.contains("malayalam", true) || cleanLabel.contains("mal", true) -> "Malayalam"
         cleanLabel.contains("urdu", true) || cleanLabel.contains("urd", true) -> "Urdu"
         cleanLabel.contains("spanish", true) || cleanLabel.contains("spa", true) -> "Spanish"
         cleanLabel.contains("french", true) || cleanLabel.contains("fre", true) -> "French"
@@ -135,7 +136,7 @@ private fun resolveLanguageDisplayName(langCode: String?, label: String?, trackN
         else -> null
     }
 
-    // লেবেলটি কি কোনো ওয়েবসাইটের নাম বা বিজ্ঞাপন স্প্যাম?
+    // স্প্যাম ওয়েবসাইট ফিল্টার
     val isWebsiteSpam = cleanLabel.contains(".co", true) ||
             cleanLabel.contains(".com", true) ||
             cleanLabel.contains(".net", true) ||
@@ -147,7 +148,6 @@ private fun resolveLanguageDisplayName(langCode: String?, label: String?, trackN
     val finalLanguage = detectedFromCode ?: detectedFromLabel
 
     return if (finalLanguage != null) {
-        // যদি লেবেলে দরকারী কোনো ট্যাগ থাকে (যেমন: Original, Dubbed), স্প্যাম না হলে সেটি ব্র্যাকেটে দেখাবে
         val extraTag = if (!isWebsiteSpam && cleanLabel.isNotBlank() && !cleanLabel.equals(finalLanguage, true)) {
             val stripped = cleanLabel
                 .replace(finalLanguage, "", ignoreCase = true)
@@ -200,9 +200,6 @@ private fun resolveSubtitleDisplayName(langCode: String?, label: String?, trackN
     }
 }
 
-/**
- * 🔊 অডিও চ্যানেল কনফিগারেশন নির্ণায়ক (Mono, Stereo 2.0, 5.1 Surround)
- */
 private fun resolveAudioChannelLayout(channels: Int): String {
     return when (channels) {
         1 -> "Mono"
@@ -213,9 +210,6 @@ private fun resolveAudioChannelLayout(channels: Int): String {
     }
 }
 
-/**
- * 🏷️ অডিও কোডেক নির্ণায়ক (AAC, AC3, EAC3, MP3)
- */
 private fun resolveAudioCodecFormat(mimeType: String?): String {
     return when {
         mimeType == null -> "Audio"
@@ -283,7 +277,6 @@ fun LocalPlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // ড্রয়ার টাইপ: "none", "audio", "subtitles", "speed", "playlist"
     var sideDrawerType by remember { mutableStateOf("none") }
     val showSideDrawer = (sideDrawerType != "none")
 
@@ -317,7 +310,7 @@ fun LocalPlayerVideoBox(
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 ExoPlayer থেকে সমস্ত অডিও ও সাবটাইটেল ট্র্যাক নিখুঁতভাবে এক্সট্র্যাক্ট করা
+    // 🎧 ExoPlayer থেকে সমস্ত অডিও ও সাবটাইটেল ট্র্যাক এক্সট্র্যাক্ট করার ইঞ্জিন
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundAudioTracks = mutableListOf<AdvancedAudioTrackInfo>()
@@ -343,7 +336,6 @@ fun LocalPlayerVideoBox(
                         currentAudioLabel = readableName
                     }
 
-                    // একই নামের একাধিক ট্র্যাক থাকলে (যেমন ২টা Hindi ট্র্যাক) আলাদা করার জন্য নম্বর বসানো
                     val uniqueName = if (foundAudioTracks.any { it.displayName == readableName }) {
                         val count = foundAudioTracks.count { it.displayName.startsWith(readableName) } + 1
                         "$readableName ($count)"
@@ -392,14 +384,26 @@ fun LocalPlayerVideoBox(
             }
         }
 
-        availableAudioTracks = foundAudioTracks
-        availableSubtitleTracks = foundSubtitleTracks
+        if (foundAudioTracks.isNotEmpty()) {
+            availableAudioTracks = foundAudioTracks
+            if (selectedAudioTrackId == "default" || currentAudioLabel == "Audio") {
+                val selected = foundAudioTracks.find { it.isSelected } ?: foundAudioTracks.first()
+                selectedAudioTrackId = selected.id
+                currentAudioLabel = selected.displayName
+            }
+        }
 
-        // যদি কোনো অডিও সিলেক্টেড না পাওয়া যায় তবে প্রথম ট্র্যাকটিকে ডিফল্ট ধরা
-        if (availableAudioTracks.isNotEmpty() && (selectedAudioTrackId == "default" || currentAudioLabel == "Audio")) {
-            val selected = availableAudioTracks.find { it.isSelected } ?: availableAudioTracks.first()
-            selectedAudioTrackId = selected.id
-            currentAudioLabel = selected.displayName
+        if (foundSubtitleTracks.isNotEmpty()) {
+            availableSubtitleTracks = foundSubtitleTracks
+        }
+    }
+
+    // =========================================================================
+    // 🎯 স্ক্রিন রোটেট ফিক্স: কম্পোজিশনে ঢোকার সাথে সাথে ইনস্ট্যান্ট ট্র্যাক এক্সট্র্যাক্ট
+    // =========================================================================
+    LaunchedEffect(exoPlayer, currentVideo.id) {
+        if (!exoPlayer.currentTracks.isEmpty) {
+            extractTracks(exoPlayer.currentTracks)
         }
     }
 
@@ -418,7 +422,7 @@ fun LocalPlayerVideoBox(
                 .buildUpon()
                 .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, track.trackIndex))
                 .build()
-            Toast.makeText(context, "Switched to: ${track.displayName} (${track.channelInfo})", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Switched to: ${track.displayName}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -499,6 +503,12 @@ fun LocalPlayerVideoBox(
             }
         }
         exoPlayer.addListener(listener)
+
+        // ডিসপোজেবল ইফেক্ট শুরুর সময়ও যদি ট্র্যাক থেকে থাকে তবে সাথে সাথে এক্সট্র্যাক্ট করা
+        if (!exoPlayer.currentTracks.isEmpty) {
+            extractTracks(exoPlayer.currentTracks)
+        }
+
         onDispose { exoPlayer.removeListener(listener) }
     }
 
@@ -536,7 +546,7 @@ fun LocalPlayerVideoBox(
             .fillMaxSize()
             .background(Color.Black)
             // =============================================================
-            // 👆 সোয়াইপ জেসচার (আগের ডিজাইন ১০০% বজায় রাখা হয়েছে)
+            // 👆 সোয়াইপ জেসচার (আগের ডিজাইন ১০০% অক্ষুণ্ণ)
             // =============================================================
             .pointerInput(isScreenLocked, isLandscape, showSideDrawer) {
                 if (isScreenLocked || showSideDrawer) return@pointerInput
@@ -822,7 +832,7 @@ fun LocalPlayerVideoBox(
         )
 
         // =============================================================
-        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (অডিও, সাবটাইটেল, স্পিড, প্লেলিস্ট)
+        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (ছবি ১ ও ২ এর হুবহু ডিজাইনে ড্রয়ার কল)
         // =============================================================
         AnimatedVisibility(
             visible = showSideDrawer,
@@ -839,13 +849,13 @@ fun LocalPlayerVideoBox(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(if (sideDrawerType == "playlist") 285.dp else 240.dp)
+                    .width(if (sideDrawerType == "playlist") 285.dp else 220.dp)
                     .background(
                         Brush.horizontalGradient(
                             listOf(
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.45f),
-                                Color.Black.copy(alpha = 0.78f)
+                                Color.Black.copy(alpha = 0.35f),
+                                Color.Black.copy(alpha = 0.75f)
                             )
                         )
                     )
