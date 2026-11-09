@@ -53,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -133,7 +134,7 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
 
     if (lower == "null" || lower == "none" || lower == "n/a" || lower == "undefined") return false
     
-    // লোকাল কনটেন্ট বা ফাইল স্কিম সরাসরি অনুমোদিত
+    // লোকাল ফাইল ও কন্টেন্ট স্কিম অনুমোদিত
     if (lower.startsWith("content://") || lower.startsWith("file://")) return true
     
     if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false
@@ -370,13 +371,11 @@ fun PlayerScreen(
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         
-        // 🎯 MP4 এবং MKV সিঙ্কিং ও কনস্ট্যান্ট বিটরেট এনেবল
         val extractorsFactory = DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
             
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        // 🎯 সফটওয়্যার ডিকোডার ফলব্যাক এনেবল রাখা যাতে MKV বা আনসাপোর্টেড অডিওতে ক্র্যাশ না করে
         val renderersFactory = DefaultRenderersFactory(context)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             .setEnableDecoderFallback(true)
@@ -817,9 +816,6 @@ fun PlayerScreen(
                     val uri = Uri.parse(resolvedUrl)
                     val cleanPath = resolvedUrl.substringBefore("?").substringBefore("#").lowercase()
 
-                    // =========================================================================
-                    // 🎯 MP4, MKV, WebM, HLS, DASH-এর জন্য নিখুঁত এবং নির্ভরযোগ্য MIME Type
-                    // =========================================================================
                     val targetMimeType = when {
                         cleanPath.endsWith(".m3u8") || resolvedUrl.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
                         cleanPath.endsWith(".mpd") || resolvedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
@@ -981,7 +977,7 @@ fun PlayerScreen(
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =============================================================
-                // 📺 Video Player Frame
+                // 📺 Video Player Frame (🎯 clipToBounds() দিয়ে টাইটেলের ওপর যাওয়া বন্ধ)
                 // =============================================================
                 Box(
                     modifier = (if (isAnyFullscreen) {
@@ -990,6 +986,7 @@ fun PlayerScreen(
                         Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                     })
                         .zIndex(5f)
+                        .clipToBounds() // 👈 বাউন্ডারি লক: কন্ট্রোলার নিচে নামার সময় ভিডিও ফ্রেমের বাইরে কোনোভাবেই যাবে না
                         .background(Color.Black)
                 ) {
                     if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
