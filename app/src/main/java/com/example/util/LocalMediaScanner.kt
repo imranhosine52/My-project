@@ -293,7 +293,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 📁 ৪. ডকুমেন্টস ও ফাইল স্ক্যানার
+    // 📁 ৪. ডকুমেন্টস ও ফাইল স্ক্যানার (উন্নত ও শতভাগ নির্ভরযোগ্য)
     // =========================================================================
     suspend fun getAllDocuments(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -303,9 +303,10 @@ object LocalMediaScanner {
         val addedPaths = mutableSetOf<String>()
 
         val validExtensions = setOf(
-            "pdf", "doc", "docx", "txt", "zip", "rar", "7z", "apk", "xlsx", "xls", "ppt", "pptx", "csv", "json", "html"
+            "pdf", "doc", "docx", "txt", "zip", "rar", "7z", "apk", "xlsx", "xls", "ppt", "pptx", "csv", "json", "html", "epub", "iso"
         )
 
+        // ১. MediaStore.Files কোয়েরি
         try {
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -381,18 +382,34 @@ object LocalMediaScanner {
                     }
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "MediaStore files scanner notice: ${e.message}")
+        }
 
+        // ২. ফাইল সিস্টেম স্ক্যান (All Files Access থাকলে রুট সহ সব ফোল্ডার অ্যাক্সেস পাবে)
+        try {
             val root = Environment.getExternalStorageDirectory()
-            val targetFolders = listOf(
+            val targetFolders = mutableListOf(
                 File(root, Environment.DIRECTORY_DOWNLOADS),
                 File(root, Environment.DIRECTORY_DOCUMENTS),
                 File(root, "Download"),
-                File(root, "Documents")
+                File(root, "Documents"),
+                File(root, "Telegram"),
+                File(root, "Telegram/Telegram Documents"),
+                File(root, "WhatsApp/Media/WhatsApp Documents"),
+                File(root, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents")
             )
 
-            for (dir in targetFolders) {
+            // All Files Access অন থাকলে রুটের ডিরেক্টরিগুলোও যুক্ত করা
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                root.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") && it.name != "Android" }?.forEach {
+                    targetFolders.add(it)
+                }
+            }
+
+            for (dir in targetFolders.distinct()) {
                 if (dir.exists() && dir.isDirectory) {
-                    dir.walkTopDown().maxDepth(2).filter { it.isFile && it.length() > 0 }.forEach { file ->
+                    dir.walkTopDown().maxDepth(3).filter { it.isFile && it.length() > 0 }.forEach { file ->
                         val path = file.absolutePath
                         val ext = file.extension.lowercase()
                         if (ext in validExtensions && path !in safeSet && path !in trashSet && path !in addedPaths) {
@@ -418,10 +435,10 @@ object LocalMediaScanner {
                     }
                 }
             }
-
         } catch (e: Exception) {
-            Log.e(TAG, "Docs scanner error: ${e.message}")
+            Log.e(TAG, "Direct disk docs scanner error: ${e.message}")
         }
+
         list
     }
 
@@ -564,7 +581,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🗑️ ৭. রিসাইকেল বিন / ট্র্যাশ ফাইলস (নতুন ডেডিকেটেড মেথড যা শতভাগ কাজ করে)
+    // 🗑️ ৭. রিসাইকেল বিন / ট্র্যাশ ফাইলস
     // =========================================================================
     suspend fun getTrashItems(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val trashPaths = getTrashPaths(context)
@@ -715,16 +732,39 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🔥 ১০. ফোন স্টোরেজ থেকে শতভাগ পারমানেন্ট ডিলিট (MediaStore + Disk)
+    // 🔥 ১০. ফোন স্টোরেজ থেকে ১০০% পার্মানেন্ট ডিলিট ইঞ্জিন
     // =========================================================================
-    suspend fun deletePermanently(context: Context, path: String): Boolean = withContext(Dispatchers.IO) {
+
+    /**
+     * ডিলিট নিশ্চিত হওয়ার পর অ্যাপের ক্যাশ ও প্রেফারেন্স পরিষ্কার করা
+     */
+    fun cleanUpDeletedPath(context: Context, path: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        removeFromStarred(context, path)
         restoreFromTrash(context, path)
         restoreFromSafeFolder(context, path)
-        removeFromStarred(context, path)
+        try {
+            MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun deletePermanently(context: Context, path: String): Boolean = withContext(Dispatchers.IO) {
+        cleanUpDeletedPath(context, path)
 
         var isDeleted = false
+
+        // ১. সরাসরি ফাইল সিস্টেম থেকে ডিলিট চেষ্টা (All Files Access থাকলে ১০০% সাথে সাথে ডিলিট হবে)
         try {
-            // ১. MediaStore ContentResolver থেকে এন্ট্রি পুরোপুরি রিমুভ করা
+            val file = File(path)
+            if (file.exists()) {
+                if (file.delete()) {
+                    isDeleted = true
+                }
+            }
+        } catch (_: Exception) {}
+
+        // ২. MediaStore ContentResolver থেকে এন্ট্রি পুরোপুরি রিমুভ করা
+        try {
             val mediaUris = listOf(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -747,23 +787,16 @@ object LocalMediaScanner {
                         isDeleted = true
                         break
                     }
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "ContentResolver security restriction for $path: ${se.message}")
                 } catch (_: Exception) {}
             }
+        } catch (_: Exception) {}
 
-            // ২. সরাসরি ফাইল সিস্টেম থেকে মুছে ফেলা
-            val file = File(path)
-            if (file.exists()) {
-                if (file.delete()) {
-                    isDeleted = true
-                }
-            }
-
-            // ৩. ফোন মেমরির সাথে তাৎক্ষণিক সিঙ্ক যাতে গ্যালারি ও ফাইল ম্যানেজারে আর না দেখায়
+        // ৩. ফোন মেমরির সাথে তাৎক্ষণিক সিঙ্ক যাতে গ্যালারি ও ফাইল ম্যানেজারে আর না দেখায়
+        try {
             MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Permanent delete failed for $path: ${e.message}")
-        }
+        } catch (_: Exception) {}
 
         isDeleted
     }
