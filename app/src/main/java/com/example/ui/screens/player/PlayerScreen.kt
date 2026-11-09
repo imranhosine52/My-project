@@ -79,8 +79,11 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.mp4.Mp4Extractor
 import com.example.ads.StartAppBanner
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
@@ -346,34 +349,43 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🚀 ULTRA-OPTIMIZED EXOPLAYER (FAST STARTUP & CLEAN BUFFERING)
+    // 🚀 ULTRA-OPTIMIZED EXOPLAYER (FAST STARTUP + BUFFERING + DECODER FALLBACK)
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(20000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) PlayDramaFlix Native Player/2.0")
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) PlayDramaFlix")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // ⚡ দ্রুততম প্লেব্যাকের জন্য অপ্টিমাইজড বাফার কনফিগারেশন:
-        // minBuffer: 20s, maxBuffer: 50s, bufferForPlayback: 700ms, bufferAfterRebuffer: 1200ms
-        val highSpeedLoadControl = DefaultLoadControl.Builder()
+        // 🎯 MP4 এবং MKV-এর দ্রুত এক্সট্রাকশনের জন্য কনফিগার করা এক্সট্র্যাক্টরস ফ্যাক্টরি
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+
+        // 🛡️ হার্ডওয়্যার কোডেক ফেইল করলে অটোমেটিক সফটওয়্যার ডিকোডারে যাওয়ার সুবিধা
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+
+        // ⚡ মোবাইল-ফ্রেন্ডলি ব্যালেন্সড বাফার কন্ট্রোল (prioritizeTimeOverSizeThresholds বাদ দেওয়া হয়েছে)
+        val robustLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                20_000, // 20s min buffer
-                50_000, // 50s max buffer
-                700,    // 700ms buffer to start playback instantly
-                1200    // 1200ms buffer after rebuffer
+                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS, // 50,000ms
+                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS, // 50,000ms
+                1000, // bufferForPlaybackMs: মাত্র ১ সেকেন্ড বাফার হলেই প্লেব্যাক শুরু!
+                2000  // bufferForPlaybackAfterRebufferMs: ২ সেকেন্ড বাফার
             )
-            .setBackBuffer(30_000, true) // 30s back-buffer for instant 10s rewinds
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(30_000, true) // ৩০ সেকেন্ড ব্যাক-বাফার
             .build()
 
-        ExoPlayer.Builder(context)
+        ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(highSpeedLoadControl)
+            .setLoadControl(robustLoadControl)
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
