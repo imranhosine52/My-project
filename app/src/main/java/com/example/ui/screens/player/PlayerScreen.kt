@@ -37,7 +37,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -118,6 +117,9 @@ private fun findActivityFromContext(context: Context): Activity? {
     return null
 }
 
+/**
+ * 🎯 ডিরেক্ট মিডিয়া স্ট্রিম বনাম ওয়েব এম্বেড লিংক নিখুঁতভাবে শনাক্তকারী
+ */
 private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
     val url = rawUrl.trim().lowercase()
@@ -125,19 +127,43 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
     if (!url.startsWith("http://") && !url.startsWith("https://")) return false
 
-    if (url.contains("/e/") || url.contains("/embed") || url.contains("byse") ||
-        url.contains("streamtape") || url.contains("streamwish") || url.contains("dood") ||
-        url.contains("vidhide") || url.contains("youtube") || url.contains("iframe")
-    ) {
+    // পরিচিত থার্ড-পার্টি Web Embed প্রোভাইডার
+    val knownEmbedKeywords = listOf(
+        "/e/", "/embed", "byse", "streamtape", "streamwish", "dood",
+        "vidhide", "youtube", "youtu.be", "iframe", "playertv",
+        "vidspeed", "filelions", "voe.sx", "luluvdo"
+    )
+    if (knownEmbedKeywords.any { url.contains(it) }) {
         return false
     }
 
     val cleanUrl = url.substringBefore("?").substringBefore("#")
-    return cleanUrl.endsWith(".mp4") ||
+    val hasDirectExtension = cleanUrl.endsWith(".mp4") ||
             cleanUrl.endsWith(".m3u8") ||
             cleanUrl.endsWith(".mkv") ||
             cleanUrl.endsWith(".mpd") ||
-            cleanUrl.endsWith(".m4v")
+            cleanUrl.endsWith(".webm") ||
+            cleanUrl.endsWith(".m4v") ||
+            cleanUrl.endsWith(".ts")
+
+    if (hasDirectExtension) return true
+
+    // কুয়েরি প্যারামিটারসহ ডিরেক্ট লিংক চেক
+    return url.contains(".mp4?") || url.contains(".m3u8?") || url.contains(".mkv?") || url.contains(".mpd?")
+}
+
+/**
+ * 💬 সাবটাইটেল এক্সটেনশন থেকে নির্ভরযোগ্য MIME Type নির্ধারণ
+ */
+private fun resolveSubtitleMimeType(url: String): String {
+    val clean = url.substringBefore("?").substringBefore("#").lowercase()
+    return when {
+        clean.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+        clean.endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
+        clean.endsWith(".ass") || clean.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+        clean.endsWith(".ttml") || clean.endsWith(".xml") -> MimeTypes.APPLICATION_TTML
+        else -> MimeTypes.APPLICATION_SUBRIP
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -306,25 +332,35 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🚀 ULTRA-OPTIMIZED EXOPLAYER (FAST STARTUP + BUFFERING TUNING)
+    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(6000)
-            .setReadTimeoutMs(10000)
+            .setConnectTimeoutMs(10000)
+            .setReadTimeoutMs(15000)
             .setDefaultRequestProperties(
                 mapOf(
                     "Connection" to "keep-alive",
                     "Keep-Alive" to "timeout=60"
                 )
             )
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix Native Player")
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix Native Player/2.0")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
+        // ⚡ দ্রুততম প্লেব্যাকের জন্য অপ্টিমাইজড বাফার কনফিগারেশন:
+        // minBuffer: 20s, maxBuffer: 50s, bufferForPlayback: 700ms, bufferAfterRebuffer: 1200ms
         val highSpeedLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(60_000, 180_000, 300, 800)
-            .setBackBuffer(60_000, true)
+            .setBufferDurationsMs(
+                20_000, // 20s min buffer
+                50_000, // 50s max buffer
+                700,    // 700ms buffer to start playback instantly
+                1200    // 1200ms buffer after rebuffer
+            )
+            .setBackBuffer(30_000, true) // 30s back-buffer for instant 10s rewinds
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -647,6 +683,9 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🎬 EPISODE PLAYBACK RESOLUTION & MEDIAITEM PREPARATION
+    // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -674,6 +713,7 @@ fun PlayerScreen(
             val embedUrl = currentEp.embedUrl?.trim() ?: ""
             val webPlayerUrl = currentEp.webPlayerUrl?.trim() ?: ""
 
+            // ১. ডিরেক্ট মিডিয়া ফাইল শনাক্তকরণ
             val directCandidate = when {
                 isDirectStreamableUrl(appStream) -> appStream
                 isDirectStreamableUrl(streamUrl) -> streamUrl
@@ -681,6 +721,7 @@ fun PlayerScreen(
                 else -> ""
             }
 
+            // ২. ওয়েব এম্বেড লিংক শনাক্তকরণ
             val embedCandidate = when {
                 embedUrl.isNotBlank() && embedUrl != "null" -> embedUrl
                 webPlayerUrl.isNotBlank() && webPlayerUrl != "null" -> webPlayerUrl
@@ -714,11 +755,51 @@ fun PlayerScreen(
                 useWebPlayerFallback = false
                 persistentWebView.loadUrl("about:blank")
                 try {
-                    val isHls = resolvedUrl.contains(".m3u8", ignoreCase = true)
-                    val mediaItem = MediaItem.Builder()
-                        .setUri(Uri.parse(resolvedUrl))
-                        .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                        .build()
+                    val uri = Uri.parse(resolvedUrl)
+                    val cleanPath = resolvedUrl.substringBefore("?").substringBefore("#").lowercase()
+
+                    // কন্টেইনার ফরম্যাট অনুযায়ী নির্ভুল MIME টাইপ নির্বাচন
+                    val containerMimeType = when {
+                        cleanPath.endsWith(".m3u8") || resolvedUrl.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
+                        cleanPath.endsWith(".mpd") || resolvedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                        cleanPath.endsWith(".mkv") || cleanPath.endsWith(".webm") || resolvedUrl.contains(".mkv", ignoreCase = true) -> MimeTypes.APPLICATION_MATROSKA
+                        cleanPath.endsWith(".mp4") || cleanPath.endsWith(".m4v") -> MimeTypes.APPLICATION_MP4
+                        else -> null // Media3 will auto-detect container and codecs via extractors
+                    }
+
+                    val mediaItemBuilder = MediaItem.Builder()
+                        .setUri(uri)
+                        .apply {
+                            if (containerMimeType != null) {
+                                setMimeType(containerMimeType)
+                            }
+                        }
+
+                    // 💬 External Subtitles ইনজেকশন (যদি সার্ভার বা স্ট্রিম অপশনে থাকে)
+                    val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+                    currentEp.downloadOptions?.forEachIndexed { index, option ->
+                        val optUrl = option.url.trim()
+                        val isSubFile = optUrl.endsWith(".srt", true) || optUrl.endsWith(".vtt", true) ||
+                                optUrl.endsWith(".ass", true) || optUrl.endsWith(".ssa", true)
+
+                        if (isSubFile) {
+                            val subMime = resolveSubtitleMimeType(optUrl)
+                            val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(optUrl))
+                                .setMimeType(subMime)
+                                .setLanguage(option.quality.lowercase().take(3))
+                                .setLabel(option.quality.ifBlank { "Subtitle ${index + 1}" })
+                                .setId("ext_sub_${index}")
+                                .setSelectionFlags(if (index == 0) C.SELECTION_FLAG_DEFAULT else 0)
+                                .build()
+                            subtitleConfigs.add(subConfig)
+                        }
+                    }
+
+                    if (subtitleConfigs.isNotEmpty()) {
+                        mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
+                    }
+
+                    val mediaItem = mediaItemBuilder.build()
 
                     exoPlayer.setMediaItem(mediaItem, 0L)
                     exoPlayer.prepare()
@@ -837,7 +918,7 @@ fun PlayerScreen(
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =============================================================
-                // 📺 Video Player Frame (zIndex(5f) দিয়ে সম্পূর্ণ সুরক্ষিত)
+                // 📺 Video Player Frame
                 // =============================================================
                 Box(
                     modifier = (if (isAnyFullscreen) {
@@ -952,11 +1033,22 @@ fun PlayerScreen(
                             onRetryPlayback = {
                                 if (activeStreamUrl.isNotBlank()) {
                                     try {
-                                        val isHls = activeStreamUrl.contains(".m3u8", ignoreCase = true)
+                                        val cleanPath = activeStreamUrl.substringBefore("?").substringBefore("#").lowercase()
+                                        val containerMime = when {
+                                            cleanPath.endsWith(".m3u8") || activeStreamUrl.contains(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
+                                            cleanPath.endsWith(".mpd") || activeStreamUrl.contains(".mpd", true) -> MimeTypes.APPLICATION_MPD
+                                            cleanPath.endsWith(".mkv") || cleanPath.endsWith(".webm") || activeStreamUrl.contains(".mkv", true) -> MimeTypes.APPLICATION_MATROSKA
+                                            cleanPath.endsWith(".mp4") || cleanPath.endsWith(".m4v") -> MimeTypes.APPLICATION_MP4
+                                            else -> null
+                                        }
+
                                         val mediaItem = MediaItem.Builder()
                                             .setUri(Uri.parse(activeStreamUrl))
-                                            .setMimeType(if (isHls) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                                            .apply {
+                                                if (containerMime != null) setMimeType(containerMime)
+                                            }
                                             .build()
+
                                         exoPlayer.setMediaItem(mediaItem, 0L)
                                         exoPlayer.prepare()
                                         exoPlayer.playWhenReady = true
@@ -970,7 +1062,7 @@ fun PlayerScreen(
                 }
 
                 // =============================================================
-                // 🔄 Portrait Mode: সোর্স কোডের হুবহু কাঠামো + মসৃণ অ্যানিমেটেড ট্রানজিশন
+                // 🔄 Portrait Mode: Tabs & Content
                 // =============================================================
                 if (!isAnyFullscreen) {
                     Box(
@@ -1013,7 +1105,6 @@ fun PlayerScreen(
                                 }
                             )
                         } else {
-                            // ↔️ ডানে-বামে মসৃণ স্লাইড ট্রানজিশন (AnimatedContent)
                             AnimatedContent(
                                 targetState = selectedTabIndex,
                                 transitionSpec = {
@@ -1029,7 +1120,7 @@ fun PlayerScreen(
                                 modifier = Modifier.fillMaxSize()
                             ) { tabIndex ->
                                 if (tabIndex == 1) {
-                                    // 💬 Tab 1: Comments Page (সোর্স কোডের হুবহু)
+                                    // 💬 Tab 1: Comments Page
                                     Column(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -1171,7 +1262,7 @@ fun PlayerScreen(
                                         )
                                     }
                                 } else {
-                                    // 🌟 Tab 0: For you Page (সোর্স কোডের হুবহু কাঠামো: Sticky Header সহ!)
+                                    // 🌟 Tab 0: For you Page
                                     PullToRefreshBox(
                                         isRefreshing = isRefreshing,
                                         onRefresh = {
@@ -1212,7 +1303,6 @@ fun PlayerScreen(
                                                 },
                                             contentPadding = PaddingValues(bottom = 80.dp)
                                         ) {
-                                            // ১. টাইটেল ও Prev/Next হেডার
                                             item {
                                                 PlayerHeaderSection(
                                                     content = content,
@@ -1249,7 +1339,6 @@ fun PlayerScreen(
                                                 )
                                             }
 
-                                            // ২. এপিসোড রো (All, 01, 02...)
                                             item {
                                                 PlayerEpisodesRow(
                                                     episodes = effectiveEpisodes,
@@ -1260,7 +1349,6 @@ fun PlayerScreen(
                                                 )
                                             }
 
-                                            // ৩. ব্যানার
                                             item {
                                                 StartAppBanner(
                                                     isVip = isUserVip,
@@ -1268,7 +1356,6 @@ fun PlayerScreen(
                                                 )
                                             }
 
-                                            // 📌 ৪. স্টিকি হেডার: স্ক্রোল করলে হুবহু এই ট্যাবটি টপে পিন হয়ে আটকে থাকবে!
                                             stickyHeader {
                                                 PlayerTabsHeader(
                                                     selectedTabIndex = selectedTabIndex,
@@ -1280,7 +1367,6 @@ fun PlayerScreen(
                                                 )
                                             }
 
-                                            // ৫. রিকমেন্ডেশন গ্রিড
                                             val dramaRows = shuffledRecommendations.chunked(4)
                                             items(dramaRows.size) { rowIndex ->
                                                 val rowDramas = dramaRows[rowIndex]
@@ -1313,7 +1399,7 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🪟 মডাল ও শিটসমূহ
+        // 🪟 Modals & Sheets
         // =========================================================================
 
         if (showAllEpisodesSheet) {
