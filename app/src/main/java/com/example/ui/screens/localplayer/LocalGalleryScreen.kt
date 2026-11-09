@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed // 👈 ফিক্স: মিসিং itemsIndexed ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -102,7 +103,7 @@ fun LocalGalleryScreen(
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    val gallerySections = remember { GallerySection.entries.toTypedArray() }
+    val gallerySections = remember { GallerySection.entries.toList() }
 
     // =========================================================================
     // 🔀 মাখনের মতো মসৃণ HorizontalPager & পাথ-ফলোয়িং ব্যাকস্ট্যাক
@@ -283,9 +284,8 @@ fun LocalGalleryScreen(
             isSearchActive = false
             searchQuery = ""
         } else if (selectedFolder != null) {
-            selectedFolder = null // ফোল্ডার থেকে ব্যাক করলে সেই ট্যাবের ফোল্ডার লিস্টে আসবে
+            selectedFolder = null
         } else if (tabHistory.isNotEmpty()) {
-            // পূর্বের ভিজিট করা ট্যাবে ফিরে যাবে
             val previousTab = tabHistory.removeAt(tabHistory.lastIndex)
             coroutineScope.launch {
                 tabPagerState.animateScrollToPage(previousTab)
@@ -365,7 +365,7 @@ fun LocalGalleryScreen(
             Column(modifier = Modifier.fillMaxSize()) {
 
                 // =============================================================
-                // 🔝 ১. আল্ট্রা-ক্লিন হেডার বার (Play Drama Flix & GALLERY অপসারিত)
+                // 🔝 ১. আল্ট্রা-ক্লিন হেডার বার
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -435,7 +435,6 @@ fun LocalGalleryScreen(
                                 )
                             }
 
-                            // 🎯 শুধুমাত্র পরিচ্ছন্ন ভিডিও ও ফোল্ডার সংখ্যা
                             Text(
                                 text = "${allIndexedVideos.size} Videos • ${folderList.size} Folders",
                                 color = Color.White.copy(alpha = 0.9f),
@@ -445,7 +444,7 @@ fun LocalGalleryScreen(
                         }
                     }
 
-                    // হেডার অ্যাকশন বাটনসমূহ (Search, Filter, Grid/List, Select All)
+                    // হেডার অ্যাকশন বাটনসমূহ
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -509,7 +508,7 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // সার্চ বার (অ্যাক্টিভ হলে)
+                // সার্চ বার
                 AnimatedVisibility(visible = isSearchActive && !isSelectionMode) {
                     Row(
                         modifier = Modifier
@@ -571,7 +570,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // 📑 ২. বাটন ছাড়া পিওর টেক্সট ট্যাব (Clean Text Tabs with Underline)
+                // 📑 ২. বাটন ছাড়া পিওর টেক্সট ট্যাব (Clean Text Tabs)
                 // =============================================================
                 if (selectedFolder == null && !isSelectionMode) {
                     LazyRow(
@@ -608,7 +607,6 @@ fun LocalGalleryScreen(
 
                                 Spacer(modifier = Modifier.height(3.dp))
 
-                                // স্লিম আন্ডারলাইন ইন্ডিকেটর
                                 Box(
                                     modifier = Modifier
                                         .height(2.dp)
@@ -622,7 +620,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // ↔️ ৩. মাখনের মতো মসৃণ HorizontalPager (বাটারি স্মুথ সোয়াইপ)
+                // ↔️ ৩. মাখনের মতো মসৃণ HorizontalPager
                 // =============================================================
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
@@ -644,7 +642,6 @@ fun LocalGalleryScreen(
                             CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.5.dp)
                         }
                     } else if (selectedFolder != null) {
-                        // ফোল্ডারের ভেতরের ভিডিও ভিউ
                         val folderVideos = remember(allIndexedVideos, selectedFolder, sortOrder, filterConfig, searchQuery) {
                             val inFolder = allIndexedVideos.filter { it.bucketId == selectedFolder!!.bucketId }
                             LocalMediaScanner.applyFiltersAndSorting(
@@ -715,7 +712,6 @@ fun LocalGalleryScreen(
                             }
                         }
                     } else {
-                        // মূল HorizontalPager সোয়াইপ ভিউ
                         HorizontalPager(
                             state = tabPagerState,
                             modifier = Modifier.fillMaxSize()
@@ -944,7 +940,7 @@ fun LocalGalleryScreen(
             }
 
             // =============================================================
-            // 🗑️ ডায়ালগসমূহ (ডিলিট ও লাইভ প্রগ্রেস)
+            // 🗑️ ডায়ালগসমূহ
             // =============================================================
             if (showDeleteConfirmDialog) {
                 DeleteConfirmationDialog(
@@ -1211,7 +1207,6 @@ private fun FloatingSeeMoreSpeedDialNav(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // অ্যানিমেটেড পপ-আপ নেভিগেশন আইকনসমূহ (ট্যাপ করলে স্প্রিং অ্যানিমেশনের সাথে এক্সপ্যান্ড হবে)
         AnimatedVisibility(
             visible = isExpanded,
             enter = fadeIn(tween(180)) + slideInVertically(
@@ -1259,7 +1254,6 @@ private fun FloatingSeeMoreSpeedDialNav(
             }
         }
 
-        // ১ নম্বর ছবির মতো ^ See More বোতাম (এক সাইডে অবস্থান করে)
         Surface(
             onClick = onToggleExpand,
             shape = RoundedCornerShape(24.dp),
