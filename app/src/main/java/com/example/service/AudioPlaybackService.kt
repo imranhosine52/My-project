@@ -16,21 +16,23 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
+import com.example.R
 import com.example.util.LocalAudioPlayerManager
 import kotlinx.coroutines.*
 
 /**
  * 🎵 AudioPlaybackService
- * MX Player / Spotify স্টাইল Android System MediaStyle Notification Controller
- * এবং দীর্ঘস্থায়ী ব্যাকগ্রাউন্ড মিডিয়া প্লেব্যাক সার্ভিস।
+ * সমস্ত অ্যান্ড্রয়েড ফোন (Xiaomi/HyperOS, Samsung OneUI, Pixel, Vivo, Oppo ইত্যাদি) এর
+ * নোটিফিকেশন প্যানেল এবং লক স্ক্রিনে Spotify/MX Player স্টাইলের ইন্টারঅ্যাক্টিভ মিডিয়া প্লেয়ার।
  */
 class AudioPlaybackService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "mx_style_audio_playback_channel"
+        // 🎯 চ্যানেল আইডি আপডেট করা হয়েছে যাতে পুরাতন ডিভাইসে নতুন ভিজিবিলিটি রুলস কার্যকর হয়
+        const val CHANNEL_ID = "playdramaflix_audio_playback_v3"
         const val NOTIFICATION_ID = 2026
 
-        // 🔘 নোটিফিকেশন অ্যাকশন বাটন কমান্ডস
+        // 🔘 নোটিফিকেশন অ্যাকশন কমান্ডস
         const val ACTION_PLAY = "com.example.audio.ACTION_PLAY"
         const val ACTION_PAUSE = "com.example.audio.ACTION_PAUSE"
         const val ACTION_PLAY_PAUSE = "com.example.audio.ACTION_PLAY_PAUSE"
@@ -38,9 +40,6 @@ class AudioPlaybackService : Service() {
         const val ACTION_PREV = "com.example.audio.ACTION_PREV"
         const val ACTION_STOP = "com.example.audio.ACTION_STOP"
 
-        /**
-         * সার্ভিস চালু করার স্ট্যাটিক হেলপার
-         */
         fun start(context: Context) {
             val intent = Intent(context, AudioPlaybackService::class.java).apply {
                 action = ACTION_PLAY
@@ -48,9 +47,6 @@ class AudioPlaybackService : Service() {
             ContextCompat.startForegroundService(context, intent)
         }
 
-        /**
-         * সার্ভিস বন্ধ করার স্ট্যাটিক হেলপার
-         */
         fun stop(context: Context) {
             val intent = Intent(context, AudioPlaybackService::class.java).apply {
                 action = ACTION_STOP
@@ -85,16 +81,21 @@ class AudioPlaybackService : Service() {
                 return START_NOT_STICKY
             }
         }
+        syncPlaybackState()
         updateNotification()
         return START_STICKY
     }
 
     /**
-     * 🎛️ অ্যান্ড্রয়েড সিস্টেম মিডিয়া সেশন সেটআপ (হেডসেট বাটন ও লক-স্ক্রিনের জন্য)
+     * 🎛️ অ্যান্ড্রয়েড সিস্টেম মিডিয়া সেশন সেটআপ (হেডসেট বাটন, লক-স্ক্রিন ও সিস্টেম কারাউসেল)
      */
     private fun setupMediaSession() {
-        mediaSession = MediaSession(this, "MXAudioSession").apply {
+        mediaSession = MediaSession(this, "DramaFlixMediaSession").apply {
             isActive = true
+            setFlags(
+                MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
+                        MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
                     LocalAudioPlayerManager.resume()
@@ -138,6 +139,7 @@ class AudioPlaybackService : Service() {
             }
             launch {
                 LocalAudioPlayerManager.currentTrack.collect {
+                    syncPlaybackState()
                     updateNotification()
                 }
             }
@@ -145,9 +147,10 @@ class AudioPlaybackService : Service() {
     }
 
     /**
-     * অ্যান্ড্রয়েড সিস্টেম প্লেব্যাক স্টেট সিঙ্ক
+     * ⏱️ সিস্টেম প্লেব্যাক স্টেট সিঙ্ক (Android 11+ SystemUI কারাউসেলের জন্য বাধ্যতামূলক)
      */
     private fun syncPlaybackState() {
+        val session = mediaSession ?: return
         val isPlaying = LocalAudioPlayerManager.isPlaying.value
         val position = LocalAudioPlayerManager.currentPositionMs.value
         val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
@@ -164,15 +167,19 @@ class AudioPlaybackService : Service() {
             )
             .setState(state, position, if (isPlaying) 1.0f else 0f)
 
-        mediaSession?.setPlaybackState(stateBuilder.build())
+        session.setPlaybackState(stateBuilder.build())
     }
 
     /**
-     * 🔔 MX Player / Spotify স্টাইল নোটিফিকেশন তৈরি ও আপডেট
+     * 🔔 সব মোবাইলের নোটিফিকেশন প্যানেল ও লক স্ক্রিনে প্লেয়ার বিল্ড ও ডিসপ্লে
      */
     private fun updateNotification() {
-        val track = LocalAudioPlayerManager.currentTrack.value ?: return
         val session = mediaSession ?: return
+        val track = LocalAudioPlayerManager.currentTrack.value
+
+        // ট্র‍্যাকের নাম ও শিল্পী
+        val titleText = track?.displayName?.ifBlank { track.title } ?: "Playing Audio"
+        val artistText = track?.folderName?.ifBlank { "Local Audio" } ?: "DramaFlix Music"
         val isPlaying = LocalAudioPlayerManager.isPlaying.value
         val coverBitmap = LocalAudioPlayerManager.getCoverBitmap()
 
@@ -193,24 +200,33 @@ class AudioPlaybackService : Service() {
         val nextPending = createActionIntent(ACTION_NEXT, 3)
         val stopPending = createActionIntent(ACTION_STOP, 4)
 
-        // ৩. মিডিয়া মেটাডাটা সিঙ্ক (কভার আর্ট সহ)
+        // ৩. অ্যান্ড্রয়েড সিস্টেম মেটাডাটা সিঙ্ক (অ্যালবাম কভার আর্ট সহ)
         val metadataBuilder = MediaMetadata.Builder()
-            .putString(MediaMetadata.METADATA_KEY_TITLE, track.displayName.ifBlank { track.title })
-            .putString(MediaMetadata.METADATA_KEY_ARTIST, track.folderName.ifBlank { "Local Audio" })
-            .putString(MediaMetadata.METADATA_KEY_ALBUM, track.folderName.ifBlank { "Music Library" })
+            .putString(MediaMetadata.METADATA_KEY_TITLE, titleText)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, artistText)
+            .putString(MediaMetadata.METADATA_KEY_ALBUM, artistText)
             .putLong(MediaMetadata.METADATA_KEY_DURATION, LocalAudioPlayerManager.durationMs.value)
 
-        if (coverBitmap != null) {
+        if (coverBitmap != null && !coverBitmap.isRecycled) {
             metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, coverBitmap)
+            metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ART, coverBitmap)
         }
         session.setMetadata(metadataBuilder.build())
 
         // ৪. অ্যান্ড্রয়েড সিস্টেম MediaStyle লেআউট
         val mediaStyle = Notification.MediaStyle()
             .setMediaSession(session.sessionToken)
-            .setShowActionsInCompactView(0, 1, 2) // Prev (0), Play/Pause (1), Next (2)
+            .setShowActionsInCompactView(0, 1, 2) // Previous (0), Play/Pause (1), Next (2) সবসময় দৃশ্যমান
 
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        val playPauseTitle = if (isPlaying) "Pause" else "Play"
+
+        val safeSmallIcon = try {
+            val iconRes = applicationInfo.icon
+            if (iconRes != 0) iconRes else R.mipmap.ic_launcher
+        } catch (_: Exception) {
+            R.mipmap.ic_launcher
+        }
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -220,20 +236,24 @@ class AudioPlaybackService : Service() {
         }
 
         val notification = builder
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(track.displayName.ifBlank { track.title })
-            .setContentText(track.folderName.ifBlank { "Playing in Background" })
+            .setSmallIcon(safeSmallIcon)
+            .setContentTitle(titleText)
+            .setContentText(artistText)
             .setContentIntent(contentPendingIntent)
             .setDeleteIntent(stopPending)
-            .setOngoing(isPlaying)
+            // 🎯 CATEGORY_TRANSPORT হলো আসল চাবিকাঠি যা নোটিফিকেশন ড্রয়ারে শো করায়
+            .setCategory(Notification.CATEGORY_TRANSPORT)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .setOngoing(isPlaying)
             .setStyle(mediaStyle)
+            // 🔘 বাটনসমূহ: Previous | Play/Pause | Next | Close
             .addAction(android.R.drawable.ic_media_previous, "Previous", prevPending)
-            .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPausePending)
+            .addAction(playPauseIcon, playPauseTitle, playPausePending)
             .addAction(android.R.drawable.ic_media_next, "Next", nextPending)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Close", stopPending)
             .apply {
-                if (coverBitmap != null) {
+                if (coverBitmap != null && !coverBitmap.isRecycled) {
                     setLargeIcon(coverBitmap)
                 }
             }
@@ -249,6 +269,10 @@ class AudioPlaybackService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+
+        // ৬. নোটিফিকেশন ড্রয়ারে তাৎক্ষণিক আপডেট নিশ্চিত করা
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun createActionIntent(actionName: String, requestCode: Int): PendingIntent {
@@ -268,11 +292,14 @@ class AudioPlaybackService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Media Player Notification",
+                "Audio Player Controls",
+                // 🎯 IMPORTANCE_LOW কিন্তু সাউন্ডহীন ও নোটিফিকেশন ড্রয়ারে দৃশ্যমান
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows interactive audio controls in notification panel and lockscreen"
+                description = "Shows interactive audio controls in notification panel and lock screen"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
