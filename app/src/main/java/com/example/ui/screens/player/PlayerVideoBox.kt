@@ -212,7 +212,7 @@ fun PlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // 🚀 ULTRA-FAST STARTUP ENGINE: ডাবল-গার্ডেড রিয়েল-টাইম প্লেব্যাক স্টেট
+    // 🚀 ULTRA-FAST STARTUP ENGINE: রিয়েল-টাইম প্লেব্যাক স্টেট ও ৩.৫ সেকেন্ডের সেফগার্ড
     var isFirstFrameRendered by remember(episodeNumber, slug) {
         mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying || exoPlayer.currentPosition > 0L)
     }
@@ -220,6 +220,12 @@ fun PlayerVideoBox(
         mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying || exoPlayer.currentPosition > 0L)
     }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // 🛡️ সেফগার্ড: কোনোভাবেই ৩.৫ সেকেন্ডের বেশি পর্দা আটকে থাকতে পারবে না
+    LaunchedEffect(episodeNumber, slug) {
+        delay(3500L)
+        hasCompletedStartup = true
+    }
 
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeInPlayerCustomAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
@@ -330,7 +336,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🚀 স্মার্ট লোডিং স্ক্রিন শর্ত: ভিডিও রেডি বা ১০০ms প্লে হওয়ামাত্রই পর্দা সরে যাবে
     val isActuallyPlaying = isPlaying && currentPositionMs > 100L
     val isPlayerReady = exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying
     val shouldShowLoadingScreen = !hasCompletedStartup && !isActuallyPlaying && !isPlayerReady && playbackErrorMessage == null
@@ -651,28 +656,28 @@ fun PlayerVideoBox(
             }
         }
 
-        // কোয়ালিটি গ্রুপিং
+        // =========================================================================
+        // 🎯 সমাধান: সিঙ্গেল MP4 ও MKV ট্র্যাকের ওপর কোনো রেজোলিউশন ব্লক রাখা যাবে না!
+        // =========================================================================
         if (foundVideoTracks.size > 1) {
             hasMultipleQualities = true
             foundVideoTracks.sortByDescending { it.height }
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
-
-            if (!isVip && currentSelectedHeight == 0) {
-                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(854, 480)
-                    .build()
-            }
         } else if (foundVideoTracks.size == 1) {
             hasMultipleQualities = false
             availableVideoTracks = foundVideoTracks
+            // সিঙ্গেল MP4/MKV ফাইলের জন্য সমস্ত সীমা অপসারণ
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
-                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .clearVideoSizeConstraints()
                 .build()
         } else {
             hasMultipleQualities = false
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearVideoSizeConstraints()
+                .build()
         }
 
         // অডিও ট্র্যাকস সেভ
@@ -766,12 +771,7 @@ fun PlayerVideoBox(
             val builder = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-
-            if (!isVip && hasMultipleQualities) {
-                builder.setMaxVideoSize(854, 480)
-            } else {
-                builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
-            }
+                .clearVideoSizeConstraints()
 
             exoPlayer.trackSelectionParameters = builder.build()
         } else {
@@ -787,9 +787,9 @@ fun PlayerVideoBox(
                         if (res == targetResolution) {
                             val builder = exoPlayer.trackSelectionParameters
                                 .buildUpon()
+                                .clearVideoSizeConstraints()
                                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
 
-                            builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
                             exoPlayer.trackSelectionParameters = builder.build()
                             overrideApplied = true
                             break
@@ -806,7 +806,6 @@ fun PlayerVideoBox(
     // 🔄 LIFECYCLE & LISTENER REGISTRATION (Fixed Episode Re-bind)
     // =========================================================================
     DisposableEffect(exoPlayer, episodeNumber, slug) {
-        // নতুন এপিসোডে সুইচ করলেই অবিলম্বে এক্সিস্টিং ট্র্যাক্স এক্সট্রাক্ট করা
         extractTracks(exoPlayer.currentTracks)
 
         val playerListener = object : Player.Listener {
