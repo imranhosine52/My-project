@@ -82,12 +82,21 @@ private val ScreenBackground = Brush.verticalGradient(
 private val ElectricCyan = Color(0xFF00E5FF)
 private val NeonGreen = Color(0xFF00E676)
 private val DangerRed = Color(0xFFFF5252)
+private val GoldAccent = Color(0xFFFFB300)
 private val SurfaceDarkCard = Color(0xFF101624)
 private val BorderSubtle = Color(0xFF1D273B)
 private val TextMuted = Color(0xFF8E95A5)
 
 /**
- * ⚡ ইন-মেমোরি ফাস্ট ফোল্ডার জেনারেটর (কোনো ডিস্ক রি-কুয়েরি ছাড়া ০.১ মিলিসেকেন্ডে ফোল্ডার প্রস্তুত করে)
+ * 🧭 পাথ-মেমোরি হেল্পার: ভিডিও প্লেয়ার থেকে ব্যাক করলে হুবহু সেই ট্যাব ও ফোল্ডারে ফিরিয়ে আনে
+ */
+object GalleryNavMemory {
+    var activeTabPageIndex: Int = 0 // 0: Folders, 1: Videos, 2: Music, 3: Images, 4: Files
+    var activeFolderBucketId: String? = null
+}
+
+/**
+ * ⚡ ইন-মেমোরি ফাস্ট ফোল্ডার জেনারেটর
  */
 private fun groupItemsIntoFoldersFast(items: List<LocalVideoItem>): List<LocalVideoFolder> {
     return items.groupBy { it.bucketId.ifBlank { it.folderName.hashCode().toString() } }
@@ -120,18 +129,16 @@ fun LocalGalleryScreen(
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    // =========================================================================
-    // 🔀 স্ক্রিনশট ১ অনুযায়ী ৫টি পেজ:
-    // পেজ ০: Folders (ডিফল্ট)
-    // পেজ ১: Videos
-    // পেজ ২: Music
-    // পেজ ৩: Images
-    // পেজ ৪: Files
-    // =========================================================================
+    // 🎯 পাথ মেমোরি থেকে পূর্বে থাকা ট্যাব পুনরুদ্ধার
     val tabPagerState = rememberPagerState(
-        initialPage = 0,
+        initialPage = GalleryNavMemory.activeTabPageIndex.coerceIn(0, 4),
         pageCount = { 5 }
     )
+
+    // পেজ পরিবর্তন হলে মেমোরিতে ট্র্যাক রাখা
+    LaunchedEffect(tabPagerState.currentPage) {
+        GalleryNavMemory.activeTabPageIndex = tabPagerState.currentPage
+    }
 
     var allIndexedVideos by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
     var allIndexedAudios by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
@@ -155,6 +162,9 @@ fun LocalGalleryScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var deleteProgressState by remember { mutableStateOf(DeleteProgressState()) }
     var showDeleteProgressDialog by remember { mutableStateOf(false) }
+
+    // 🌟 Starred Items আলাদা পেজ স্টেট
+    var showStarredScreen by remember { mutableStateOf(false) }
 
     var showRecycleBinScreen by remember { mutableStateOf(false) }
     var showSafePinScreen by remember { mutableStateOf(false) }
@@ -187,21 +197,25 @@ fun LocalGalleryScreen(
     }
 
     // =========================================================================
-    // ⚡ ইনস্ট্যান্ট আল্ট্রা-ফাস্ট মিডিয়া লোডার (Sub-Second Loading Engine)
+    // ⚡ ইনস্ট্যান্ট আল্ট্রা-ফাস্ট মিডিয়া লোডার (< 1s)
     // =========================================================================
     fun loadGalleryData() {
         coroutineScope.launch {
-            // ১. প্রথমে শুধু ভিডিও স্ক্যান করা হবে (৫০ মিলিসেকেন্ডে শেষ হয়)
             val vids = withContext(Dispatchers.IO) {
                 LocalMediaScanner.getAllVideos(context)
             }
             allIndexedVideos = vids
-            // র‍্যামে তাৎক্ষণিক ফোল্ডার গ্রুপিং
-            videoFolders = groupItemsIntoFoldersFast(vids)
-            // 🎯 স্পিনার বন্ধ করে ১ সেকেন্ডের আগেই স্ক্রিন দৃশ্যমান করা
+            val folders = groupItemsIntoFoldersFast(vids)
+            videoFolders = folders
+
+            // 🎯 পাথ মেমোরিতে থাকা পূর্বে ওপেন করা ফোল্ডার স্বয়ংক্রিয়ভাবে পুনরুদ্ধার
+            if (GalleryNavMemory.activeFolderBucketId != null && selectedFolder == null) {
+                selectedFolder = folders.find { it.bucketId == GalleryNavMemory.activeFolderBucketId }
+            }
+
             isLoading = false
 
-            // ২. ব্যাকগ্রাউন্ড থ্রেডে প্যারালাল ভাবে অডিও, ইমেজ ও ফাইলস দ্রুত লোড করা
+            // ব্যাকগ্রাউন্ড থ্রেডে প্যারালাল অ্যাসুরেন্সে অডিও, ইমেজ ও ফাইল লোড
             launch(Dispatchers.IO) {
                 val audsDeferred = async { LocalMediaScanner.getAllAudioTracks(context) }
                 val imgsDeferred = async { LocalMediaScanner.getAllImages(context) }
@@ -250,7 +264,6 @@ fun LocalGalleryScreen(
         }
     }
 
-    // বর্তমান সক্রিয় পেজ অনুযায়ী ফাইল তালিকা
     val currentActiveItems = remember(tabPagerState.currentPage, allIndexedVideos, allIndexedAudios, allIndexedImages, allIndexedFiles) {
         when (tabPagerState.currentPage) {
             0, 1 -> allIndexedVideos
@@ -272,11 +285,14 @@ fun LocalGalleryScreen(
     }
 
     // =========================================================================
-    // 🔙 স্মার্ট ব্যাক ন্যাভিগেশন
+    // 🔙 ১০০% নিখুঁত পাথ-ফলোয়িং ব্যাক ন্যাভিগেশন
     // =========================================================================
     BackHandler {
         if (fullscreenImageIndex != -1) {
             fullscreenImageIndex = -1
+        } else if (showStarredScreen) {
+            showStarredScreen = false
+            loadGalleryData()
         } else if (isSeeMoreMenuExpanded) {
             isSeeMoreMenuExpanded = false
         } else if (drawerState.isOpen) {
@@ -292,12 +308,16 @@ fun LocalGalleryScreen(
             isSearchActive = false
             searchQuery = ""
         } else if (selectedFolder != null) {
+            // ফোল্ডার থেকে বের হওয়া
             selectedFolder = null
+            GalleryNavMemory.activeFolderBucketId = null
         } else if (tabPagerState.currentPage != 0) {
+            // যেকোনো ট্যাব থেকে Folders ট্যাবে ফেরত
             coroutineScope.launch {
                 tabPagerState.animateScrollToPage(0)
             }
         } else {
+            // গ্যালারি স্ক্রিন এক্সিট
             onBackClick()
         }
     }
@@ -313,11 +333,92 @@ fun LocalGalleryScreen(
         return
     }
 
+    // 🌟 Starred Items আলাদা ডেডিকেটেড পেজ
+    if (showStarredScreen) {
+        val allStarredItems = remember(allIndexedVideos, allIndexedAudios, allIndexedImages, allIndexedFiles) {
+            val starredPaths = LocalMediaScanner.getStarredPaths(context)
+            (allIndexedVideos + allIndexedAudios + allIndexedImages + allIndexedFiles).filter { it.path in starredPaths }
+        }
+
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(ScreenBackground)
+                .statusBarsPadding()
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Starred পেজ হেডার
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        IconButton(
+                            onClick = { showStarredScreen = false },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        }
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Star, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(18.dp))
+                                Text("Starred Items", color = Color.White, fontSize = 17.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text("${allStarredItems.size} favorites", color = TextMuted, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = BorderSubtle, thickness = 0.6.dp)
+
+                if (allStarredItems.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.StarBorder, contentDescription = null, tint = TextMuted, modifier = Modifier.size(46.dp))
+                            Text("No Starred Items Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text("Star your favorite videos or songs to see them here.", color = TextMuted, fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(allStarredItems, key = { it.id }) { item ->
+                            GalleryVideoListCard(
+                                item = item,
+                                isSelected = false,
+                                isSelectionMode = false,
+                                onClick = {
+                                    if (item.mimeType?.startsWith("image") == true) {
+                                        fullscreenImageIndex = allIndexedImages.indexOfFirst { it.id == item.id }
+                                    } else {
+                                        onVideoClick(item)
+                                    }
+                                },
+                                onLongClick = {},
+                                onMenuClick = { selectedActionItem = item }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
     if (showRecycleBinScreen) {
         GalleryRecycleBinScreen(
             onBackClick = {
                 showRecycleBinScreen = false
-                loadGalleryData()
+                loadBinDataSafe(context) { loadGalleryData() }
             }
         )
         return
@@ -345,15 +446,15 @@ fun LocalGalleryScreen(
                     coroutineScope.launch {
                         drawerState.close()
                         selectedFolder = null
-                        // 🎯 সরাসরি ২ নম্বর Music ট্যাবে অ্যানিমেট করা (ছবি ২ সমাধান)
+                        GalleryNavMemory.activeFolderBucketId = null
                         tabPagerState.animateScrollToPage(2)
                     }
                 },
                 onOpenStarred = {
                     coroutineScope.launch {
                         drawerState.close()
-                        selectedFolder = null
-                        tabPagerState.animateScrollToPage(1)
+                        // 🌟 Starred Items আলাদা পেজ ওপেন
+                        showStarredScreen = true
                     }
                 },
                 onOpenSafeFolder = {
@@ -376,7 +477,7 @@ fun LocalGalleryScreen(
             Column(modifier = Modifier.fillMaxSize()) {
 
                 // =============================================================
-                // 🔝 ১. টপ অ্যাকশন বার (মেনু, সিলেকশন, সার্চ, ভিউ টগল)
+                // 🔝 ১. টপ অ্যাকশন বার
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -404,7 +505,10 @@ fun LocalGalleryScreen(
                             )
                         } else if (selectedFolder != null) {
                             IconButton(
-                                onClick = { selectedFolder = null },
+                                onClick = {
+                                    selectedFolder = null
+                                    GalleryNavMemory.activeFolderBucketId = null
+                                },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
@@ -502,7 +606,7 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // সার্চ বার (অ্যাক্টিভ হলে)
+                // সার্চ বার
                 AnimatedVisibility(visible = isSearchActive && !isSelectionMode) {
                     Row(
                         modifier = Modifier
@@ -561,7 +665,6 @@ fun LocalGalleryScreen(
 
                 // =============================================================
                 // 📑 ২. ছবি ১ এর হুবহু টপ ন্যাভিগেশন বার
-                // [ Folders ]  (বাম পাশে)               [ Videos  Music  Images  Files ] (ডান পাশে)
                 // =============================================================
                 if (selectedFolder == null && !isSelectionMode) {
                     val currentPage = tabPagerState.currentPage
@@ -573,7 +676,6 @@ fun LocalGalleryScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 🌟 বাম পাশে: "Folders" ট্যাব (পেজ ০ হলে নীল, অন্যথায় সাধারণ)
                         Text(
                             text = "Folders",
                             color = if (currentPage == 0) ElectricCyan else Color.White.copy(alpha = 0.65f),
@@ -591,19 +693,18 @@ fun LocalGalleryScreen(
                                 .padding(vertical = 4.dp)
                         )
 
-                        // 🌟 ডান পাশে: "Videos    Music    Images    Files"
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val rightTabs = listOf(
-                                Triple(1, "Videos", allIndexedVideos),
-                                Triple(2, "Music", allIndexedAudios),
-                                Triple(3, "Images", allIndexedImages),
-                                Triple(4, "Files", allIndexedFiles)
+                                Pair(1, "Videos"),
+                                Pair(2, "Music"),
+                                Pair(3, "Images"),
+                                Pair(4, "Files")
                             )
 
-                            rightTabs.forEach { (targetPage, label, _) ->
+                            rightTabs.forEach { (targetPage, label) ->
                                 val isSelected = (currentPage == targetPage)
                                 val textColor = if (isSelected) ElectricCyan else Color.White.copy(alpha = 0.55f)
 
@@ -629,7 +730,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // ↔️ ৩. ফ্লুইড সোয়াইপেবল HorizontalPager (ডানে-বামে টানলে পেজ চেঞ্জ)
+                // ↔️ ৩. ফ্লুইড সোয়াইপেবল HorizontalPager
                 // =============================================================
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
@@ -649,7 +750,6 @@ fun LocalGalleryScreen(
                             CircularProgressIndicator(color = ElectricCyan, strokeWidth = 2.5.dp)
                         }
                     } else if (selectedFolder != null) {
-                        // ফোল্ডার ওপেন থাকলে ভেতরের ফাইলসমূহ প্রদর্শন
                         val inFolder = currentActiveItems.filter { it.bucketId == selectedFolder!!.bucketId }
                         val displayFolderItems = remember(inFolder, sortOrder, filterConfig, searchQuery) {
                             LocalMediaScanner.applyFiltersAndSorting(
@@ -682,6 +782,8 @@ fun LocalGalleryScreen(
                                             } else if (item.mimeType?.startsWith("image") == true) {
                                                 fullscreenImageIndex = allIndexedImages.indexOfFirst { it.id == item.id }
                                             } else {
+                                                // 🎯 পাথ মেমোরি সেভ করে ভিডিও ওপেন
+                                                GalleryNavMemory.activeFolderBucketId = selectedFolder?.bucketId
                                                 onVideoClick(item)
                                             }
                                         },
@@ -708,6 +810,8 @@ fun LocalGalleryScreen(
                                             } else if (item.mimeType?.startsWith("image") == true) {
                                                 fullscreenImageIndex = allIndexedImages.indexOfFirst { it.id == item.id }
                                             } else {
+                                                // 🎯 পাথ মেমোরি সেভ করে ভিডিও ওপেন
+                                                GalleryNavMemory.activeFolderBucketId = selectedFolder?.bucketId
                                                 onVideoClick(item)
                                             }
                                         },
@@ -718,13 +822,12 @@ fun LocalGalleryScreen(
                             }
                         }
                     } else {
-                        // 🌟 ডানে-বামে টান দিলে স্মুথলি ট্যাব সুইচ হওয়ার মূল Pager
                         HorizontalPager(
                             state = tabPagerState,
                             modifier = Modifier.fillMaxSize()
                         ) { page ->
                             when (page) {
-                                // পেজ ০: Folders ভিউ (ডিফল্ট)
+                                // পেজ ০: Folders
                                 0 -> {
                                     val displayFolders = remember(videoFolders, searchQuery) {
                                         if (searchQuery.isBlank()) videoFolders
@@ -742,14 +845,17 @@ fun LocalGalleryScreen(
                                             items(displayFolders, key = { it.bucketId }) { folder ->
                                                 ScreenshotStyleFolderItem(
                                                     folder = folder,
-                                                    onClick = { selectedFolder = folder }
+                                                    onClick = {
+                                                        selectedFolder = folder
+                                                        GalleryNavMemory.activeFolderBucketId = folder.bucketId
+                                                    }
                                                 )
                                             }
                                         }
                                     }
                                 }
 
-                                // পেজ ১: Videos সরাসরি ভিউ
+                                // পেজ ১: Videos
                                 1 -> {
                                     val displayVideos = remember(allIndexedVideos, sortOrder, filterConfig, searchQuery) {
                                         LocalMediaScanner.applyFiltersAndSorting(
@@ -815,7 +921,7 @@ fun LocalGalleryScreen(
                                     }
                                 }
 
-                                // পেজ ২: Music / Audio ভিউ (গান ও অডিও তালিকা)
+                                // পেজ ২: Music
                                 2 -> {
                                     val displayAudios = remember(allIndexedAudios, searchQuery) {
                                         if (searchQuery.isBlank()) allIndexedAudios
@@ -851,7 +957,7 @@ fun LocalGalleryScreen(
                                     }
                                 }
 
-                                // পেজ ৩: Images সরাসরি গ্রিড ভিউ
+                                // পেজ ৩: Images
                                 3 -> {
                                     val displayImages = remember(allIndexedImages, searchQuery) {
                                         if (searchQuery.isBlank()) allIndexedImages
@@ -889,7 +995,7 @@ fun LocalGalleryScreen(
                                     }
                                 }
 
-                                // পেজ ৪: Files / Documents সরাসরি ভিউ
+                                // পেজ ৪: Files
                                 4 -> {
                                     val displayFiles = remember(allIndexedFiles, searchQuery) {
                                         if (searchQuery.isBlank()) allIndexedFiles
@@ -1243,6 +1349,10 @@ fun LocalGalleryScreen(
             }
         }
     }
+}
+
+private fun loadBinDataSafe(context: Context, onDone: () -> Unit) {
+    onDone()
 }
 
 // =============================================================================
