@@ -60,14 +60,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -157,6 +159,7 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activity = remember(context) { findActivityFromContext(context) }
     val configuration = LocalConfiguration.current
@@ -186,7 +189,7 @@ fun PlayerScreen(
     var currentClickStep by rememberSaveable(slug) { mutableIntStateOf(1) }
 
     // =========================================================================
-    // 📌 কোলাপ্সিবল হেডার ও স্টিকি ট্যাব বার (Sticky Header on Scroll)
+    // 📌 মাখনের মতো মসৃণ হেডার স্ক্রোল ও স্টিকি ট্যাব বার (Collapsing Header)
     // =========================================================================
     var headerHeightPx by remember { mutableFloatStateOf(0f) }
     var headerOffsetPx by remember { mutableFloatStateOf(0f) }
@@ -195,6 +198,7 @@ fun PlayerScreen(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
+                // স্ক্রোল ডাউন করার সময় (আঙুল উপরে ঠেললে) হেডার উপরে উঠবে
                 if (delta < 0 && headerHeightPx > 0f) {
                     val oldOffset = headerOffsetPx
                     val newOffset = (oldOffset + delta).coerceIn(-headerHeightPx, 0f)
@@ -207,6 +211,7 @@ fun PlayerScreen(
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
+                // টপে পৌঁছে আঙুল নিচে টানলে হেডার আবার নিচে নেমে আসবে
                 if (delta > 0 && headerHeightPx > 0f) {
                     val oldOffset = headerOffsetPx
                     val newOffset = (oldOffset + delta).coerceIn(-headerHeightPx, 0f)
@@ -882,14 +887,16 @@ fun PlayerScreen(
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =============================================================
-                // 📺 Video Player Frame
+                // 📺 Video Player Frame (zIndex(10f) দিয়ে উপরে লক করা হলো)
                 // =============================================================
                 Box(
-                    modifier = if (isAnyFullscreen) {
+                    modifier = (if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
                     } else {
                         Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                    }.background(Color.Black)
+                    })
+                        .zIndex(10f) // 👈 ভিডিও প্লেয়ারকে সর্বোচ্চ zIndex দেওয়া হলো যাতে নিচে থেকে কোনো টেক্সট ওভারল্যাপ না হতে পারে
+                        .background(Color.Black)
                 ) {
                     if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                         Box(modifier = Modifier.fillMaxSize()) {
@@ -1013,43 +1020,42 @@ fun PlayerScreen(
                 }
 
                 // =============================================================
-                // 🔄 Portrait Mode: Collapsible Header & Sticky Tabs Pager
+                // 🔄 Portrait Mode: Collapsing Header & Sticky Tabs
                 // =============================================================
                 if (!isAnyFullscreen) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
+                            .clipToBounds() // 👈 ভিডিওর নিচে থাকা পুরো অংশ ক্লিপ করা হলো যাতে কিছু ওপরে না উপচে পড়ে
                             .background(Color(0xFF0C0F15))
                             .nestedScroll(nestedScrollConnection)
                     ) {
                         // =============================================================
-                        // 🔼 স্ক্রোল করলে উপরে উঠে যাওয়ার অংশ (Title, Header & Episodes)
+                        // 🔼 স্ক্রোল করলে উপরে উঠে যাওয়া অংশ (Title, Header & Episodes)
+                        // ডাইনামিক হাইট শ্রিঙ্ক হয়ে পেছনের ব্যাকগ্রাউন্ডে মসৃণভাবে অদৃশ্য হবে
                         // =============================================================
+                        val dynamicCollapsibleHeight = with(density) {
+                            ((headerHeightPx + headerOffsetPx).coerceAtLeast(0f)).toDp()
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .onGloballyPositioned { coords ->
-                                    if (coords.size.height > 0 && headerHeightPx == 0f) {
-                                        headerHeightPx = coords.size.height.toFloat()
-                                    }
-                                }
-                                .layout { measurable, constraints ->
-                                    val placeable = measurable.measure(constraints)
-                                    if (headerHeightPx == 0f) {
-                                        headerHeightPx = placeable.height.toFloat()
-                                    }
-                                    val currentHeight = (placeable.height + headerOffsetPx)
-                                        .roundToInt()
-                                        .coerceIn(0, placeable.height)
-                                    layout(placeable.width, currentHeight) {
-                                        placeable.placeRelative(0, headerOffsetPx.roundToInt())
-                                    }
-                                }
-                                .clipToBounds()
+                                .height(dynamicCollapsibleHeight)
+                                .clipToBounds() // 👈 ভেতরের কনটেন্ট উপরে উঠার সাথে সাথে ক্লিপ হয়ে যাবে
                         ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                // ১. হেডার সেকশন (১ নম্বর ছবির প্রিভ/নেক্সট এবং টাইটেল নিচে টেনে ফুলস্ক্রিন সহ)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { coords ->
+                                        if (coords.size.height > 0) {
+                                            headerHeightPx = coords.size.height.toFloat()
+                                        }
+                                    }
+                                    .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
+                            ) {
+                                // ১. হেডার সেকশন (১ নম্বর ছবির প্রিভ/নেক্সট এবং টাইটেল নিচে টেনে ফুলস্ক্রিন)
                                 PlayerHeaderSection(
                                     content = content,
                                     shortTitle = cleanShortTitle,
@@ -1103,7 +1109,7 @@ fun PlayerScreen(
                         }
 
                         // =============================================================
-                        // 📌 একদম টপে পিন (Sticky Header) হয়ে থাকা ট্যাব বার
+                        // 📌 ভিডিওর ঠিক নিচে পিন (Sticky Header) হয়ে থাকা ট্যাব বার
                         // =============================================================
                         PlayerTabsHeader(
                             selectedTabIndex = tabPagerState.currentPage,
