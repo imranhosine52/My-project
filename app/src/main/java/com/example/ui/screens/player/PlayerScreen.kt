@@ -118,38 +118,51 @@ private fun findActivityFromContext(context: Context): Activity? {
 }
 
 /**
- * 🎯 ডিরেক্ট মিডিয়া স্ট্রিম বনাম ওয়েব এম্বেড লিংক নিখুঁতভাবে শনাক্তকারী
+ * 🎯 ডিরেক্ট মিডিয়া স্ট্রিম (MP4, MKV, M3U8 ইত্যাদি) বনাম Web Embed লিংক নিখুঁতভাবে শনাক্তকারী
  */
 private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
-    val url = rawUrl.trim().lowercase()
+    val url = rawUrl.trim()
+    val lower = url.lowercase()
 
-    if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
-    if (!url.startsWith("http://") && !url.startsWith("https://")) return false
+    if (lower == "null" || lower == "none" || lower == "n/a" || lower == "undefined") return false
+    if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false
 
-    // পরিচিত থার্ড-পার্টি Web Embed প্রোভাইডার
+    // ১. পরিচিত Web Embed ও আইফ্রেম প্রোভাইডার
     val knownEmbedKeywords = listOf(
         "/e/", "/embed", "byse", "streamtape", "streamwish", "dood",
-        "vidhide", "youtube", "youtu.be", "iframe", "playertv",
+        "vidhide", "youtube.com", "youtu.be", "iframe", "playertv",
         "vidspeed", "filelions", "voe.sx", "luluvdo"
     )
-    if (knownEmbedKeywords.any { url.contains(it) }) {
+    if (knownEmbedKeywords.any { lower.contains(it) }) {
         return false
     }
 
-    val cleanUrl = url.substringBefore("?").substringBefore("#")
+    // ২. ডিরেক্ট মিডিয়া ফাইল এক্সটেনশন
+    val cleanUrl = lower.substringBefore("?").substringBefore("#")
     val hasDirectExtension = cleanUrl.endsWith(".mp4") ||
-            cleanUrl.endsWith(".m3u8") ||
             cleanUrl.endsWith(".mkv") ||
+            cleanUrl.endsWith(".m3u8") ||
             cleanUrl.endsWith(".mpd") ||
             cleanUrl.endsWith(".webm") ||
             cleanUrl.endsWith(".m4v") ||
-            cleanUrl.endsWith(".ts")
+            cleanUrl.endsWith(".ts") ||
+            cleanUrl.endsWith(".mov") ||
+            cleanUrl.endsWith(".avi")
 
     if (hasDirectExtension) return true
 
-    // কুয়েরি প্যারামিটারসহ ডিরেক্ট লিংক চেক
-    return url.contains(".mp4?") || url.contains(".m3u8?") || url.contains(".mkv?") || url.contains(".mpd?")
+    // ৩. কুয়েরি স্ট্রিং বা টোকেনযুক্ত ডিরেক্ট ভিডিও ফাইল
+    if (lower.contains(".mp4?") || lower.contains(".mkv?") || lower.contains(".m3u8?") || lower.contains(".mpd?")) {
+        return true
+    }
+
+    // ৪. ক্লাউড ও CDN স্ট্রিমিং এন্ডপয়েন্ট
+    if (lower.contains("workers.dev") || lower.contains("cdn.playdramaflix.com") || lower.contains("storage.googleapis.com")) {
+        return true
+    }
+
+    return false
 }
 
 /**
@@ -333,20 +346,14 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🚀 ULTRA-OPTIMIZED EXOPLAYER (FAST STARTUP + BUFFERING TUNING)
+    // 🚀 ULTRA-OPTIMIZED EXOPLAYER (FAST STARTUP & CLEAN BUFFERING)
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(15000)
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Connection" to "keep-alive",
-                    "Keep-Alive" to "timeout=60"
-                )
-            )
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix Native Player/2.0")
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(20000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) PlayDramaFlix Native Player/2.0")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
@@ -684,7 +691,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎬 EPISODE PLAYBACK RESOLUTION & MEDIAITEM PREPARATION
+    // 🎬 EPISODE PLAYBACK RESOLUTION & MP4/MKV DIRECT STREAMING
     // =========================================================================
     LaunchedEffect(
         currentEp?.episodeNumber,
@@ -710,14 +717,22 @@ fun PlayerScreen(
             val appStream = currentEp.appStreamUrl?.trim() ?: ""
             val streamUrl = currentEp.directStreamUrl?.trim() ?: ""
             val videoUrl = currentEp.videoUrl?.trim() ?: ""
+            val downloadUrl = currentEp.downloadUrl?.trim() ?: ""
             val embedUrl = currentEp.embedUrl?.trim() ?: ""
             val webPlayerUrl = currentEp.webPlayerUrl?.trim() ?: ""
+            val serverUrl = playerState.selectedServer?.url?.trim() ?: ""
 
-            // ১. ডিরেক্ট মিডিয়া ফাইল শনাক্তকরণ
+            // কোয়ালিটি অপশনের ভেতরের প্রথম ভ্যালিড URL
+            val downloadOptionUrl = currentEp.downloadOptions?.firstOrNull { it.url.isNotBlank() }?.url?.trim() ?: ""
+
+            // ১. ডিরেক্ট মিডিয়া ফাইল (MP4 / MKV / M3U8 ইত্যাদি) শনাক্তকরণ অগ্রাধিকার তালিকা
             val directCandidate = when {
                 isDirectStreamableUrl(appStream) -> appStream
                 isDirectStreamableUrl(streamUrl) -> streamUrl
                 isDirectStreamableUrl(videoUrl) -> videoUrl
+                isDirectStreamableUrl(downloadUrl) -> downloadUrl
+                isDirectStreamableUrl(downloadOptionUrl) -> downloadOptionUrl
+                isDirectStreamableUrl(serverUrl) -> serverUrl
                 else -> ""
             }
 
@@ -725,10 +740,12 @@ fun PlayerScreen(
             val embedCandidate = when {
                 embedUrl.isNotBlank() && embedUrl != "null" -> embedUrl
                 webPlayerUrl.isNotBlank() && webPlayerUrl != "null" -> webPlayerUrl
+                serverUrl.isNotBlank() && !isDirectStreamableUrl(serverUrl) -> serverUrl
                 videoUrl.isNotBlank() && videoUrl != "null" && !isDirectStreamableUrl(videoUrl) -> videoUrl
                 else -> ""
             }
 
+            // ৩. সমাধানকৃত চূড়ান্ত URL
             val (resolvedUrl, isEmbed) = when {
                 directCandidate.isNotBlank() -> Pair(directCandidate, false)
                 embedCandidate.isNotBlank() -> Pair(embedCandidate, true)
@@ -758,24 +775,25 @@ fun PlayerScreen(
                     val uri = Uri.parse(resolvedUrl)
                     val cleanPath = resolvedUrl.substringBefore("?").substringBefore("#").lowercase()
 
-                    // কন্টেইনার ফরম্যাট অনুযায়ী নির্ভুল MIME টাইপ নির্বাচন
-                    val containerMimeType = when {
+                    // =========================================================================
+                    // ⚠️ গুরুত্বপূর্ণ সমাধান: প্রগ্রেসিভ MP4 ও MKV-তে কখনোই MIME Type সেট করবেন না!
+                    // শুধুমাত্র HLS (.m3u8) ও DASH (.mpd)-এ MIME Type প্রয়োজন হয়।
+                    // =========================================================================
+                    val adaptiveMimeType = when {
                         cleanPath.endsWith(".m3u8") || resolvedUrl.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
                         cleanPath.endsWith(".mpd") || resolvedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
-                        cleanPath.endsWith(".mkv") || cleanPath.endsWith(".webm") || resolvedUrl.contains(".mkv", ignoreCase = true) -> MimeTypes.APPLICATION_MATROSKA
-                        cleanPath.endsWith(".mp4") || cleanPath.endsWith(".m4v") -> MimeTypes.APPLICATION_MP4
-                        else -> null // Media3 will auto-detect container and codecs via extractors
+                        else -> null // MP4 ও MKV-র জন্য null রাখায় Media3 নিজে থেকে সঠিক Extractor ব্যবহার করবে
                     }
 
                     val mediaItemBuilder = MediaItem.Builder()
                         .setUri(uri)
                         .apply {
-                            if (containerMimeType != null) {
-                                setMimeType(containerMimeType)
+                            if (adaptiveMimeType != null) {
+                                setMimeType(adaptiveMimeType)
                             }
                         }
 
-                    // 💬 External Subtitles ইনজেকশন (যদি সার্ভার বা স্ট্রিম অপশনে থাকে)
+                    // 💬 External Subtitles ইনজেকশন (যদি কোনো আলাদা সাবটাইটেল ফাইল থাকে)
                     val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
                     currentEp.downloadOptions?.forEachIndexed { index, option ->
                         val optUrl = option.url.trim()
@@ -1034,18 +1052,14 @@ fun PlayerScreen(
                                 if (activeStreamUrl.isNotBlank()) {
                                     try {
                                         val cleanPath = activeStreamUrl.substringBefore("?").substringBefore("#").lowercase()
-                                        val containerMime = when {
-                                            cleanPath.endsWith(".m3u8") || activeStreamUrl.contains(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
-                                            cleanPath.endsWith(".mpd") || activeStreamUrl.contains(".mpd", true) -> MimeTypes.APPLICATION_MPD
-                                            cleanPath.endsWith(".mkv") || cleanPath.endsWith(".webm") || activeStreamUrl.contains(".mkv", true) -> MimeTypes.APPLICATION_MATROSKA
-                                            cleanPath.endsWith(".mp4") || cleanPath.endsWith(".m4v") -> MimeTypes.APPLICATION_MP4
-                                            else -> null
-                                        }
+                                        val isHls = cleanPath.endsWith(".m3u8") || activeStreamUrl.contains(".m3u8", true)
+                                        val isDash = cleanPath.endsWith(".mpd") || activeStreamUrl.contains(".mpd", true)
 
                                         val mediaItem = MediaItem.Builder()
                                             .setUri(Uri.parse(activeStreamUrl))
                                             .apply {
-                                                if (containerMime != null) setMimeType(containerMime)
+                                                if (isHls) setMimeType(MimeTypes.APPLICATION_M3U8)
+                                                else if (isDash) setMimeType(MimeTypes.APPLICATION_MPD)
                                             }
                                             .build()
 
