@@ -14,6 +14,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -124,7 +125,7 @@ private val TelegramMenuBorder = Color(0xFF323F52)
 private val TelegramMenuText = Color(0xFFE4ECF5)
 
 // =========================================================================
-// 🎯 ১ নম্বর ছবির হুবহু ভেক্টর আউটলাইন Prev এবং Next আইকন কম্পোনেন্ট
+// 🎯 ১ নম্বর ছবির হুবহু ভেক্টর আউটলাইন Prev এবং Next বাটন
 // =========================================================================
 
 @Composable
@@ -152,7 +153,6 @@ fun EpisodePrevNavButton(
             val w = size.width
             val h = size.height
 
-            // বাম পাশের খাঁড়া দণ্ড (|)
             drawLine(
                 color = tintColor,
                 start = Offset(x = w * 0.16f, y = h * 0.12f),
@@ -161,7 +161,6 @@ fun EpisodePrevNavButton(
                 cap = StrokeCap.Round
             )
 
-            // বামমুখী ত্রিভুজ আউটলাইন (◁)
             val trianglePath = Path().apply {
                 moveTo(w * 0.88f, h * 0.15f)
                 lineTo(w * 0.36f, h * 0.50f)
@@ -215,7 +214,6 @@ fun EpisodeNextNavButton(
             val w = size.width
             val h = size.height
 
-            // ডানমুখী ত্রিভুজ আউটলাইন (▷)
             val trianglePath = Path().apply {
                 moveTo(w * 0.12f, h * 0.15f)
                 lineTo(w * 0.64f, h * 0.50f)
@@ -232,7 +230,6 @@ fun EpisodeNextNavButton(
                 )
             )
 
-            // ডান পাশের খাঁড়া দণ্ড (|)
             drawLine(
                 color = tintColor,
                 start = Offset(x = w * 0.84f, y = h * 0.12f),
@@ -286,7 +283,9 @@ fun PlayerHeaderSection(
     var isShowingFullEmojiPickerInPopup by remember { mutableStateOf(false) }
     var isDismissingPopup by remember { mutableStateOf(false) }
 
-    // পপআপ ওপেন ও ক্লোজ অ্যানিমেশন
+    // 🛡️ ইমোজি একাধিকবার যাওয়া রোধ করতে স্ট্রং মিউটেক্স লক (Debounce Guard)
+    var isReactionProcessingLocked by remember { mutableStateOf(false) }
+
     val popupScale = remember { Animatable(0.35f) }
     val popupAlpha = remember { Animatable(0f) }
 
@@ -297,16 +296,16 @@ fun PlayerHeaderSection(
             launch {
                 popupScale.animateTo(
                     targetValue = 0.65f,
-                    animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing)
+                    animationSpec = tween(durationMillis = 150, easing = FastOutLinearInEasing)
                 )
             }
             launch {
                 popupAlpha.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 140, easing = FastOutLinearInEasing)
+                    animationSpec = tween(durationMillis = 130, easing = FastOutLinearInEasing)
                 )
             }
-            delay(165)
+            delay(155)
             showContextMenu = false
             isShowingFullEmojiPickerInPopup = false
             isDismissingPopup = false
@@ -331,14 +330,14 @@ fun PlayerHeaderSection(
             launch {
                 popupAlpha.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing)
+                    animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
                 )
             }
             launch {
                 popupScale.animateTo(
                     targetValue = 1f,
                     animationSpec = spring(
-                        dampingRatio = 0.72f,
+                        dampingRatio = 0.75f,
                         stiffness = Spring.StiffnessMediumLow
                     )
                 )
@@ -353,20 +352,26 @@ fun PlayerHeaderSection(
     var animatingReactionKey by remember { mutableStateOf<String?>(null) }
     val reactionAnimScale = remember { Animatable(1f) }
 
-    fun triggerReactionWithBounce(key: String) {
+    // 🎯 একক ও সুরক্ষিত ইমোজি সেন্ড ফাংশন (Multiple Send সম্পূর্ণ বন্ধ)
+    fun triggerSingleReaction(key: String) {
+        if (isReactionProcessingLocked) return
+        isReactionProcessingLocked = true
+
         coroutineScope.launch {
             animatingReactionKey = key.lowercase()
-            reactionAnimScale.snapTo(0.55f)
+            reactionAnimScale.snapTo(0.6f)
             reactionAnimScale.animateTo(
-                targetValue = 1.4f,
+                targetValue = 1.35f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessLow
                 )
             )
-            delay(130)
-            reactionAnimScale.animateTo(1f, tween(150))
+            delay(120)
+            reactionAnimScale.animateTo(1f, tween(130))
             animatingReactionKey = null
+            delay(250)
+            isReactionProcessingLocked = false
         }
 
         if (key.equals("heart", ignoreCase = true)) {
@@ -382,7 +387,7 @@ fun PlayerHeaderSection(
                 .fillMaxWidth()
                 .padding(bottom = 2.dp)
         ) {
-            // ১. টাইটেল ও ১ নম্বর ছবির মতো Prev / Next বাটন
+            // ১. টাইটেল (নিচে টানলে ফুলস্ক্রিন) ও ডানপাশে Prev / Next বাটন
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -390,10 +395,33 @@ fun PlayerHeaderSection(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // =========================================================================
+                // 🚀 টাইটেলের এখানে ধরে নিচে টান দিলে মাখনের মতো ফুলস্ক্রিন হওয়ার জেসচার
+                // =========================================================================
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 12.dp),
+                        .padding(end = 12.dp)
+                        .pointerInput(Unit) {
+                            var dragDownAmount = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { dragDownAmount = 0f },
+                                onDragEnd = {
+                                    if (dragDownAmount > 30f) {
+                                        onSwipeDownFullscreen()
+                                    }
+                                    dragDownAmount = 0f
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    if (dragAmount > 0 || dragDownAmount > 0) {
+                                        dragDownAmount += dragAmount
+                                        if (dragDownAmount > 15f) {
+                                            change.consume()
+                                        }
+                                    }
+                                }
+                            )
+                        },
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
@@ -435,7 +463,7 @@ fun PlayerHeaderSection(
                 }
 
                 // =========================================================================
-                // 🎯 ডানপাশে ১ নম্বর ছবির হুবহু [Prev] এবং [Next] বাটন ও রিঅ্যাকশন কাউন্টার
+                // 🎯 ডানপাশে ১ নম্বর ছবির Prev ও Next বাটন এবং প্রতিক্রিয়া এরিয়া
                 // =========================================================================
                 Column(
                     horizontalAlignment = Alignment.End,
@@ -445,33 +473,27 @@ fun PlayerHeaderSection(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // ১ নম্বর ছবির হুবহু Prev বাটন
                         EpisodePrevNavButton(
                             onClick = onPreviousClick
                         )
 
-                        // ১ নম্বর ছবির হুবহু Next বাটন
                         EpisodeNextNavButton(
                             onClick = onNextClick
                         )
                     }
 
-                    // রিঅ্যাকশন এরিয়া
+                    // রিঅ্যাকশন এলাকা (ডাবল-ট্যাপের রেন্ডম লাভ বাদ দিয়ে শুধুমাত্র একক ট্যাপে পপআপ ওপেন হবে)
                     Box(
                         modifier = Modifier
                             .widthIn(min = 180.dp)
                             .heightIn(min = 34.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.Transparent)
-                            .pointerInput(isLiked, likesCount, myReaction, reactions) {
-                                detectTapGestures(
-                                    onTap = {
-                                        openPopupSmoothly()
-                                    },
-                                    onDoubleTap = {
-                                        triggerReactionWithBounce("heart")
-                                    }
-                                )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                openPopupSmoothly()
                             }
                             .padding(top = 2.dp, bottom = 2.dp),
                         contentAlignment = Alignment.CenterEnd
@@ -569,7 +591,7 @@ fun PlayerHeaderSection(
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রাম স্টাইল রিয়্যাকশন পপআপ
+        // 🌟 টেলিগ্রাম স্টাইল রিয়্যাকশন পপআপ (ক্লিক করলেই একটি মাত্র ইমোজি সেন্ড হবে)
         // =========================================================================
         if (showContextMenu) {
             Popup(
@@ -636,7 +658,7 @@ fun PlayerHeaderSection(
                                                     modifier = Modifier
                                                         .clip(CircleShape)
                                                         .clickable {
-                                                            triggerReactionWithBounce(item.key)
+                                                            triggerSingleReaction(item.key) // 👈 একক ইমোজি সেন্ড
                                                             dismissPopupSmoothly()
                                                         }
                                                         .padding(3.dp)
@@ -823,7 +845,7 @@ fun PlayerHeaderSection(
                                                     .aspectRatio(1f)
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
-                                                        triggerReactionWithBounce(item.key)
+                                                        triggerSingleReaction(item.key) // 👈 একক ইমোজি সেন্ড
                                                         dismissPopupSmoothly()
                                                     },
                                                 contentAlignment = Alignment.Center
