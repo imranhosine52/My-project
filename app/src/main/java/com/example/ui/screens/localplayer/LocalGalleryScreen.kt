@@ -35,7 +35,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed // 👈 ফিক্স: মিসিং itemsIndexed ইমপোর্ট যোগ করা হয়েছে
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -53,7 +53,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -103,6 +102,7 @@ fun LocalGalleryScreen(
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
+    // 🎯 ৫টি সক্রিয় সেকশন (Recently Played ছাড়া)
     val gallerySections = remember { GallerySection.entries.toList() }
 
     // =========================================================================
@@ -114,7 +114,6 @@ fun LocalGalleryScreen(
     )
     val tabListScrollState = rememberLazyListState()
 
-    // ন্যাভিগেশন পাথ হিস্ট্রি (Backstack)
     val tabHistory = remember { mutableStateListOf<Int>() }
     var previousRecordedTab by remember { mutableIntStateOf(0) }
 
@@ -132,7 +131,6 @@ fun LocalGalleryScreen(
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Search, View & Filter State
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
@@ -140,16 +138,13 @@ fun LocalGalleryScreen(
     var filterConfig by remember { mutableStateOf(GalleryFilterConfig()) }
     var showSortFilterSheet by remember { mutableStateOf(false) }
 
-    // Multi-Selection State
     val selectedVideoIds = remember { mutableStateListOf<Long>() }
     val isSelectionMode = selectedVideoIds.isNotEmpty()
 
-    // Deletion Dialogs & Live Progress State
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var deleteProgressState by remember { mutableStateOf(DeleteProgressState()) }
     var showDeleteProgressDialog by remember { mutableStateOf(false) }
 
-    // Sub-screens & Dialogs
     var showRecycleBinScreen by remember { mutableStateOf(false) }
     var showSafePinScreen by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
@@ -159,14 +154,11 @@ fun LocalGalleryScreen(
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showStoragePermissionDialog by remember { mutableStateOf(false) }
 
-    // "See More" Floating Pop-up Navigation State
     var isSeeMoreMenuExpanded by remember { mutableStateOf(false) }
 
-    // Pull-to-refresh
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // Permissions
     val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
     } else {
@@ -208,7 +200,6 @@ fun LocalGalleryScreen(
         }
     }
 
-    // Voice search
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -221,7 +212,6 @@ fun LocalGalleryScreen(
         }
     }
 
-    // Storage access
     val manageStorageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
@@ -237,10 +227,6 @@ fun LocalGalleryScreen(
             GallerySection.RECENTLY_ADDED -> {
                 val fourteenDaysAgo = (System.currentTimeMillis() / 1000) - (14 * 24 * 3600)
                 allIndexedVideos.filter { it.dateAdded >= fourteenDaysAgo }
-            }
-            GallerySection.RECENTLY_PLAYED -> {
-                allIndexedVideos.filter { LocalMediaScanner.getLastPlaybackPosition(context, it.id) > 0 }
-                    .sortedByDescending { LocalMediaScanner.getLastPlayedTimestamp(context, it.id) }
             }
             GallerySection.DOWNLOADS -> {
                 allIndexedVideos.filter {
@@ -266,7 +252,7 @@ fun LocalGalleryScreen(
     }
 
     // =========================================================================
-    // 🔙 ১০০% পাথ-ফলোয়িং ব্যাক ন্যাভিগেশন (Path-following BackHandler)
+    // 🔙 ১০০% পাথ-ফলোয়িং ব্যাক ন্যাভিগেশন
     // =========================================================================
     BackHandler {
         if (isSeeMoreMenuExpanded) {
@@ -444,7 +430,6 @@ fun LocalGalleryScreen(
                         }
                     }
 
-                    // হেডার অ্যাকশন বাটনসমূহ
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -911,10 +896,10 @@ fun LocalGalleryScreen(
             }
 
             // =============================================================
-            // 🌟 ৫. এক নম্বর ছবির মতো এক সাইডে "See More" অ্যানিমেটেড পপ-আপ নেভিগেশন
+            // 🌟 ৫. এক সাইডে শুধু "More" বাটন ও ক্লিন ফ্রস্টেড পপ-আপ মেনু
             // =============================================================
             if (!isSelectionMode) {
-                FloatingSeeMoreSpeedDialNav(
+                FloatingMoreSpeedDialNav(
                     isExpanded = isSeeMoreMenuExpanded,
                     onToggleExpand = { isSeeMoreMenuExpanded = !isSeeMoreMenuExpanded },
                     onNavigateToHome = {
@@ -1190,10 +1175,10 @@ fun LocalGalleryScreen(
 }
 
 // =============================================================================
-// 🌟 এক নম্বর ছবির মতো এক সাইডে "See More" অ্যানিমেটেড স্পিড-ডায়াল উইজেট
+// 🌟 এক নম্বর ছবির মতো বর্ডারবিহীন "More" বাটন ও ব্যাকগ্রাউন্ডহীন পপ-আপ নেভিগেশন
 // =============================================================================
 @Composable
-private fun FloatingSeeMoreSpeedDialNav(
+private fun FloatingMoreSpeedDialNav(
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
     onNavigateToHome: () -> Unit,
@@ -1207,6 +1192,7 @@ private fun FloatingSeeMoreSpeedDialNav(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // 🎯 পপ-আপ মেনু: কোনো সলিড ব্যাকগ্রাউন্ড বা বর্ডার নেই
         AnimatedVisibility(
             visible = isExpanded,
             enter = fadeIn(tween(180)) + slideInVertically(
@@ -1222,10 +1208,8 @@ private fun FloatingSeeMoreSpeedDialNav(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xE6121724))
-                    .border(1.dp, Color(0xFF232D42), RoundedCornerShape(20.dp))
-                    .padding(vertical = 12.dp, horizontal = 12.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .padding(vertical = 4.dp, horizontal = 4.dp)
             ) {
                 PopUpNavItem(
                     label = "Home",
@@ -1254,12 +1238,13 @@ private fun FloatingSeeMoreSpeedDialNav(
             }
         }
 
+        // 🎯 ১ নম্বর ছবির মতো ^ More বাটন: সাইডের চিকন বর্ডার ও সলিড কালার বাদ দিয়ে হালকা কালো গ্লাস ইফেক্ট
         Surface(
             onClick = onToggleExpand,
-            shape = RoundedCornerShape(24.dp),
-            color = Color(0xF2161E2E),
-            border = BorderStroke(1.2.dp, CyanAccent.copy(alpha = 0.6f)),
-            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(22.dp),
+            color = Color.Black.copy(alpha = 0.28f), // 👈 কোনো সলিড কালার নয়, শুধুই হালকা কালো ইফেক্ট
+            border = null,                           // 👈 সাইডের চিকন লাইন সম্পূর্ণরূপে অপসারিত
+            shadowElevation = 0.dp,
             modifier = Modifier.wrapContentSize()
         ) {
             Column(
@@ -1271,12 +1256,12 @@ private fun FloatingSeeMoreSpeedDialNav(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
                     contentDescription = "Toggle More",
                     tint = if (isExpanded) CyanAccent else Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
                 Text(
-                    text = if (isExpanded) "Close" else "See More",
+                    text = if (isExpanded) "Close" else "More", // 👈 'See More' এর বদলে শুধু 'More'
                     color = if (isExpanded) CyanAccent else Color.White,
-                    fontSize = 10.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -1313,8 +1298,8 @@ private fun PopUpNavItem(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(iconColor.copy(alpha = 0.15f))
-                .border(0.8.dp, iconColor.copy(alpha = 0.5f), CircleShape),
+                .background(Color.Black.copy(alpha = 0.35f))
+                .border(0.8.dp, iconColor.copy(alpha = 0.6f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             if (customIcon != null) {
