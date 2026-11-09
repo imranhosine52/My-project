@@ -57,11 +57,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -91,7 +91,6 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -188,15 +187,24 @@ fun PlayerVideoBox(
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
+    // =========================================================================
+    // 🎛️ Real Video Quality State
+    // =========================================================================
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var hasMultipleQualities by rememberSaveable { mutableStateOf(false) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
 
+    // =========================================================================
+    // 🎵 Real Multi-Audio Tracks State
+    // =========================================================================
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
-    var currentAudioLabel by rememberSaveable { mutableStateOf("Hindi") }
+    var currentAudioLabel by rememberSaveable { mutableStateOf("Audio") }
 
+    // =========================================================================
+    // 💬 Real Multi-Subtitle Tracks State
+    // =========================================================================
     var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
     var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
     var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
@@ -204,7 +212,14 @@ fun PlayerVideoBox(
     var isMuted by remember { mutableStateOf(false) }
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
-    var isFirstFrameRendered by remember { mutableStateOf(false) }
+
+    // 🚀 ULTRA-FAST STARTUP ENGINE: কোনো কৃত্রিম ডিলে ছাড়া লাইভ প্লেব্যাক রেডি স্টেট
+    var isFirstFrameRendered by remember(episodeNumber, slug) {
+        mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying)
+    }
+    var hasCompletedStartup by remember(episodeNumber, slug) {
+        mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying)
+    }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
@@ -302,69 +317,22 @@ fun PlayerVideoBox(
         }
     }
 
-    val targetStartupBufferBytes = 2 * 1024 * 1024L
+    // ⚡ REAL-TIME NETWORK & BUFFER METRICS (কোনো ফেক লুপ বা বিলম্ব ছাড়া)
     var realDownloadedBytes by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
     var realBitrateBps by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
-    var smoothProgressPct by remember(episodeNumber, slug) { mutableFloatStateOf(1f) }
-    var hasCompletedStartup by remember(episodeNumber, slug) { mutableStateOf(false) }
 
-    val isVideoActuallyPlaying = (isPlaying && currentPositionMs > 300L) || (exoPlayer.isPlaying && currentPositionMs > 100L)
-
-    LaunchedEffect(episodeNumber, slug) {
-        smoothProgressPct = 1f
-        hasCompletedStartup = false
-        realDownloadedBytes = 0L
-        realBitrateBps = 0L
-        isFirstFrameRendered = false
-        isBuffering = true
-        playbackErrorMessage = null
-
-        while (!hasCompletedStartup && playbackErrorMessage == null) {
-            val isReady = exoPlayer.playbackState == Player.STATE_READY || isFirstFrameRendered || isVideoActuallyPlaying
-
-            if (isReady) {
-                if (smoothProgressPct < 100f) {
-                    smoothProgressPct = (smoothProgressPct + 12f).coerceAtMost(100f)
-                } else {
-                    delay(80L)
-                    hasCompletedStartup = true
-                    isFirstFrameRendered = true
-                    isBuffering = false
-                    if (!exoPlayer.isPlaying && activeInPlayerCustomAd == null) {
-                        exoPlayer.play()
-                    }
-                    break
-                }
-            } else {
-                if (realDownloadedBytes > 0L) {
-                    val realPct = ((realDownloadedBytes.toFloat() / targetStartupBufferBytes.toFloat()) * 100f).coerceIn(1f, 98f)
-                    smoothProgressPct = maxOf(smoothProgressPct + 0.8f, smoothProgressPct + (realPct - smoothProgressPct) * 0.25f).coerceIn(1f, 98f)
-                } else {
-                    val step = when {
-                        smoothProgressPct < 30f -> 1.8f
-                        smoothProgressPct < 70f -> 1.2f
-                        smoothProgressPct < 90f -> 0.8f
-                        else -> 0.3f
-                    }
-                    smoothProgressPct = (smoothProgressPct + step).coerceIn(1f, 98f)
-                }
-            }
-            delay(45L)
-        }
-    }
-
-    val displaySpeedText by remember(realBitrateBps, smoothProgressPct) {
+    val displaySpeedText by remember(realBitrateBps) {
         derivedStateOf {
             if (realBitrateBps > 0L) {
                 val speedMBs = (realBitrateBps / 8f) / (1024f * 1024f)
                 String.format(Locale.US, "%.2fMB/s", speedMBs)
             } else {
-                val simulatedSpeed = 2.15f + ((smoothProgressPct % 7) * 0.16f)
-                String.format(Locale.US, "%.2fMB/s", simulatedSpeed)
+                "Fast Stream"
             }
         }
     }
 
+    // প্লেয়ার প্রস্তুত হওয়ার সাথে সাথে তাৎক্ষণিক লোডিং ডিসমিস
     val shouldShowLoadingScreen = !hasCompletedStartup && playbackErrorMessage == null
 
     val watchPrefs = remember(slug) {
@@ -506,6 +474,9 @@ fun PlayerVideoBox(
     var showLeftDoubleTapAnim by remember { mutableStateOf(false) }
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
+    // =========================================================================
+    // 🎧 REAL MEDIA3 TRACK DETECTION ENGINE (AUDIO, SUBTITLE & VIDEO)
+    // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
         val foundAudioTracks = mutableListOf<RealAudioTrack>()
@@ -513,110 +484,176 @@ fun PlayerVideoBox(
         val seenResolutions = mutableSetOf<Int>()
 
         for ((groupIndex, group) in tracks.groups.withIndex()) {
-            if (group.type == C.TRACK_TYPE_VIDEO) {
-                for (i in 0 until group.length) {
-                    if (group.isTrackSupported(i)) {
-                        val format = group.getTrackFormat(i)
-                        val resolution = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
+            val trackType = group.type
 
-                        if (resolution > 0 && seenResolutions.add(resolution)) {
-                            val label = when {
-                                resolution >= 1080 -> "1080p"
-                                resolution >= 720 -> "720p"
-                                resolution >= 480 -> "480p"
-                                else -> "360p"
-                            }
-                            foundVideoTracks.add(
-                                RealVideoTrack(
-                                    height = resolution,
-                                    width = maxOf(format.width, format.height),
-                                    bitrate = format.bitrate,
-                                    label = label
-                                )
-                            )
+            // ১. ভিডিও রেজোলিউশন ট্র্যাক ডিটেকশন
+            if (trackType == C.TRACK_TYPE_VIDEO) {
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val resolution = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
+
+                    if (resolution > 0 && seenResolutions.add(resolution)) {
+                        val label = when {
+                            resolution >= 1080 -> "1080p"
+                            resolution >= 720 -> "720p"
+                            resolution >= 480 -> "480p"
+                            else -> "360p"
                         }
+                        foundVideoTracks.add(
+                            RealVideoTrack(
+                                height = resolution,
+                                width = maxOf(format.width, format.height),
+                                bitrate = format.bitrate,
+                                label = label
+                            )
+                        )
                     }
                 }
-            } else if (group.type == C.TRACK_TYPE_AUDIO) {
+            }
+            // ২. 🎵 রিয়েল মাল্টি-অডিও ট্র্যাক ডিটেকশন (MP4 & MKV Codecs, Channels, ISO Language)
+            else if (trackType == C.TRACK_TYPE_AUDIO) {
                 for (i in 0 until group.length) {
-                    if (group.isTrackSupported(i)) {
-                        val format = group.getTrackFormat(i)
-                        val lang = format.language?.lowercase() ?: "und"
-                        val isSelected = group.isTrackSelected(i)
+                    val format = group.getTrackFormat(i)
+                    val isSupported = group.isTrackSupported(i)
+                    val isSelected = group.isTrackSelected(i)
 
+                    val lang = format.language?.lowercase() ?: "und"
+                    val channelCount = format.channelCount
+                    val channelInfo = when (channelCount) {
+                        1 -> "Mono (1.0)"
+                        2 -> "Stereo (2.0)"
+                        6 -> "5.1 Surround"
+                        8 -> "7.1 Surround"
+                        else -> if (channelCount > 2) "$channelCount Channels" else ""
+                    }
+
+                    val sampleMime = format.sampleMimeType ?: ""
+                    val codec = when {
+                        sampleMime.contains("eac3", true) || sampleMime.contains("e-ac-3", true) -> "E-AC3"
+                        sampleMime.contains("ac3", true) || sampleMime.contains("ac-3", true) -> "AC3"
+                        sampleMime.contains("mp4a-latm", true) || sampleMime.contains("aac", true) -> "AAC"
+                        sampleMime.contains("opus", true) -> "Opus"
+                        sampleMime.contains("flac", true) -> "FLAC"
+                        sampleMime.contains("dts", true) -> "DTS"
+                        sampleMime.contains("mpeg", true) || sampleMime.contains("mp3", true) -> "MP3"
+                        else -> sampleMime.substringAfterLast("/").uppercase()
+                    }
+
+                    // ISO 639-1 / 639-2 অনুযায়ী ভাষার নাম নির্ধারণ
+                    val resolvedLanguage = when {
+                        format.label?.isNotBlank() == true -> format.label!!
+                        lang != "und" && lang.isNotBlank() -> {
+                            val loc = Locale(lang)
+                            loc.getDisplayLanguage(Locale.US).ifBlank {
+                                when (lang) {
+                                    "hi", "hin" -> "Hindi"
+                                    "bn", "ben" -> "Bengali"
+                                    "en", "eng" -> "English"
+                                    "ta", "tam" -> "Tamil"
+                                    "te", "tel" -> "Telugu"
+                                    "ml", "mal" -> "Malayalam"
+                                    "ja", "jpn" -> "Japanese"
+                                    "ko", "kor" -> "Korean"
+                                    "zh", "zho", "chi" -> "Chinese"
+                                    else -> lang.uppercase()
+                                }
+                            }
+                        }
+                        else -> "Audio ${foundAudioTracks.size + 1}"
+                    }
+
+                    val trackId = "${groupIndex}_$i"
+                    val isDefault = (format.selectionFlags and C.SELECTION_FLAG_DEFAULT) != 0
+
+                    if (isSelected) {
+                        selectedAudioTrackId = trackId
+                        currentAudioLabel = resolvedLanguage
+                    }
+
+                    foundAudioTracks.add(
+                        RealAudioTrack(
+                            id = trackId,
+                            language = lang,
+                            label = resolvedLanguage,
+                            groupIndex = groupIndex,
+                            trackIndex = i,
+                            isSelected = isSelected,
+                            languageCode = lang,
+                            channelCount = channelCount,
+                            channelInfo = channelInfo,
+                            codec = codec,
+                            bitrate = format.bitrate,
+                            sampleRate = format.sampleRate,
+                            isDefault = isDefault,
+                            isSupported = isSupported
+                        )
+                    )
+                }
+            }
+            // ৩. 💬 রিয়েল মাল্টি-সাবটাইটেল ট্র্যাক ডিটেকশন (Embedded SRT/VTT/ASS + External)
+            else if (trackType == C.TRACK_TYPE_TEXT) {
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val isSupported = group.isTrackSupported(i)
+                    val isSelected = group.isTrackSelected(i)
+
+                    val mime = format.sampleMimeType ?: ""
+                    val lang = format.language?.lowercase() ?: ""
+                    val rawLabel = format.label ?: ""
+
+                    // ডামি CEA ট্র্যাক ফিল্টারিং
+                    val isCeaDummy = (mime.contains("cea-608", true) || mime.contains("cea-708", true)) &&
+                            rawLabel.isBlank() && (lang.isBlank() || lang == "und")
+
+                    if (!isCeaDummy) {
                         val readableLabel = when {
-                            lang.contains("hi") || lang.contains("hin") || format.label?.contains("hindi", true) == true -> "Hindi"
-                            lang.contains("ta") || lang.contains("tam") || format.label?.contains("tamil", true) == true -> "Tamil"
-                            lang.contains("te") || lang.contains("tel") || format.label?.contains("telugu", true) == true -> "Telugu"
-                            lang.contains("ml") || lang.contains("mal") || format.label?.contains("malayalam", true) == true -> "Malayalam"
-                            lang.contains("bn") || lang.contains("ben") || format.label?.contains("bengali", true) == true || format.label?.contains("bangla", true) == true -> "Bengali"
-                            lang.contains("en") || lang.contains("eng") || format.label?.contains("english", true) == true -> "English"
-                            lang.contains("ja") || lang.contains("jpn") || format.label?.contains("japanese", true) == true -> "Japanese"
-                            lang.contains("ko") || lang.contains("kor") || format.label?.contains("korean", true) == true -> "Korean"
-                            lang.contains("zh") || lang.contains("chi") || format.label?.contains("chinese", true) == true -> "Chinese"
-                            else -> format.label?.takeIf { it.isNotBlank() } ?: "Audio ${foundAudioTracks.size + 1}"
+                            rawLabel.isNotBlank() -> rawLabel
+                            lang != "und" && lang.isNotBlank() -> {
+                                val loc = Locale(lang)
+                                loc.getDisplayLanguage(Locale.US).ifBlank {
+                                    when (lang) {
+                                        "bn", "ben" -> "Bengali Subtitle"
+                                        "hi", "hin" -> "Hindi Subtitle"
+                                        "en", "eng" -> "English Subtitle"
+                                        else -> "${lang.uppercase()} Subtitle"
+                                    }
+                                }
+                            }
+                            else -> "Subtitle ${foundSubtitleTracks.size + 1}"
                         }
 
-                        val trackId = "${groupIndex}_$i"
+                        val trackId = "sub_${groupIndex}_$i"
+                        val isExternal = format.id?.startsWith("ext_") == true || (format.selectionFlags and C.SELECTION_FLAG_AUTOSELECT) == 0 && format.id != null
+                        val isDefault = (format.selectionFlags and C.SELECTION_FLAG_DEFAULT) != 0
+                        val isForced = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0
+
                         if (isSelected) {
-                            selectedAudioTrackId = trackId
-                            currentAudioLabel = readableLabel
+                            selectedSubtitleTrackId = trackId
+                            currentSubtitleLabel = "CC"
                         }
 
-                        foundAudioTracks.add(
-                            RealAudioTrack(
+                        foundSubtitleTracks.add(
+                            RealSubtitleTrack(
                                 id = trackId,
                                 language = lang,
                                 label = readableLabel,
                                 groupIndex = groupIndex,
                                 trackIndex = i,
-                                isSelected = isSelected
+                                isSelected = isSelected,
+                                languageCode = lang,
+                                mimeType = mime,
+                                isExternal = isExternal,
+                                isDefault = isDefault,
+                                isForced = isForced,
+                                isSupported = isSupported
                             )
                         )
-                    }
-                }
-            } else if (group.type == C.TRACK_TYPE_TEXT) {
-                for (i in 0 until group.length) {
-                    if (group.isTrackSupported(i)) {
-                        val format = group.getTrackFormat(i)
-                        val mime = format.sampleMimeType ?: ""
-                        val lang = format.language?.lowercase() ?: ""
-                        val label = format.label ?: ""
-
-                        val isCeaDummy = mime.contains("cea", true) || mime.contains("eia", true)
-                        val hasValidLanguageOrLabel = (lang.isNotBlank() && lang != "und") || label.isNotBlank()
-
-                        if (!isCeaDummy && hasValidLanguageOrLabel) {
-                            val readableLabel = when {
-                                lang.contains("bn") || lang.contains("ben") || label.contains("bangla", true) -> "Bangla Subtitle"
-                                lang.contains("en") || lang.contains("eng") || label.contains("english", true) -> "English Subtitle"
-                                lang.contains("hi") || lang.contains("hin") || label.contains("hindi", true) -> "Hindi Subtitle"
-                                else -> label.ifBlank { "Subtitle ${foundSubtitleTracks.size + 1}" }
-                            }
-
-                            val trackId = "sub_${groupIndex}_$i"
-                            val isSelected = group.isTrackSelected(i)
-                            if (isSelected) {
-                                selectedSubtitleTrackId = trackId
-                                currentSubtitleLabel = "CC"
-                            }
-
-                            foundSubtitleTracks.add(
-                                RealSubtitleTrack(
-                                    id = trackId,
-                                    language = lang,
-                                    label = readableLabel,
-                                    groupIndex = groupIndex,
-                                    trackIndex = i,
-                                    isSelected = isSelected
-                                )
-                            )
-                        }
                     }
                 }
             }
         }
 
+        // কোয়ালিটি গ্রুপিং
         if (foundVideoTracks.size > 1) {
             hasMultipleQualities = true
             foundVideoTracks.sortByDescending { it.height }
@@ -640,25 +677,90 @@ fun PlayerVideoBox(
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
         }
 
-        if (foundAudioTracks.isEmpty()) {
-            val sampleLanguages = listOf("Hindi", "Tamil", "Telugu", "Malayalam", "Bengali", "English", "Japanese")
-            availableAudioTracks = sampleLanguages.mapIndexed { idx, langName ->
-                RealAudioTrack(
-                    id = "audio_$idx",
-                    language = langName.lowercase(),
-                    label = langName,
-                    groupIndex = 0,
-                    trackIndex = idx,
-                    isSelected = idx == 0
-                )
-            }
+        // অডিও ট্র্যাকস সেভ
+        availableAudioTracks = if (foundAudioTracks.isNotEmpty()) {
+            foundAudioTracks.distinctBy { it.label }
         } else {
-            availableAudioTracks = foundAudioTracks.distinctBy { it.label }
+            listOf(
+                RealAudioTrack(
+                    id = "default_audio",
+                    language = "und",
+                    label = "Default Audio",
+                    groupIndex = 0,
+                    trackIndex = 0,
+                    isSelected = true,
+                    isDefault = true
+                )
+            )
         }
 
+        // সাবটাইটেল ট্র্যাকস সেভ
         availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
     }
 
+    // =========================================================================
+    // 🔀 LIVE AUDIO SWITCHING WITHOUT VIDEO RESTART
+    // =========================================================================
+    fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack) {
+        if (!audioTrack.isSupported) {
+            Toast.makeText(context, "Unsupported Audio Format!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        selectedAudioTrackId = audioTrack.id
+        currentAudioLabel = audioTrack.label
+
+        val currentTracks = exoPlayer.currentTracks
+        val targetGroup = currentTracks.groups.getOrNull(audioTrack.groupIndex)
+
+        if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_AUDIO) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, audioTrack.trackIndex))
+                .build()
+        }
+        Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
+    }
+
+    // =========================================================================
+    // 💬 LIVE SUBTITLE SWITCHING WITHOUT VIDEO RESTART
+    // =========================================================================
+    fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
+        if (subTrack == null) {
+            // সাবটাইটেল বন্ধ করা (Off)
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .build()
+            selectedSubtitleTrackId = "off"
+            currentSubtitleLabel = "CC"
+            Toast.makeText(context, "Subtitles: Off", Toast.LENGTH_SHORT).show()
+        } else {
+            if (!subTrack.isSupported) {
+                Toast.makeText(context, "Unsupported Subtitle Format!", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val currentTracks = exoPlayer.currentTracks
+            val targetGroup = currentTracks.groups.getOrNull(subTrack.groupIndex)
+            if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_TEXT) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, subTrack.trackIndex))
+                    .build()
+                selectedSubtitleTrackId = subTrack.id
+                currentSubtitleLabel = "CC"
+                Toast.makeText(context, "Subtitle: ${subTrack.label}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🎛️ VIDEO QUALITY OVERRIDE
+    // =========================================================================
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
         currentQualityLabel = if (targetResolution == 0) "Auto" else "${targetResolution}P"
@@ -703,48 +805,9 @@ fun PlayerVideoBox(
         Toast.makeText(context, "Quality: $label", Toast.LENGTH_SHORT).show()
     }
 
-    fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack) {
-        selectedAudioTrackId = audioTrack.id
-        currentAudioLabel = audioTrack.label
-
-        val currentTracks = exoPlayer.currentTracks
-        val targetGroup = currentTracks.groups.getOrNull(audioTrack.groupIndex)
-
-        if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_AUDIO) {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, audioTrack.trackIndex))
-                .build()
-        }
-        Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
-    }
-
-    fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
-        if (subTrack == null) {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                .build()
-            selectedSubtitleTrackId = "off"
-            currentSubtitleLabel = "CC"
-            Toast.makeText(context, "Subtitles: Off", Toast.LENGTH_SHORT).show()
-        } else {
-            val currentTracks = exoPlayer.currentTracks
-            val targetGroup = currentTracks.groups.getOrNull(subTrack.groupIndex)
-            if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_TEXT) {
-                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                    .buildUpon()
-                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                    .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, subTrack.trackIndex))
-                    .build()
-                selectedSubtitleTrackId = subTrack.id
-                currentSubtitleLabel = "CC"
-                Toast.makeText(context, "Subtitle: ${subTrack.label}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
+    // =========================================================================
+    // 🔄 LIFECYCLE & LISTENER REGISTRATION
+    // =========================================================================
     DisposableEffect(exoPlayer) {
         val playerListener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -752,9 +815,10 @@ fun PlayerVideoBox(
             }
 
             override fun onRenderedFirstFrame() {
+                // 🚀 প্রথম ফ্রেম রেন্ডার হওয়ামাত্রই লোডিং শেষ
                 isFirstFrameRendered = true
-                isBuffering = false
                 hasCompletedStartup = true
+                isBuffering = false
                 playbackErrorMessage = null
             }
 
@@ -768,9 +832,10 @@ fun PlayerVideoBox(
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
+                    // 🚀 প্লেয়ার রেডি হওয়ামাত্রই লোডিং পর্দা বন্ধ
                     isFirstFrameRendered = true
-                    isBuffering = false
                     hasCompletedStartup = true
+                    isBuffering = false
                     playbackErrorMessage = null
                 }
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
@@ -779,8 +844,8 @@ fun PlayerVideoBox(
             override fun onIsPlayingChanged(playingState: Boolean) {
                 if (playingState) {
                     isFirstFrameRendered = true
-                    isBuffering = false
                     hasCompletedStartup = true
+                    isBuffering = false
                     playbackErrorMessage = null
                 }
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
@@ -797,6 +862,9 @@ fun PlayerVideoBox(
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
                     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
                         "Video server is currently down or file unavailable."
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FAILED ->
+                        "Device decoder failed to play this media format. Switching to fallback decoder..."
                     else -> "Playback error occurred. Please try again."
                 }
             }
@@ -1187,11 +1255,11 @@ fun PlayerVideoBox(
                 }
             }
 
-            // Starting soon overlay
+            // 🚀 ULTRA-FAST BRAND STARTUP OVERLAY (প্রকৃত ফ্রেম লোড হওয়া পর্যন্ত থাকবে, কোনো ফেইক ডিলে ছাড়া)
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
-                enter = fadeIn(tween(120)),
-                exit = fadeOut(tween(200)),
+                enter = fadeIn(tween(100)),
+                exit = fadeOut(tween(180)),
                 modifier = Modifier.fillMaxSize()
             ) {
                 Box(
@@ -1237,12 +1305,7 @@ fun PlayerVideoBox(
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        val statsText = String.format(
-                            Locale.US,
-                            "Starting soon... %02d%%  %s",
-                            smoothProgressPct.toInt().coerceIn(1, 100),
-                            displaySpeedText
-                        )
+                        val statsText = "Starting playback... $displaySpeedText"
 
                         Text(
                             text = statsText,
@@ -1329,7 +1392,6 @@ fun PlayerVideoBox(
                                     onClick = {
                                         playbackErrorMessage = null
                                         isFirstFrameRendered = false
-                                        smoothProgressPct = 1f
                                         hasCompletedStartup = false
                                         onRetryPlayback?.invoke() ?: run {
                                             exoPlayer.prepare()
@@ -1492,15 +1554,11 @@ fun PlayerVideoBox(
                 )
             }
 
-            // =========================================================================
-            // 🎯 সাইড ড্রয়ার উইডথ ফিক্স (ছবি ১-এর আরামদায়ক মাপ অনুযায়ী বাড়ানো হলো)
-            // =========================================================================
+            // সাইড ড্রয়ার উইডথ ও কন্টেইনার
             val targetDrawerWidth = remember(sideDrawerType, isDeviceLandscape) {
                 if (sideDrawerType == "playlist" || sideDrawerType == "download") {
-                    // ছবি ১-এর ৫-কলাম গ্রিডের জন্য আরামদায়ক ২৮০.dp থেকে ৩১৫.dp মাপ
                     if (isDeviceLandscape) 295.dp else 260.dp
                 } else {
-                    // স্পিড বা কোয়ালিটি অপশনের জন্য কমপ্যাক্ট মাপ
                     if (isDeviceLandscape) 140.dp else 165.dp
                 }
             }
@@ -1520,7 +1578,7 @@ fun PlayerVideoBox(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(targetDrawerWidth) // 👈 সাইড ড্রয়ার চওড়া করা হলো
+                        .width(targetDrawerWidth)
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
@@ -1598,7 +1656,6 @@ fun PlayerVideoBox(
                                 isFetchingSizes = isFetchingSizes,
                                 onSelectEpisode = { ep ->
                                     isFirstFrameRendered = false
-                                    smoothProgressPct = 1f
                                     hasCompletedStartup = false
                                     isBuffering = true
                                     onSelectEpisode(ep)
