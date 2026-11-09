@@ -23,6 +23,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -489,7 +490,7 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // সার্চ বার (অ্যাক্টিভ হলে প্রদর্শিত হবে)
+                // সার্চ বার
                 AnimatedVisibility(visible = isSearchActive && !isSelectionMode) {
                     Row(
                         modifier = Modifier
@@ -551,7 +552,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // 📑 ২. স্টিকি ৬-সেকশন ন্যাভিগেশন বার (Sticky Gallery Section Tabs)
+                // 📑 ২. স্টিকি ৬-সেকশন ন্যাভিগেশন বার
                 // =============================================================
                 if (selectedFolder == null && !isSelectionMode) {
                     LazyRow(
@@ -615,7 +616,6 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // 📂 ফোল্ডার মোড
                         activeSection == GallerySection.FOLDERS && selectedFolder == null -> {
                             val displayFolders = remember(folderList, searchQuery) {
                                 if (searchQuery.isBlank()) folderList
@@ -640,7 +640,6 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // 🎥 ভিডিও লিস্ট / গ্রিড
                         displayVideos.isEmpty() -> {
                             EmptyGalleryNotice(
                                 message = if (searchQuery.isNotBlank()) "No videos match '$searchQuery'"
@@ -728,7 +727,7 @@ fun LocalGalleryScreen(
             }
 
             // =============================================================
-            // ⚡ ৪. সিলেকশন মোড ফ্লোটিং বটম অ্যাকশন ডক (Floating Action Dock)
+            // ⚡ ৪. সিলেকশন মোড ফ্লোটিং বটম অ্যাকশন ডক
             // =============================================================
             AnimatedVisibility(
                 visible = isSelectionMode,
@@ -768,7 +767,6 @@ fun LocalGalleryScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // 📤 Share Selected
                             IconButton(
                                 onClick = {
                                     val toShare = allIndexedVideos.filter { selectedVideoIds.contains(it.id) }
@@ -784,7 +782,6 @@ fun LocalGalleryScreen(
                                 Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
                             }
 
-                            // ⭐ Star Selected
                             IconButton(
                                 onClick = {
                                     val toStar = allIndexedVideos.filter { selectedVideoIds.contains(it.id) }
@@ -801,7 +798,6 @@ fun LocalGalleryScreen(
                                 Icon(Icons.Default.Star, contentDescription = "Star", tint = Color(0xFFFFB300), modifier = Modifier.size(20.dp))
                             }
 
-                            // 🗑️ Delete Selected (Triggers Dual-Option Dialog)
                             Button(
                                 onClick = { showDeleteConfirmDialog = true },
                                 shape = RoundedCornerShape(12.dp),
@@ -883,7 +879,6 @@ fun LocalGalleryScreen(
                         Text("Sort & Filter Videos", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         HorizontalDivider(color = BorderSubtle, thickness = 0.8.dp)
 
-                        // সর্টিং অপশন
                         Text("Sort By", color = CyanAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             VideoSortField.entries.forEach { field ->
@@ -917,7 +912,6 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // রেজোলিউশন ফিল্টার
                         Text("Resolution", color = CyanAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(VideoResolutionFilter.entries.toTypedArray()) { res ->
@@ -940,7 +934,6 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // ডিউরেশন ফিল্টার
                         Text("Duration", color = CyanAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(VideoDurationFilter.entries.toTypedArray()) { dur ->
@@ -977,7 +970,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // ৩-ডট ইন্ডিভিজুয়াল অ্যাকশন মেনু
+            // ৩-ডট অ্যাকশন মেনু
             selectedActionItem?.let { item ->
                 FileActionMenuSheet(
                     item = item,
@@ -1014,7 +1007,6 @@ fun LocalGalleryScreen(
                 )
             }
 
-            // রিনেম ডায়ালগ
             renamingItem?.let { item ->
                 RenameFileDialog(
                     currentName = item.displayName.substringBeforeLast('.'),
@@ -1028,7 +1020,6 @@ fun LocalGalleryScreen(
                 )
             }
 
-            // মুভ ডায়ালগ
             movingItem?.let { item ->
                 MoveToFolderDialog(
                     folders = folderList,
