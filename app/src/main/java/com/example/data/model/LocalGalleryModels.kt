@@ -5,13 +5,12 @@ import java.util.Locale
 
 /**
  * 🎬 Gallery Tab Sections
- * Only functional, fully implemented sections are included.
+ * Only functional, active sections are included.
  */
 enum class GallerySection(val displayName: String, val iconName: String) {
     ALL_VIDEOS(displayName = "All Videos", iconName = "video_library"),
     FOLDERS(displayName = "Folders", iconName = "folder"),
     RECENTLY_ADDED(displayName = "Recently Added", iconName = "new_releases"),
-    RECENTLY_PLAYED(displayName = "Recently Played", iconName = "history"),
     DOWNLOADS(displayName = "Downloads", iconName = "download"),
     FAVORITES(displayName = "Favorites", iconName = "star")
 }
