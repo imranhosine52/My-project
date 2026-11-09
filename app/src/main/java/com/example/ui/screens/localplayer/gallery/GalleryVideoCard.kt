@@ -30,11 +30,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -187,7 +183,6 @@ fun GalleryVideoGridCard(
             ) {
                 AsyncVideoThumbnail(item = item, modifier = Modifier.fillMaxSize())
 
-                // হালকা গ্রেডিয়েন্ট ফেড যাতে নিচের ব্যাজগুলো স্পষ্ট দেখা যায়
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
