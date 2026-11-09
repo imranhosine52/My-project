@@ -666,13 +666,15 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
+    // 🎯 গ্যালারি পেজে ডিফল্ট বটম বার সম্পূর্ণ হাইড রাখা হয়েছে যাতে এক সাইডের নতুন "See More" পপ-আপ ন্যাভিগেশনটি কাজ করতে পারে
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.LocalAudioPlayer ||
             currentScreen is Screen.Search ||
             currentScreen is Screen.CommunityChat ||
-            currentScreen is Screen.NotFound
+            currentScreen is Screen.NotFound ||
+            currentScreen is Screen.LocalGallery
 
     Box(
         modifier = Modifier
@@ -794,6 +796,21 @@ private fun MainAppContent(
                                     } else {
                                         navigateTo(Screen.LocalPlayer(mediaItem), null)
                                     }
+                                },
+                                onNavigateToHome = {
+                                    HomeNavHelper.activeCategory = "Home"
+                                    navigateTo(Screen.Home(category = "Home"), BottomNavTab.HOME)
+                                },
+                                onNavigateToShorts = {
+                                    HomeNavHelper.activeSubTab = null
+                                    HomeNavHelper.activeCategory = "Short TV"
+                                    navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
+                                },
+                                onNavigateToDownloads = {
+                                    navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS)
+                                },
+                                onNavigateToProfile = {
+                                    navigateTo(Screen.Profile, BottomNavTab.ME)
                                 }
                             )
                         }
@@ -887,7 +904,7 @@ private fun MainAppContent(
             )
         }
 
-        // 🛡️ গ্যালারি স্ক্রিন চলাকালীন কোনো ব্যানার অ্যাড বটম অ্যাকশন ডকের উপরে আসবে না
+        // 🛡️ গ্যালারি স্ক্রিন চলাকালীন কোনো সোশ্যাল বার ব্যানার অ্যাড আসবে না
         if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.LocalGallery) {
             SocialBarAdOverlay(
                 isVip = isVip,
