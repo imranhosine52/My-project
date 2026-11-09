@@ -212,7 +212,6 @@ fun PlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // 🚀 ULTRA-FAST STARTUP ENGINE
     var isFirstFrameRendered by remember(episodeNumber, slug) {
         mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying || exoPlayer.currentPosition > 0L)
     }
@@ -222,7 +221,7 @@ fun PlayerVideoBox(
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(episodeNumber, slug) {
-        delay(3500L)
+        delay(2500L)
         hasCompletedStartup = true
     }
 
@@ -479,7 +478,7 @@ fun PlayerVideoBox(
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 REAL MEDIA3 TRACK DETECTION ENGINE (AUDIO, SUBTITLE & VIDEO)
+    // 🎧 REAL MEDIA3 TRACK DETECTION ENGINE (লুপ-মুক্ত ও স্থিতিশীল)
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
@@ -514,7 +513,7 @@ fun PlayerVideoBox(
                     }
                 }
             }
-            // ২. 🎵 রিয়েল মাল্টি-অডিও ট্র্যাক ডিটেকশন (MP4 & MKV Codecs, Channels, ISO Language)
+            // ২. 🎵 রিয়েল মাল্টি-অডিও ট্র্যাক ডিটেকশন
             else if (trackType == C.TRACK_TYPE_AUDIO) {
                 for (i in 0 until group.length) {
                     val format = group.getTrackFormat(i)
@@ -593,7 +592,7 @@ fun PlayerVideoBox(
                     )
                 }
             }
-            // ৩. 💬 রিয়েল মাল্টি-সাবটাইটেল ট্র্যাক ডিটেকশন (Embedded SRT/VTT/ASS + External)
+            // ৩. 💬 রিয়েল মাল্টি-সাবটাইটেল ট্র্যাক ডিটেকশন
             else if (trackType == C.TRACK_TYPE_TEXT) {
                 for (i in 0 until group.length) {
                     val format = group.getTrackFormat(i)
@@ -656,7 +655,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 ফিক্সড: ট্র্যাক সিলেকশন লুপ মুক্ত ও প্রগ্রেসিভ MP4/MKV রিলিজ
+        // 🎯 সমাধান: কোনো ট্র্যাক মিউটেশন লুপ ছাড়া নিরাপদে তালিকা আপডেট
         // =========================================================================
         if (foundVideoTracks.size > 1) {
             hasMultipleQualities = true
@@ -665,17 +664,8 @@ fun PlayerVideoBox(
         } else {
             hasMultipleQualities = false
             availableVideoTracks = if (foundVideoTracks.isNotEmpty()) foundVideoTracks else listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
-            
-            // অপ্রয়োজনীয় মিউটেশন বাদ দিয়ে শুধুমাত্র কনস্ট্রেইন্ট থাকলে ক্লিয়ার করা (লুপ প্রতিরোধ)
-            val currentParams = exoPlayer.trackSelectionParameters
-            if (currentParams.maxVideoWidth != Integer.MAX_VALUE || currentParams.maxVideoHeight != Integer.MAX_VALUE) {
-                exoPlayer.trackSelectionParameters = currentParams.buildUpon()
-                    .clearVideoSizeConstraints()
-                    .build()
-            }
         }
 
-        // অডিও ট্র্যাকস সেভ
         availableAudioTracks = if (foundAudioTracks.isNotEmpty()) {
             foundAudioTracks.distinctBy { it.label }
         } else {
@@ -692,13 +682,9 @@ fun PlayerVideoBox(
             )
         }
 
-        // সাবটাইটেল ট্র্যাকস সেভ
         availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
     }
 
-    // =========================================================================
-    // 🔀 LIVE AUDIO SWITCHING WITHOUT VIDEO RESTART
-    // =========================================================================
     fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack) {
         if (!audioTrack.isSupported) {
             Toast.makeText(context, "Unsupported Audio Format!", Toast.LENGTH_SHORT).show()
@@ -721,9 +707,6 @@ fun PlayerVideoBox(
         Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
     }
 
-    // =========================================================================
-    // 💬 LIVE SUBTITLE SWITCHING WITHOUT VIDEO RESTART
-    // =========================================================================
     fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
         if (subTrack == null) {
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
@@ -755,9 +738,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // 🎛️ VIDEO QUALITY OVERRIDE
-    // =========================================================================
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
         currentQualityLabel = if (targetResolution == 0) "Auto" else "${targetResolution}P"
@@ -797,9 +777,6 @@ fun PlayerVideoBox(
         Toast.makeText(context, "Quality: $label", Toast.LENGTH_SHORT).show()
     }
 
-    // =========================================================================
-    // 🔄 LIFECYCLE & LISTENER REGISTRATION
-    // =========================================================================
     DisposableEffect(exoPlayer, episodeNumber, slug) {
         extractTracks(exoPlayer.currentTracks)
 
@@ -859,7 +836,7 @@ fun PlayerVideoBox(
                         "Corrupted or unsupported media container format."
                     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     PlaybackException.ERROR_CODE_DECODING_FAILED ->
-                        "Hardware decoder failed to decode track. Tap 'Try Again' to retry with software decoder."
+                        "Decoder failed. Tap 'Try Again' to retry with software decoder."
                     else -> "Playback error: ${error.message ?: "Unknown error"}"
                 }
             }
@@ -1148,6 +1125,7 @@ fun PlayerVideoBox(
                     )
                 }
         ) {
+            // 🎯 TextureView ব্যবহার করা হয়েছে যাতে Compose graphicsLayer-এ স্ক্রিন কালো না হয়
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -1159,6 +1137,7 @@ fun PlayerVideoBox(
                         )
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        setSurfaceType(PlayerView.SURFACE_TYPE_TEXTURE_VIEW) // 👈 ব্ল্যাক স্ক্রিন স্থায়ী সমাধান
                         keepScreenOn = true
                     }
                 },
@@ -1388,13 +1367,6 @@ fun PlayerVideoBox(
                                         playbackErrorMessage = null
                                         isFirstFrameRendered = false
                                         hasCompletedStartup = false
-                                        
-                                        // ট্র্যাক ওভাররাইড ক্লিয়ার করে ফ্রেশ স্টেটসে ট্রাই করা
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                            .buildUpon()
-                                            .clearVideoSizeConstraints()
-                                            .clearOverrides()
-                                            .build()
 
                                         onRetryPlayback?.invoke() ?: run {
                                             exoPlayer.prepare()
@@ -1429,8 +1401,8 @@ fun PlayerVideoBox(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // বাফারিং স্পিনার
-            if (isBuffering && isFirstFrameRendered && !isPiPActive) {
+            // বাফারিং স্পিনার (🎯 এখন ভিডিও বাফারিং চলার সময় সবসময় সঠিক লোডিং দেখাবে)
+            if (isBuffering && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                 }
