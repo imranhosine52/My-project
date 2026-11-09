@@ -193,41 +193,42 @@ fun GalleryVideoGridCard(
                         )
                 )
 
-                // টপ-লেফট ব্যাজেস: [NEW] ও [রেজোলিউশন (4K, 1080p, 720p)]
+                // 🎯 টপ-লেফট ব্যাজেস: [NEW] ও [রেজোলিউশন (4K, 1080p, 720p, SD)] - আরও ছোট ও চিকন করা হলো
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (isNew) {
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(2.5.dp),
                             color = BadgeNeonRed
                         ) {
                             Text(
                                 text = "NEW",
                                 color = Color.White,
-                                fontSize = 8.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                letterSpacing = 0.2.sp,
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
                             )
                         }
                     }
 
                     item.resolution?.let { resText ->
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color.Black.copy(alpha = 0.75f),
-                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
+                            shape = RoundedCornerShape(2.5.dp),
+                            color = Color.Black.copy(alpha = 0.70f),
+                            border = BorderStroke(0.4.dp, Color.White.copy(alpha = 0.25f))
                         ) {
                             Text(
                                 text = resText,
                                 color = CyanActive,
-                                fontSize = 8.5.sp,
+                                fontSize = 6.8.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
                             )
                         }
                     }
@@ -237,12 +238,12 @@ fun GalleryVideoGridCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(5.dp)
+                        .padding(4.dp)
                 ) {
                     if (isSelectionMode) {
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
+                                .size(20.dp)
                                 .clip(CircleShape)
                                 .background(if (isSelected) CyanActive else Color.Black.copy(alpha = 0.6f))
                                 .border(1.dp, if (isSelected) CyanActive else Color.White.copy(alpha = 0.8f), CircleShape),
@@ -253,14 +254,14 @@ fun GalleryVideoGridCard(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Selected",
                                     tint = Color.Black,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                             }
                         }
                     } else if (item.isStarred) {
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(18.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.6f)),
                             contentAlignment = Alignment.Center
@@ -269,7 +270,7 @@ fun GalleryVideoGridCard(
                                 imageVector = Icons.Default.Star,
                                 contentDescription = "Starred",
                                 tint = Color(0xFFFFB300),
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size(11.dp)
                             )
                         }
                     }
@@ -280,42 +281,42 @@ fun GalleryVideoGridCard(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (hasSubtitle) {
                         Surface(
-                            shape = RoundedCornerShape(3.dp),
+                            shape = RoundedCornerShape(2.dp),
                             color = EmeraldActive
                         ) {
                             Text(
                                 text = "SRT",
                                 color = Color.Black,
-                                fontSize = 8.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                modifier = Modifier.padding(horizontal = 2.5.dp, vertical = 0.2.dp)
                             )
                         }
                     }
 
                     if (item.formattedDuration.isNotBlank()) {
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(3.dp),
                             color = Color.Black.copy(alpha = 0.80f)
                         ) {
                             Text(
                                 text = item.formattedDuration,
                                 color = Color.White,
-                                fontSize = 9.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 3.5.dp, vertical = 0.8.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // ২. টাইটেল ও থ্রি-ডট মেনু
             Row(
@@ -329,19 +330,19 @@ fun GalleryVideoGridCard(
                     Text(
                         text = item.displayName.ifBlank { item.title },
                         color = if (isSelected) CyanActive else Color.White,
-                        fontSize = 11.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        lineHeight = 15.sp,
+                        lineHeight = 14.5.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Spacer(modifier = Modifier.height(3.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
                         text = "${item.formattedSize} • ${item.folderName}",
                         color = TextSecondaryMuted,
-                        fontSize = 10.sp,
+                        fontSize = 9.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -349,11 +350,11 @@ fun GalleryVideoGridCard(
 
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
+                        .size(20.dp)
                         .clip(CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = false, radius = 12.dp)
+                            indication = ripple(bounded = false, radius = 10.dp)
                         ) { onMenuClick() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -361,7 +362,7 @@ fun GalleryVideoGridCard(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "Options",
                         tint = TextSecondaryMuted,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                 }
             }
@@ -416,18 +417,18 @@ fun GalleryVideoListCard(
 
                 if (item.formattedDuration.isNotBlank()) {
                     Surface(
-                        shape = RoundedCornerShape(3.dp),
+                        shape = RoundedCornerShape(2.5.dp),
                         color = Color.Black.copy(alpha = 0.78f),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(3.dp)
+                            .padding(2.5.dp)
                     ) {
                         Text(
                             text = item.formattedDuration,
                             color = Color.White,
-                            fontSize = 8.5.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                            modifier = Modifier.padding(horizontal = 2.5.dp, vertical = 0.5.dp)
                         )
                     }
                 }
@@ -438,12 +439,12 @@ fun GalleryVideoListCard(
                 Text(
                     text = item.displayName.ifBlank { item.title },
                     color = if (isSelected) CyanActive else Color.White,
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(2.5.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -451,13 +452,13 @@ fun GalleryVideoListCard(
                     Text(
                         text = item.formattedSize,
                         color = TextSecondaryMuted,
-                        fontSize = 11.sp
+                        fontSize = 10.5.sp
                     )
-                    Text("•", color = TextSecondaryMuted, fontSize = 11.sp)
+                    Text("•", color = TextSecondaryMuted, fontSize = 10.sp)
                     Text(
                         text = item.folderName,
                         color = CyanActive,
-                        fontSize = 11.sp
+                        fontSize = 10.5.sp
                     )
                 }
             }
@@ -466,10 +467,10 @@ fun GalleryVideoListCard(
             if (isSelectionMode) {
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .clip(CircleShape)
                         .background(if (isSelected) CyanActive else Color.Transparent)
-                        .border(1.2.dp, if (isSelected) CyanActive else Color.White.copy(alpha = 0.8f), CircleShape),
+                        .border(1.dp, if (isSelected) CyanActive else Color.White.copy(alpha = 0.8f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isSelected) {
@@ -477,17 +478,17 @@ fun GalleryVideoListCard(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Selected",
                             tint = Color.Black,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
             } else {
-                IconButton(onClick = onMenuClick, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onMenuClick, modifier = Modifier.size(30.dp)) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "Menu",
                         tint = TextSecondaryMuted,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
