@@ -372,16 +372,22 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // =========================================================================
+        // 🎯 ডিরেক্ট মিডিয়া ফাইল (MP4, MKV, WebM, MP3) ইন-অ্যাপ প্লেয়ার হ্যান্ডলার
+        // =========================================================================
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
             if (scheme == "http" || scheme == "https") {
-                val urlString = dataUri.toString()
-                val isDirectMediaFile = urlString.endsWith(".mp4", true) ||
-                        urlString.endsWith(".mkv", true) ||
-                        urlString.endsWith(".mp3", true)
+                val urlString = dataUri.toString().lowercase()
+                val isDirectMediaFile = urlString.endsWith(".mp4") ||
+                        urlString.endsWith(".mkv") ||
+                        urlString.endsWith(".webm") ||
+                        urlString.endsWith(".mp3") ||
+                        urlString.contains(".mp4?") ||
+                        urlString.contains(".mkv?")
 
                 if (!isDirectMediaFile) {
-                    UnifiedAdManager.openChromeCustomTab(applicationContext, urlString)
+                    UnifiedAdManager.openChromeCustomTab(applicationContext, dataUri.toString())
                     return
                 }
             }
@@ -399,43 +405,62 @@ class MainActivity : ComponentActivity() {
                 } ?: intent.clipData?.getItemAt(0)?.uri
             }
 
-            if (mediaUri != null && (mediaUri.scheme == "content" || mediaUri.scheme == "file")) {
-                var fileName = "External Media"
-                var fileSize = 0L
-                var mimeType: String = intent.type ?: "video/*"
+            if (mediaUri != null) {
+                val scheme = mediaUri.scheme?.lowercase() ?: ""
+                val isSupportedScheme = scheme == "content" || scheme == "file" || scheme == "http" || scheme == "https"
 
-                try {
-                    val resolvedType = contentResolver.getType(mediaUri)
-                    if (!resolvedType.isNullOrBlank()) {
-                        mimeType = resolvedType
-                    }
-                    contentResolver.query(mediaUri, null, null, null, null)?.use { cursor ->
-                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
-                        if (cursor.moveToFirst()) {
-                            if (nameIdx != -1) fileName = cursor.getString(nameIdx) ?: fileName
-                            if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
+                if (isSupportedScheme) {
+                    var fileName = "External Media"
+                    var fileSize = 0L
+                    var mimeType: String = intent.type ?: "video/*"
+
+                    if (scheme == "content") {
+                        try {
+                            val resolvedType = contentResolver.getType(mediaUri)
+                            if (!resolvedType.isNullOrBlank()) {
+                                mimeType = resolvedType
+                            }
+                            contentResolver.query(mediaUri, null, null, null, null)?.use { cursor ->
+                                val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                                if (cursor.moveToFirst()) {
+                                    if (nameIdx != -1) fileName = cursor.getString(nameIdx) ?: fileName
+                                    if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
+                                }
+                            }
+                        } catch (_: Exception) {
+                            fileName = mediaUri.lastPathSegment ?: "External Media"
                         }
+                    } else {
+                        fileName = mediaUri.lastPathSegment ?: "External Media"
                     }
-                } catch (_: Exception) {
-                    fileName = mediaUri.lastPathSegment ?: "External Media"
+
+                    // 🎯 MP4 এবং MKV MIME টাইপ স্বয়ংক্রিয়ভাবে নিশ্চিত করা
+                    val lowerName = fileName.lowercase()
+                    if (lowerName.endsWith(".mkv") || mimeType.contains("matroska", ignoreCase = true)) {
+                        mimeType = "video/x-matroska"
+                    } else if (lowerName.endsWith(".mp4")) {
+                        mimeType = "video/mp4"
+                    } else if (lowerName.endsWith(".webm")) {
+                        mimeType = "video/webm"
+                    }
+
+                    val item = LocalVideoItem(
+                        id = mediaUri.hashCode().toLong(),
+                        title = fileName.substringBeforeLast('.'),
+                        displayName = fileName,
+                        durationMs = 0L,
+                        sizeBytes = fileSize,
+                        path = mediaUri.path ?: mediaUri.toString(),
+                        contentUriString = mediaUri.toString(),
+                        folderName = if (scheme == "http" || scheme == "https") "Online Stream" else "External",
+                        bucketId = "external_media",
+                        dateAdded = System.currentTimeMillis() / 1000,
+                        mimeType = mimeType
+                    )
+
+                    pendingExternalMediaItem.value = item
                 }
-
-                val item = LocalVideoItem(
-                    id = mediaUri.hashCode().toLong(),
-                    title = fileName,
-                    displayName = fileName,
-                    durationMs = 0L,
-                    sizeBytes = fileSize,
-                    path = mediaUri.path ?: "",
-                    contentUriString = mediaUri.toString(),
-                    folderName = "External",
-                    bucketId = "external_media",
-                    dateAdded = System.currentTimeMillis() / 1000,
-                    mimeType = mimeType
-                )
-
-                pendingExternalMediaItem.value = item
             }
         }
     }
@@ -666,7 +691,6 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
-    // 🎯 গ্যালারি পেজে ডিফল্ট বটম বার সম্পূর্ণ হাইড রাখা হয়েছে যাতে এক সাইডের নতুন "See More" পপ-আপ ন্যাভিগেশনটি কাজ করতে পারে
     val shouldHideBottomNav = currentScreen is Screen.Player ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.LocalPlayer ||
@@ -860,9 +884,6 @@ private fun MainAppContent(
             }
         }
 
-        // =========================================================================
-        // 🎵 গ্লোবাল ভাসমান পপ-আপ মিনি প্লেয়ার
-        // =========================================================================
         val shouldHideFloatingAudio = currentScreen is Screen.LocalAudioPlayer ||
                 currentScreen is Screen.LocalPlayer ||
                 currentScreen is Screen.Player ||
@@ -878,9 +899,6 @@ private fun MainAppContent(
             )
         }
 
-        // =========================================================================
-        // 💬 ফ্লোটিং চ্যাট উইজেট
-        // =========================================================================
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         val shouldHideFloatingChat = (currentScreen is Screen.Player && isLandscape) ||
@@ -904,7 +922,6 @@ private fun MainAppContent(
             )
         }
 
-        // 🛡️ গ্যালারি স্ক্রিন চলাকালীন কোনো সোশ্যাল বার ব্যানার অ্যাড আসবে না
         if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.LocalGallery) {
             SocialBarAdOverlay(
                 isVip = isVip,
