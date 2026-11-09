@@ -61,7 +61,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -213,12 +212,12 @@ fun PlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // 🚀 ULTRA-FAST STARTUP ENGINE: কোনো কৃত্রিম ডিলে ছাড়া লাইভ প্লেব্যাক রেডি স্টেট
+    // 🚀 ULTRA-FAST STARTUP ENGINE: ডাবল-গার্ডেড রিয়েল-টাইম প্লেব্যাক স্টেট
     var isFirstFrameRendered by remember(episodeNumber, slug) {
-        mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying)
+        mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying || exoPlayer.currentPosition > 0L)
     }
     var hasCompletedStartup by remember(episodeNumber, slug) {
-        mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying)
+        mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying || exoPlayer.currentPosition > 0L)
     }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -317,7 +316,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // ⚡ REAL-TIME NETWORK & BUFFER METRICS (কোনো ফেক লুপ বা বিলম্ব ছাড়া)
     var realDownloadedBytes by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
     var realBitrateBps by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
 
@@ -332,8 +330,10 @@ fun PlayerVideoBox(
         }
     }
 
-    // প্লেয়ার প্রস্তুত হওয়ার সাথে সাথে তাৎক্ষণিক লোডিং ডিসমিস
-    val shouldShowLoadingScreen = !hasCompletedStartup && playbackErrorMessage == null
+    // 🚀 স্মার্ট লোডিং স্ক্রিন শর্ত: ভিডিও রেডি বা ১০০ms প্লে হওয়ামাত্রই পর্দা সরে যাবে
+    val isActuallyPlaying = isPlaying && currentPositionMs > 100L
+    val isPlayerReady = exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying
+    val shouldShowLoadingScreen = !hasCompletedStartup && !isActuallyPlaying && !isPlayerReady && playbackErrorMessage == null
 
     val watchPrefs = remember(slug) {
         context.getSharedPreferences("drama_last_seen_prefs", Context.MODE_PRIVATE)
@@ -486,7 +486,7 @@ fun PlayerVideoBox(
         for ((groupIndex, group) in tracks.groups.withIndex()) {
             val trackType = group.type
 
-            // ১. ভিডিও রেজোলিউশন ট্র্যাক ডিটেকশন
+            // ১. ভিডিও রেজোলিউশন ট্র্যাক
             if (trackType == C.TRACK_TYPE_VIDEO) {
                 for (i in 0 until group.length) {
                     val format = group.getTrackFormat(i)
@@ -539,7 +539,6 @@ fun PlayerVideoBox(
                         else -> sampleMime.substringAfterLast("/").uppercase()
                     }
 
-                    // ISO 639-1 / 639-2 অনুযায়ী ভাষার নাম নির্ধারণ
                     val resolvedLanguage = when {
                         format.label?.isNotBlank() == true -> format.label!!
                         lang != "und" && lang.isNotBlank() -> {
@@ -601,7 +600,6 @@ fun PlayerVideoBox(
                     val lang = format.language?.lowercase() ?: ""
                     val rawLabel = format.label ?: ""
 
-                    // ডামি CEA ট্র্যাক ফিল্টারিং
                     val isCeaDummy = (mime.contains("cea-608", true) || mime.contains("cea-708", true)) &&
                             rawLabel.isBlank() && (lang.isBlank() || lang == "und")
 
@@ -728,7 +726,6 @@ fun PlayerVideoBox(
     // =========================================================================
     fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
         if (subTrack == null) {
-            // সাবটাইটেল বন্ধ করা (Off)
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -806,16 +803,18 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // 🔄 LIFECYCLE & LISTENER REGISTRATION
+    // 🔄 LIFECYCLE & LISTENER REGISTRATION (Fixed Episode Re-bind)
     // =========================================================================
-    DisposableEffect(exoPlayer) {
+    DisposableEffect(exoPlayer, episodeNumber, slug) {
+        // নতুন এপিসোডে সুইচ করলেই অবিলম্বে এক্সিস্টিং ট্র্যাক্স এক্সট্রাক্ট করা
+        extractTracks(exoPlayer.currentTracks)
+
         val playerListener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 extractTracks(tracks)
             }
 
             override fun onRenderedFirstFrame() {
-                // 🚀 প্রথম ফ্রেম রেন্ডার হওয়ামাত্রই লোডিং শেষ
                 isFirstFrameRendered = true
                 hasCompletedStartup = true
                 isBuffering = false
@@ -832,7 +831,6 @@ fun PlayerVideoBox(
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
-                    // 🚀 প্লেয়ার রেডি হওয়ামাত্রই লোডিং পর্দা বন্ধ
                     isFirstFrameRendered = true
                     hasCompletedStartup = true
                     isBuffering = false
@@ -1255,7 +1253,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🚀 ULTRA-FAST BRAND STARTUP OVERLAY (প্রকৃত ফ্রেম লোড হওয়া পর্যন্ত থাকবে, কোনো ফেইক ডিলে ছাড়া)
+            // 🚀 ULTRA-FAST BRAND STARTUP OVERLAY (শুধুমাত্র ভিডিও প্রস্তুত না হওয়া পর্যন্ত দেখাবে)
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
                 enter = fadeIn(tween(100)),
