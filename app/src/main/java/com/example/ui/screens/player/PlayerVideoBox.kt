@@ -212,7 +212,7 @@ fun PlayerVideoBox(
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // 🚀 ULTRA-FAST STARTUP ENGINE: রিয়েল-টাইম প্লেব্যাক স্টেট ও ৩.৫ সেকেন্ডের সেফগার্ড
+    // 🚀 ULTRA-FAST STARTUP ENGINE
     var isFirstFrameRendered by remember(episodeNumber, slug) {
         mutableStateOf(exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying || exoPlayer.currentPosition > 0L)
     }
@@ -221,7 +221,6 @@ fun PlayerVideoBox(
     }
     var playbackErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // 🛡️ সেফগার্ড: কোনোভাবেই ৩.৫ সেকেন্ডের বেশি পর্দা আটকে থাকতে পারবে না
     LaunchedEffect(episodeNumber, slug) {
         delay(3500L)
         hasCompletedStartup = true
@@ -657,27 +656,23 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 সমাধান: সিঙ্গেল MP4 ও MKV ট্র্যাকের ওপর কোনো রেজোলিউশন ব্লক রাখা যাবে না!
+        // 🎯 ফিক্সড: ট্র্যাক সিলেকশন লুপ মুক্ত ও প্রগ্রেসিভ MP4/MKV রিলিজ
         // =========================================================================
         if (foundVideoTracks.size > 1) {
             hasMultipleQualities = true
             foundVideoTracks.sortByDescending { it.height }
             availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true)) + foundVideoTracks.distinctBy { it.label }
-        } else if (foundVideoTracks.size == 1) {
-            hasMultipleQualities = false
-            availableVideoTracks = foundVideoTracks
-            // সিঙ্গেল MP4/MKV ফাইলের জন্য সমস্ত সীমা অপসারণ
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .clearVideoSizeConstraints()
-                .build()
         } else {
             hasMultipleQualities = false
-            availableVideoTracks = listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .clearVideoSizeConstraints()
-                .build()
+            availableVideoTracks = if (foundVideoTracks.isNotEmpty()) foundVideoTracks else listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
+            
+            // অপ্রয়োজনীয় মিউটেশন বাদ দিয়ে শুধুমাত্র কনস্ট্রেইন্ট থাকলে ক্লিয়ার করা (লুপ প্রতিরোধ)
+            val currentParams = exoPlayer.trackSelectionParameters
+            if (currentParams.maxVideoWidth != Integer.MAX_VALUE || currentParams.maxVideoHeight != Integer.MAX_VALUE) {
+                exoPlayer.trackSelectionParameters = currentParams.buildUpon()
+                    .clearVideoSizeConstraints()
+                    .build()
+            }
         }
 
         // অডিও ট্র্যাকস সেভ
@@ -803,7 +798,7 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // 🔄 LIFECYCLE & LISTENER REGISTRATION (Fixed Episode Re-bind)
+    // 🔄 LIFECYCLE & LISTENER REGISTRATION
     // =========================================================================
     DisposableEffect(exoPlayer, episodeNumber, slug) {
         extractTracks(exoPlayer.currentTracks)
@@ -859,10 +854,13 @@ fun PlayerVideoBox(
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
                     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
                         "Video server is currently down or file unavailable."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ->
+                        "Corrupted or unsupported media container format."
                     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     PlaybackException.ERROR_CODE_DECODING_FAILED ->
-                        "Device decoder failed to play this media format. Switching to fallback decoder..."
-                    else -> "Playback error occurred. Please try again."
+                        "Hardware decoder failed to decode track. Tap 'Try Again' to retry with software decoder."
+                    else -> "Playback error: ${error.message ?: "Unknown error"}"
                 }
             }
         }
@@ -1203,7 +1201,7 @@ fun PlayerVideoBox(
                 )
             }
 
-            // চিহ্নিত অংশে স্লিম ছোট লাইভ কাউন্টার
+            // লাইভ কাউন্টার ব্যাজ
             if (pendingAdClicks > 0 && activeInPlayerCustomAd == null) {
                 val badgeText = if (pendingAdClicks > 1) {
                     "Sponsor Ad: $pendingAdClicks Clicks Left"
@@ -1252,7 +1250,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🚀 ULTRA-FAST BRAND STARTUP OVERLAY (শুধুমাত্র ভিডিও প্রস্তুত না হওয়া পর্যন্ত দেখাবে)
+            // 🚀 ULTRA-FAST BRAND STARTUP OVERLAY
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
                 enter = fadeIn(tween(100)),
@@ -1390,6 +1388,14 @@ fun PlayerVideoBox(
                                         playbackErrorMessage = null
                                         isFirstFrameRendered = false
                                         hasCompletedStartup = false
+                                        
+                                        // ট্র্যাক ওভাররাইড ক্লিয়ার করে ফ্রেশ স্টেটসে ট্রাই করা
+                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                            .buildUpon()
+                                            .clearVideoSizeConstraints()
+                                            .clearOverrides()
+                                            .build()
+
                                         onRetryPlayback?.invoke() ?: run {
                                             exoPlayer.prepare()
                                             exoPlayer.play()
@@ -1551,7 +1557,7 @@ fun PlayerVideoBox(
                 )
             }
 
-            // সাইড ড্রয়ার উইডথ ও কন্টেইনার
+            // সাইড ড্রয়ার
             val targetDrawerWidth = remember(sideDrawerType, isDeviceLandscape) {
                 if (sideDrawerType == "playlist" || sideDrawerType == "download") {
                     if (isDeviceLandscape) 295.dp else 260.dp
@@ -1569,7 +1575,7 @@ fun PlayerVideoBox(
                 exit = slideOutHorizontally(
                     targetOffsetX = { fullWidth -> fullWidth },
                     animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
-                ) + fadeOut(animationSpec = tween(180)),
+                ) + fadeOut(animationSpec = tween(200)),
                 modifier = Modifier.align(Alignment.CenterEnd)
             ) {
                 Box(
