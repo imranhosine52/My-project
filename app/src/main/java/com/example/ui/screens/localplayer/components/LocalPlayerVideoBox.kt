@@ -52,14 +52,15 @@ import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.data.model.AdvancedAudioTrackInfo
+import com.example.data.model.AdvancedSubtitleTrackInfo
 import com.example.data.model.LocalVideoItem
-import com.example.ui.screens.player.RealAudioTrack
-import com.example.ui.screens.player.RealSubtitleTrack
 import com.example.ui.screens.player.components.PlayerGesturesOverlay
 import com.example.ui.screens.player.components.PlayerSpeedDrawer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -70,6 +71,70 @@ private fun findActivity(context: Context): Activity? {
         ctx = ctx.baseContext
     }
     return null
+}
+
+/**
+ * 🌍 ISO 639-1 / 639-2 ল্যাঙ্গুয়েজ কোড থেকে পরিচ্ছন্ন নাম নির্ণায়ক
+ */
+private fun resolveLanguageDisplayName(langCode: String?, label: String?): String {
+    val cleanLabel = label?.trim() ?: ""
+    if (cleanLabel.isNotBlank() && !cleanLabel.equals("und", true) && !cleanLabel.equals("unknown", true)) {
+        return cleanLabel
+    }
+    val code = langCode?.trim()?.lowercase() ?: ""
+    return when {
+        code in listOf("hi", "hin") -> "Hindi"
+        code in listOf("bn", "ben") -> "Bengali"
+        code in listOf("en", "eng") -> "English"
+        code in listOf("zh", "zho", "chi") -> "Chinese"
+        code in listOf("ja", "jpn") -> "Japanese"
+        code in listOf("ko", "kor") -> "Korean"
+        code in listOf("ta", "tam") -> "Tamil"
+        code in listOf("te", "tel") -> "Telugu"
+        code in listOf("ur", "urd") -> "Urdu"
+        code in listOf("es", "spa") -> "Spanish"
+        code in listOf("fr", "fra", "fre") -> "French"
+        code in listOf("de", "deu", "ger") -> "German"
+        code in listOf("ru", "rus") -> "Russian"
+        code in listOf("ar", "ara") -> "Arabic"
+        code in listOf("pt", "por") -> "Portuguese"
+        code in listOf("it", "ita") -> "Italian"
+        code in listOf("tr", "tur") -> "Turkish"
+        code.isNotBlank() -> Locale(code).displayLanguage.takeIf { it.isNotBlank() } ?: code.uppercase()
+        else -> "Audio"
+    }
+}
+
+/**
+ * 🔊 অডিও চ্যানেল কনফিগারেশন নির্ণায়ক (Mono, Stereo 2.0, 5.1 Surround)
+ */
+private fun resolveAudioChannelLayout(channels: Int): String {
+    return when (channels) {
+        1 -> "Mono"
+        2 -> "Stereo 2.0"
+        6 -> "5.1 Surround"
+        8 -> "7.1 Surround"
+        else -> if (channels > 2) "$channels Channels" else "Stereo"
+    }
+}
+
+/**
+ * 🏷️ অডিও কোডেক নির্ণায়ক (AAC, AC3, EAC3, MP3)
+ */
+private fun resolveAudioCodecFormat(mimeType: String?): String {
+    return when {
+        mimeType == null -> "Audio"
+        mimeType.contains("eac3", true) -> "E-AC3"
+        mimeType.contains("ac3", true) -> "AC3"
+        mimeType.contains("aac", true) -> "AAC"
+        mimeType.contains("mp4a", true) -> "AAC"
+        mimeType.contains("mpeg", true) || mimeType.contains("mp3", true) -> "MP3"
+        mimeType.contains("opus", true) -> "OPUS"
+        mimeType.contains("vorbis", true) -> "VORBIS"
+        mimeType.contains("dts", true) -> "DTS"
+        mimeType.contains("flac", true) -> "FLAC"
+        else -> mimeType.substringAfterLast("/").substringAfterLast("-").uppercase()
+    }
 }
 
 @Composable
@@ -103,31 +168,27 @@ fun LocalPlayerVideoBox(
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
-    // 🎵 অডিও ট্র্যাক স্টেট
-    var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
+    // =========================================================================
+    // 🎧 Phase 4: মাল্টি-অডিও ট্র্যাক স্টেট
+    // =========================================================================
+    var availableAudioTracks by remember { mutableStateOf<List<AdvancedAudioTrackInfo>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
+    var currentAudioLabel by rememberSaveable(currentVideo.id) { mutableStateOf("Audio") }
 
-    val defaultAudioGuess = remember(currentVideo.title, currentVideo.path) {
-        when {
-            currentVideo.title.contains("hin", true) || currentVideo.path.contains("hin", true) -> "Hindi"
-            currentVideo.title.contains("bangla", true) || currentVideo.title.contains("ben", true) -> "Bengali"
-            currentVideo.title.contains("eng", true) || currentVideo.path.contains("eng", true) -> "English"
-            currentVideo.title.contains("kor", true) || currentVideo.path.contains("kor", true) -> "Korean"
-            else -> "Audio"
-        }
-    }
-    var currentAudioLabel by rememberSaveable(currentVideo.id) { mutableStateOf(defaultAudioGuess) }
-
-    // 💬 সাবটাইটেল ট্র্যাক স্টেট
-    var availableSubtitleTracks by remember { mutableStateOf<List<RealSubtitleTrack>>(emptyList()) }
+    // =========================================================================
+    // 💬 Phase 5: মাল্টি-সাবটাইটেল ট্র্যাক স্টেট
+    // =========================================================================
+    var availableSubtitleTracks by remember { mutableStateOf<List<AdvancedSubtitleTrackInfo>>(emptyList()) }
     var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
     var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
+    var currentSubtitleDelayMs by rememberSaveable { mutableLongStateOf(0L) }
+    var currentSubtitleSizeScale by rememberSaveable { mutableFloatStateOf(1.0f) }
 
     var isMuted by remember { mutableStateOf(false) }
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // ড্রয়ার স্টেট
+    // ড্রয়ার টাইপ: "none", "audio", "subtitles", "speed", "playlist"
     var sideDrawerType by remember { mutableStateOf("none") }
     val showSideDrawer = (sideDrawerType != "none")
 
@@ -161,98 +222,97 @@ fun LocalPlayerVideoBox(
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 ExoPlayer থেকে মাল্টি-অডিও ও সাবটাইটেল ট্র্যাকিং
+    // 🎧 ExoPlayer থেকে সমস্ত অডিও ও সাবটাইটেল ট্র্যাক নিখুঁতভাবে এক্সট্র্যাক্ট করা
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
-        val foundAudioTracks = mutableListOf<RealAudioTrack>()
-        val foundSubtitleTracks = mutableListOf<RealSubtitleTrack>()
+        val foundAudioTracks = mutableListOf<AdvancedAudioTrackInfo>()
+        val foundSubtitleTracks = mutableListOf<AdvancedSubtitleTrackInfo>()
 
         for ((groupIndex, group) in tracks.groups.withIndex()) {
             if (group.type == C.TRACK_TYPE_AUDIO) {
                 for (i in 0 until group.length) {
-                    if (group.isTrackSupported(i)) {
-                        val format = group.getTrackFormat(i)
-                        val lang = format.language?.lowercase() ?: ""
-                        val label = format.label?.lowercase() ?: ""
-                        val isSelected = group.isTrackSelected(i)
+                    val format = group.getTrackFormat(i)
+                    val lang = format.language?.lowercase() ?: ""
+                    val isSelected = group.isTrackSelected(i)
 
-                        val readableLabel = when {
-                            label.contains("hindi") || lang.contains("hi") || lang == "hin" -> "Hindi"
-                            label.contains("bangla") || label.contains("bengali") || lang.contains("bn") || lang == "ben" -> "Bengali"
-                            label.contains("english") || lang.contains("en") || lang == "eng" -> "English"
-                            label.contains("tamil") || lang.contains("ta") || lang == "tam" -> "Tamil"
-                            label.contains("telugu") || lang.contains("te") || lang == "tel" -> "Telugu"
-                            label.contains("korean") || lang.contains("ko") || lang == "kor" -> "Korean"
-                            label.contains("japanese") || lang.contains("ja") || lang == "jpn" -> "Japanese"
-                            !format.label.isNullOrBlank() -> format.label!!.trim()
-                            defaultAudioGuess != "Audio" -> defaultAudioGuess
-                            else -> "Audio ${foundAudioTracks.size + 1}"
-                        }
+                    val readableName = resolveLanguageDisplayName(lang, format.label)
+                    val channelInfo = resolveAudioChannelLayout(format.channelCount)
+                    val codecName = resolveAudioCodecFormat(format.sampleMimeType)
 
-                        val trackId = "${groupIndex}_$i"
-                        if (isSelected) {
-                            selectedAudioTrackId = trackId
-                            currentAudioLabel = readableLabel
-                        }
-
-                        foundAudioTracks.add(
-                            RealAudioTrack(
-                                id = trackId,
-                                language = lang.ifBlank { "und" },
-                                label = readableLabel,
-                                groupIndex = groupIndex,
-                                trackIndex = i,
-                                isSelected = isSelected
-                            )
-                        )
+                    val trackId = "${groupIndex}_$i"
+                    if (isSelected) {
+                        selectedAudioTrackId = trackId
+                        currentAudioLabel = readableName
                     }
+
+                    foundAudioTracks.add(
+                        AdvancedAudioTrackInfo(
+                            id = trackId,
+                            languageCode = lang.ifBlank { "und" },
+                            displayName = if (foundAudioTracks.any { it.displayName == readableName }) {
+                                "$readableName (${foundAudioTracks.size + 1})"
+                            } else readableName,
+                            channelInfo = channelInfo,
+                            codec = codecName,
+                            bitRate = format.bitrate,
+                            groupIndex = groupIndex,
+                            trackIndex = i,
+                            isSelected = isSelected
+                        )
+                    )
                 }
             } else if (group.type == C.TRACK_TYPE_TEXT) {
                 for (i in 0 until group.length) {
-                    if (group.isTrackSupported(i)) {
-                        val format = group.getTrackFormat(i)
-                        val lang = format.language?.lowercase() ?: ""
-                        val label = format.label ?: ""
+                    val format = group.getTrackFormat(i)
+                    val lang = format.language?.lowercase() ?: ""
+                    val isSelected = group.isTrackSelected(i)
 
-                        val readableLabel = when {
-                            lang.contains("bn") || label.contains("bangla", true) -> "Bangla Subtitle"
-                            lang.contains("en") || label.contains("english", true) -> "English Subtitle"
-                            lang.contains("hi") || label.contains("hindi", true) -> "Hindi Subtitle"
-                            else -> label.ifBlank { "Subtitle ${foundSubtitleTracks.size + 1}" }
-                        }
-
-                        val trackId = "sub_${groupIndex}_$i"
-                        val isSelected = group.isTrackSelected(i)
-                        if (isSelected) {
-                            selectedSubtitleTrackId = trackId
-                            currentSubtitleLabel = "CC"
-                        }
-
-                        foundSubtitleTracks.add(
-                            RealSubtitleTrack(
-                                id = trackId,
-                                language = lang,
-                                label = readableLabel,
-                                groupIndex = groupIndex,
-                                trackIndex = i,
-                                isSelected = isSelected
-                            )
-                        )
+                    val readableName = when {
+                        !format.label.isNullOrBlank() -> format.label!!.trim()
+                        lang in listOf("bn", "ben") -> "Bangla Subtitle"
+                        lang in listOf("en", "eng") -> "English Subtitle"
+                        lang in listOf("hi", "hin") -> "Hindi Subtitle"
+                        lang in listOf("zh", "zho", "chi") -> "Chinese Subtitle"
+                        lang in listOf("ja", "jpn") -> "Japanese Subtitle"
+                        lang in listOf("ko", "kor") -> "Korean Subtitle"
+                        lang.isNotBlank() -> "${Locale(lang).displayLanguage} Subtitle"
+                        else -> "Subtitle ${foundSubtitleTracks.size + 1}"
                     }
+
+                    val trackId = "sub_${groupIndex}_$i"
+                    if (isSelected) {
+                        selectedSubtitleTrackId = trackId
+                        currentSubtitleLabel = "CC"
+                    }
+
+                    foundSubtitleTracks.add(
+                        AdvancedSubtitleTrackInfo(
+                            id = trackId,
+                            languageCode = lang.ifBlank { "und" },
+                            displayName = readableName,
+                            isExternal = false,
+                            groupIndex = groupIndex,
+                            trackIndex = i,
+                            isSelected = isSelected
+                        )
+                    )
                 }
             }
         }
 
-        availableAudioTracks = foundAudioTracks.distinctBy { it.label }
-        availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
-        if (availableAudioTracks.isNotEmpty() && selectedAudioTrackId == "default") {
-            currentAudioLabel = availableAudioTracks.first().label
+        availableAudioTracks = foundAudioTracks
+        availableSubtitleTracks = foundSubtitleTracks
+        if (availableAudioTracks.isNotEmpty() && (selectedAudioTrackId == "default" || currentAudioLabel == "Audio")) {
+            currentAudioLabel = availableAudioTracks.first().displayName
         }
     }
 
-    fun applyAudioTrack(track: RealAudioTrack) {
+    // =========================================================================
+    // 🔀 প্লেব্যাক না থামিয়ে অডিও ট্র্যাক পরিবর্তন (Seamless Switching)
+    // =========================================================================
+    fun applyAudioTrack(track: AdvancedAudioTrackInfo) {
         selectedAudioTrackId = track.id
-        currentAudioLabel = track.label
+        currentAudioLabel = track.displayName
 
         val currentTracks = exoPlayer.currentTracks
         val targetGroup = currentTracks.groups.getOrNull(track.groupIndex)
@@ -262,11 +322,14 @@ fun LocalPlayerVideoBox(
                 .buildUpon()
                 .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, track.trackIndex))
                 .build()
+            Toast.makeText(context, "Audio: ${track.displayName} (${track.channelInfo})", Toast.LENGTH_SHORT).show()
         }
-        Toast.makeText(context, "Audio: ${track.label}", Toast.LENGTH_SHORT).show()
     }
 
-    fun applySubtitleTrack(subTrack: RealSubtitleTrack?) {
+    // =========================================================================
+    // 💬 প্লেব্যাক না থামিয়ে সাবটাইটেল পরিবর্তন (Seamless Subtitle Switching)
+    // =========================================================================
+    fun applySubtitleTrack(subTrack: AdvancedSubtitleTrackInfo?) {
         if (subTrack == null) {
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
@@ -287,17 +350,27 @@ fun LocalPlayerVideoBox(
                     .build()
                 selectedSubtitleTrackId = subTrack.id
                 currentSubtitleLabel = "CC"
-                Toast.makeText(context, "Subtitle: ${subTrack.label}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Subtitle: ${subTrack.displayName}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
+    // =========================================================================
+    // 📁 এক্সটার্নাল সাবটাইটেল (.srt, .vtt) লোডিং ইঞ্জিন
+    // =========================================================================
     fun loadExternalSubtitleFile(uri: Uri) {
         try {
-            val mimeType = if (uri.toString().endsWith(".vtt", true)) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP
+            val uriStr = uri.toString().lowercase()
+            val mimeType = when {
+                uriStr.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+                uriStr.endsWith(".ass") || uriStr.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+                else -> MimeTypes.APPLICATION_SUBRIP
+            }
+
             val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(uri)
                 .setMimeType(mimeType)
-                .setLanguage("en")
+                .setLanguage("und")
+                .setLabel("External Subtitle")
                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                 .build()
 
@@ -311,6 +384,7 @@ fun LocalPlayerVideoBox(
                 exoPlayer.setMediaItem(updatedItem, currentPos)
                 exoPlayer.prepare()
                 if (isCurrentlyPlaying) exoPlayer.play()
+                Toast.makeText(context, "External subtitle loaded!", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Toast.makeText(context, "Cannot load subtitle: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -366,7 +440,7 @@ fun LocalPlayerVideoBox(
             .fillMaxSize()
             .background(Color.Black)
             // =============================================================
-            // 👆 সোয়াইপ জেসচার
+            // 👆 সোয়াইপ জেসচার (আগের ডিজাইন ১০০% বজায় রাখা হয়েছে)
             // =============================================================
             .pointerInput(isScreenLocked, isLandscape, showSideDrawer) {
                 if (isScreenLocked || showSideDrawer) return@pointerInput
@@ -425,7 +499,6 @@ fun LocalPlayerVideoBox(
                             totalDragY += dragY
                             totalDragX += dragX
 
-                            // ফুলস্ক্রিনে প্রান্ত থেকে সোয়াইপ করে প্লেলিস্ট ড্রয়ার ওপেন করা
                             if (isLandscape && !isVerticalDragging && (isNearRightEdge && totalDragX < -touchSlop || isNearLeftEdge && totalDragX > touchSlop)) {
                                 isEdgeSwipingPlaylist = true
                             }
@@ -478,7 +551,6 @@ fun LocalPlayerVideoBox(
                 }
             }
             .pointerInput(isScreenLocked, showSideDrawer, isUserSeeking) {
-                // 🔥 লক থাকা অবস্থায় টাচ করলে যেন আনলক বাটন ছাড়া অন্য কোনো জেসচার কাজ না করে
                 if (isScreenLocked) {
                     detectTapGestures(
                         onTap = {
@@ -558,7 +630,7 @@ fun LocalPlayerVideoBox(
                 )
         )
 
-        // ২. জেসচার ওভারলে
+        // ২. জেসচার ওভারলে (ভলিউম, ব্রাইটনেস, ২X স্পিড)
         PlayerGesturesOverlay(
             is2xActive = is2xActive,
             isHorizontalScrubbing = isHorizontalScrubbing,
@@ -626,7 +698,6 @@ fun LocalPlayerVideoBox(
                 isMuted = !isMuted
                 exoPlayer.volume = if (isMuted) 0f else 1f
             },
-            // 🔥 ১০০% ফিক্সড স্ক্রিন লক ও আনলক টগল লজিক
             onLockToggle = {
                 if (isScreenLocked) {
                     isScreenLocked = false
@@ -655,7 +726,7 @@ fun LocalPlayerVideoBox(
         )
 
         // =============================================================
-        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ
+        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (অডিও, সাবটাইটেল, স্পিড, প্লেলিস্ট)
         // =============================================================
         AnimatedVisibility(
             visible = showSideDrawer,
@@ -672,7 +743,7 @@ fun LocalPlayerVideoBox(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(if (sideDrawerType == "playlist") 285.dp else 195.dp)
+                    .width(if (sideDrawerType == "playlist") 285.dp else 240.dp)
                     .background(
                         Brush.horizontalGradient(
                             listOf(
@@ -710,6 +781,14 @@ fun LocalPlayerVideoBox(
                             onExternalSubtitleLoaded = { uri ->
                                 loadExternalSubtitleFile(uri)
                                 sideDrawerType = "none"
+                            },
+                            currentSubtitleDelayMs = currentSubtitleDelayMs,
+                            onSubtitleDelayChanged = { delayMs ->
+                                currentSubtitleDelayMs = delayMs
+                            },
+                            currentTextSizeScale = currentSubtitleSizeScale,
+                            onSubtitleSizeScaleChanged = { scale ->
+                                currentSubtitleSizeScale = scale
                             },
                             onClose = { sideDrawerType = "none" }
                         )
