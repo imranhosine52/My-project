@@ -4,15 +4,25 @@ import android.net.Uri
 import java.util.Locale
 
 /**
- * 🎬 Gallery Tab Sections
- * Only functional, active sections are included.
+ * 🎬 Gallery Primary Sections
+ * বাম পাশে Folders (ডিফল্ট) এবং ডান পাশে Videos, Music, Images, Files
  */
-enum class GallerySection(val displayName: String, val iconName: String) {
-    ALL_VIDEOS(displayName = "All Videos", iconName = "video_library"),
-    FOLDERS(displayName = "Folders", iconName = "folder"),
-    RECENTLY_ADDED(displayName = "Recently Added", iconName = "new_releases"),
-    DOWNLOADS(displayName = "Downloads", iconName = "download"),
-    FAVORITES(displayName = "Favorites", iconName = "star")
+enum class GallerySection(val displayName: String, val id: String) {
+    FOLDERS(displayName = "Folders", id = "folders"),
+    VIDEOS(displayName = "Videos", id = "videos"),
+    MUSIC(displayName = "Music", id = "music"),
+    IMAGES(displayName = "Images", id = "images"),
+    FILES(displayName = "Files", id = "files")
+}
+
+/**
+ * 📁 মিডিয়া ক্যাটাগরি ফিল্টার (Folders ভিউ চলাকালীন কোন টাইপের ফোল্ডার দেখানো হবে)
+ */
+enum class GalleryCategoryType(val label: String, val id: String) {
+    VIDEOS("Videos", "videos"),
+    MUSIC("Music", "music"),
+    IMAGES("Images", "images"),
+    FILES("Files", "files")
 }
 
 /**
@@ -150,6 +160,63 @@ data class TrashedVideoMetadata(
             return (30 - elapsedDays).coerceAtLeast(0)
         }
 }
+
+/**
+ * 📺 Player Aspect Ratio Modes (MX Player Style)
+ */
+enum class AspectRatioMode(val label: String, val iconResName: String) {
+    FIT_TO_SCREEN("Fit to Screen", "fit_screen"),
+    STRETCH("Stretch", "open_in_full"),
+    CROP_FILL("Crop / Zoom", "crop"),
+    RATIO_16_9("16:9", "aspect_ratio"),
+    RATIO_4_3("4:3", "aspect_ratio"),
+    ORIGINAL("100% Original", "zoom_in")
+}
+
+/**
+ * 🎧 Multi-Audio Track Information
+ */
+data class AdvancedAudioTrackInfo(
+    val id: String,
+    val languageCode: String,
+    val displayName: String,
+    val channelInfo: String, // e.g. "Stereo (2.0)", "Surround 5.1"
+    val codec: String,       // e.g. "AAC", "AC3", "EAC3", "MP3"
+    val bitRate: Int = 0,
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val isSelected: Boolean = false
+)
+
+/**
+ * 💬 Multi-Subtitle Track Information
+ */
+data class AdvancedSubtitleTrackInfo(
+    val id: String,
+    val languageCode: String,
+    val displayName: String,
+    val isExternal: Boolean = false,
+    val fileUri: Uri? = null,
+    val groupIndex: Int = -1,
+    val trackIndex: Int = -1,
+    val isSelected: Boolean = false
+)
+
+/**
+ * ℹ️ Video Detailed Media Information
+ */
+data class VideoMediaDetails(
+    val title: String,
+    val fileName: String,
+    val path: String,
+    val sizeText: String,
+    val durationText: String,
+    val resolutionText: String,
+    val videoCodec: String,
+    val audioCodec: String,
+    val audioChannels: String,
+    val containerFormat: String
+)
 
 /**
  * 🏷️ UI Video Badge Helper
