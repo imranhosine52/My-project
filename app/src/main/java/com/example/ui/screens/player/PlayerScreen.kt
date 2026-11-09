@@ -36,7 +36,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,10 +53,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -108,6 +112,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.math.roundToInt
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -172,9 +177,6 @@ fun PlayerScreen(
             (authState.userProfile?.plan?.lowercase() == "vip") ||
             (authState.userProfile?.plan?.lowercase() == "premium")
 
-    // =========================================================================
-    // 🎯 ২ নম্বর ছবির হুবহু স্লাইডিং পেজার স্টেট (Page 0: For you, Page 1: Comments)
-    // =========================================================================
     val tabPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
@@ -182,6 +184,40 @@ fun PlayerScreen(
 
     var activeUnlockedEpisodeNumber by rememberSaveable(slug) { mutableStateOf<Int?>(null) }
     var currentClickStep by rememberSaveable(slug) { mutableIntStateOf(1) }
+
+    // =========================================================================
+    // 📌 কোলাপ্সিবল হেডার ও স্টিকি ট্যাব বার (Sticky Header on Scroll)
+    // =========================================================================
+    var headerHeightPx by remember { mutableFloatStateOf(0f) }
+    var headerOffsetPx by remember { mutableFloatStateOf(0f) }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < 0 && headerHeightPx > 0f) {
+                    val oldOffset = headerOffsetPx
+                    val newOffset = (oldOffset + delta).coerceIn(-headerHeightPx, 0f)
+                    headerOffsetPx = newOffset
+                    val consumed = newOffset - oldOffset
+                    return Offset(0f, consumed)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta > 0 && headerHeightPx > 0f) {
+                    val oldOffset = headerOffsetPx
+                    val newOffset = (oldOffset + delta).coerceIn(-headerHeightPx, 0f)
+                    headerOffsetPx = newOffset
+                    val consumedY = newOffset - oldOffset
+                    return Offset(0f, consumedY)
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     fun handleBackNavigation() {
         when {
@@ -976,68 +1012,99 @@ fun PlayerScreen(
                     }
                 }
 
-                // =========================================================================
-                // 🔄 Portrait Mode: Header, Episodes & Smooth Swipeable Tabs (For you & Comments)
-                // =========================================================================
+                // =============================================================
+                // 🔄 Portrait Mode: Collapsible Header & Sticky Tabs Pager
+                // =============================================================
                 if (!isAnyFullscreen) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .background(Color(0xFF0C0F15))
+                            .nestedScroll(nestedScrollConnection)
                     ) {
-                        // ১. হেডার সেকশন (১ নম্বর ছবির প্রিভ/নেক্সট আইকন ও টাইটেল সহ)
-                        PlayerHeaderSection(
-                            content = content,
-                            shortTitle = cleanShortTitle,
-                            viewsCount = if (isCurrentDramaLoaded) playerState.viewsCount else content.viewsCount,
-                            likesCount = if (isCurrentDramaLoaded) playerState.likesCount.toLong() else 0L,
-                            isLiked = isCurrentDramaLoaded && playerState.isLiked,
-                            isInWatchlist = playerState.isInWatchlist,
-                            isDescriptionExpanded = isDescriptionExpanded,
-                            myReaction = if (isCurrentDramaLoaded) playerState.myReaction else null,
-                            reactions = if (isCurrentDramaLoaded) playerState.reactions else emptyMap(),
-                            onPreviousClick = {
-                                val currentNum = currentEp?.episodeNumber ?: 1
-                                val prevEp = effectiveEpisodes.find { it.episodeNumber == currentNum - 1 }
-                                if (prevEp != null) switchEpisodeWithRelock(prevEp)
-                            },
-                            onNextClick = {
-                                val currentNum = currentEp?.episodeNumber ?: 1
-                                val nextEp = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
-                                if (nextEp != null) switchEpisodeWithRelock(nextEp)
-                            },
-                            onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
-                            onLikeClick = { viewModel.toggleLikeDrama() },
-                            onWatchlistClick = {
-                                if (!isUserLoggedIn) showAuthSheet = true
-                                else viewModel.toggleWatchlist()
-                            },
-                            onToggleReaction = { reactionKey -> viewModel.toggleReaction(reactionKey) },
-                            onReplyClick = {
-                                coroutineScope.launch {
-                                    tabPagerState.animateScrollToPage(
-                                        page = 1,
-                                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                                    )
+                        // =============================================================
+                        // 🔼 স্ক্রোল করলে উপরে উঠে যাওয়ার অংশ (Title, Header & Episodes)
+                        // =============================================================
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coords ->
+                                    if (coords.size.height > 0 && headerHeightPx == 0f) {
+                                        headerHeightPx = coords.size.height.toFloat()
+                                    }
                                 }
-                            },
-                            onForwardClick = { shareCurrentDrama() },
-                            onSwipeDownFullscreen = {
-                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                .layout { measurable, constraints ->
+                                    val placeable = measurable.measure(constraints)
+                                    if (headerHeightPx == 0f) {
+                                        headerHeightPx = placeable.height.toFloat()
+                                    }
+                                    val currentHeight = (placeable.height + headerOffsetPx)
+                                        .roundToInt()
+                                        .coerceIn(0, placeable.height)
+                                    layout(placeable.width, currentHeight) {
+                                        placeable.placeRelative(0, headerOffsetPx.roundToInt())
+                                    }
+                                }
+                                .clipToBounds()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                // ১. হেডার সেকশন (১ নম্বর ছবির প্রিভ/নেক্সট এবং টাইটেল নিচে টেনে ফুলস্ক্রিন সহ)
+                                PlayerHeaderSection(
+                                    content = content,
+                                    shortTitle = cleanShortTitle,
+                                    viewsCount = if (isCurrentDramaLoaded) playerState.viewsCount else content.viewsCount,
+                                    likesCount = if (isCurrentDramaLoaded) playerState.likesCount.toLong() else 0L,
+                                    isLiked = isCurrentDramaLoaded && playerState.isLiked,
+                                    isInWatchlist = playerState.isInWatchlist,
+                                    isDescriptionExpanded = isDescriptionExpanded,
+                                    myReaction = if (isCurrentDramaLoaded) playerState.myReaction else null,
+                                    reactions = if (isCurrentDramaLoaded) playerState.reactions else emptyMap(),
+                                    onPreviousClick = {
+                                        val currentNum = currentEp?.episodeNumber ?: 1
+                                        val prevEp = effectiveEpisodes.find { it.episodeNumber == currentNum - 1 }
+                                        if (prevEp != null) switchEpisodeWithRelock(prevEp)
+                                    },
+                                    onNextClick = {
+                                        val currentNum = currentEp?.episodeNumber ?: 1
+                                        val nextEp = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
+                                        if (nextEp != null) switchEpisodeWithRelock(nextEp)
+                                    },
+                                    onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
+                                    onLikeClick = { viewModel.toggleLikeDrama() },
+                                    onWatchlistClick = {
+                                        if (!isUserLoggedIn) showAuthSheet = true
+                                        else viewModel.toggleWatchlist()
+                                    },
+                                    onToggleReaction = { reactionKey -> viewModel.toggleReaction(reactionKey) },
+                                    onReplyClick = {
+                                        coroutineScope.launch {
+                                            tabPagerState.animateScrollToPage(
+                                                page = 1,
+                                                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                                            )
+                                        }
+                                    },
+                                    onForwardClick = { shareCurrentDrama() },
+                                    onSwipeDownFullscreen = {
+                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                    }
+                                )
+
+                                // ২. এপিসোড রো
+                                PlayerEpisodesRow(
+                                    episodes = effectiveEpisodes,
+                                    currentEpNumber = currentEp?.episodeNumber ?: 1,
+                                    shouldLockEpisodes = shouldLockEpisodes,
+                                    onAllClick = { showAllEpisodesSheet = true },
+                                    onEpisodeSelect = { ep -> switchEpisodeWithRelock(ep) }
+                                )
                             }
-                        )
+                        }
 
-                        // ২. এপিসোড রো
-                        PlayerEpisodesRow(
-                            episodes = effectiveEpisodes,
-                            currentEpNumber = currentEp?.episodeNumber ?: 1,
-                            shouldLockEpisodes = shouldLockEpisodes,
-                            onAllClick = { showAllEpisodesSheet = true },
-                            onEpisodeSelect = { ep -> switchEpisodeWithRelock(ep) }
-                        )
-
-                        // ৩. ২ নম্বর ছবির হুবহু ট্যাব বার [ For you ]  [ Comments(99+) ]
+                        // =============================================================
+                        // 📌 একদম টপে পিন (Sticky Header) হয়ে থাকা ট্যাব বার
+                        // =============================================================
                         PlayerTabsHeader(
                             selectedTabIndex = tabPagerState.currentPage,
                             commentsCount = if (isCurrentDramaLoaded) persistentDramaComments.size else 0,
@@ -1056,9 +1123,9 @@ fun PlayerScreen(
 
                         HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.8.dp)
 
-                        // =========================================================================
-                        // ↔️ ৪. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
-                        // =========================================================================
+                        // =============================================================
+                        // ↔️ সোয়াইপযোগ্য পেজার (Page 0: For you, Page 1: Comments)
+                        // =============================================================
                         HorizontalPager(
                             state = tabPagerState,
                             modifier = Modifier
@@ -1230,7 +1297,7 @@ fun PlayerScreen(
                                                 }
                                             }
 
-                                            // কমেন্ট ইনপুট বার
+                                            // ইনলাইন কমেন্ট ইনপুট
                                             PlayerInlineCommentInput(
                                                 userInitials = userInitials,
                                                 currentUserAvatar = currentUserAvatar,
@@ -1282,7 +1349,7 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🪟 মডাল ও বটম শিটসমূহ
+        // 🪟 মডাল ও শিটসমূহ
         // =========================================================================
 
         if (showAllEpisodesSheet) {
