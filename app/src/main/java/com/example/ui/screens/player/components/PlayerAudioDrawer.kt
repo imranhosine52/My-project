@@ -13,11 +13,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-// 🎯 ফিক্সড: মেইন মডেল থেকে ইমপোর্ট করা হলো
 import com.example.ui.screens.player.RealAudioTrack
 
 /**
- * 🎵 প্লেয়ার অডিও ল্যাঙ্গুয়েজ সিলেকশন সাইড ড্রয়ার
+ * 🎵 প্লেয়ার মাল্টি-অডিও ট্র্যাক সিলেকশন সাইড ড্রয়ার
+ * MP4 ও MKV-এর Multiple Audio Channels, Language, Codec এবং ডিফল্ট ট্র্যাক সাপোর্ট করে।
  */
 @Composable
 fun PlayerAudioDrawer(
@@ -54,19 +54,97 @@ fun PlayerAudioDrawer(
             }
         }
 
-        // ২. অডিও ভাষার তালিকা
-        items(availableAudioTracks) { audioTrack ->
-            val isSelected = (selectedAudioTrackId == audioTrack.id)
+        // ২. যদি কোনো অতিরিক্ত অডিও ট্র্যাক না থাকে
+        if (availableAudioTracks.isEmpty()) {
+            item {
+                Text(
+                    text = "Default Audio",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp)
+                )
+            }
+        } else {
+            // ৩. অ্যাডভান্সড অডিও ভাষার তালিকা
+            items(
+                items = availableAudioTracks,
+                key = { it.id }
+            ) { audioTrack ->
+                val isSelected = (selectedAudioTrackId == audioTrack.id)
+                val isSupported = audioTrack.isSupported
 
-            Text(
-                text = audioTrack.label,
-                color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                fontSize = 13.5.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                modifier = Modifier
-                    .clickable { onSelectAudioTrack(audioTrack) }
-                    .padding(vertical = 4.dp, horizontal = 2.dp)
-            )
+                // চ্যানেল ও কোডেক ইনফরমেশন স্ট্রিং তৈরি
+                val detailsText = buildString {
+                    if (audioTrack.channelInfo.isNotBlank()) {
+                        append(audioTrack.channelInfo)
+                    } else if (audioTrack.channelCount > 2) {
+                        append("${audioTrack.channelCount}.1 Surround")
+                    } else if (audioTrack.channelCount == 2) {
+                        append("Stereo")
+                    } else if (audioTrack.channelCount == 1) {
+                        append("Mono")
+                    }
+
+                    if (audioTrack.codec.isNotBlank()) {
+                        if (isNotEmpty()) append(" • ")
+                        append(audioTrack.codec.uppercase())
+                    }
+
+                    if (audioTrack.isDefault && !isSelected) {
+                        if (isNotEmpty()) append(" • ")
+                        append("Default")
+                    }
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = isSupported) {
+                            if (isSupported) {
+                                onSelectAudioTrack(audioTrack)
+                            }
+                        }
+                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // যদি ডিভাইসের ডিকোডার এই কোডেক সাপোর্ট না করে
+                        if (!isSupported) {
+                            Text(
+                                text = "Unsupported",
+                                color = Color(0xFFEF5350),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Text(
+                            text = audioTrack.label.ifBlank { audioTrack.language.ifBlank { "Audio" } },
+                            color = when {
+                                isSelected -> Color(0xFF00E5FF)
+                                !isSupported -> Color(0xFF757575)
+                                else -> Color.White
+                            },
+                            fontSize = 13.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+
+                    // সাব-ইনফো (চ্যানেল, কোডেক ইত্যাদি)
+                    if (detailsText.isNotBlank() && isSupported) {
+                        Text(
+                            text = detailsText,
+                            color = if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.75f) else Color(0xFF8E95A5),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
+                }
+            }
         }
     }
 }
