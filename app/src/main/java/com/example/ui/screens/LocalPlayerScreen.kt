@@ -71,7 +71,7 @@ fun LocalPlayerScreen(
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
     // =========================================================================
-    // 🚀 হাই-পারফরম্যান্স ExoPlayer ইঞ্জিন
+    // 🚀 হাই-পারফরম্যান্স ExoPlayer ইঞ্জিন (Audio Becoming Noisy ও বাফারিং অপ্টিমাইজড)
     // =========================================================================
     val exoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
@@ -81,6 +81,7 @@ fun LocalPlayerScreen(
 
         ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
+            .setHandleAudioBecomingNoisy(true) // 🎧 হেডফোন খুলে গেলে স্পিকার ব্লাস্টিং রোধে অটো-পজ
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
@@ -103,7 +104,7 @@ fun LocalPlayerScreen(
         }
     }
 
-    // ⏭️ পরবর্তী ভিডিও প্লে করার লজিক
+    // ⏭️ পরবর্তী ভিডিও প্লে করার স্মার্ট লজিক
     fun playNextVideo() {
         val currentIndex = folderVideos.indexOfFirst { it.id == activeVideoItem.id }
         if (currentIndex != -1 && currentIndex < folderVideos.size - 1) {
@@ -113,7 +114,7 @@ fun LocalPlayerScreen(
         }
     }
 
-    // ভিডিও পরিবর্তন হলে ExoPlayer-এ লোড করা
+    // ভিডিও পরিবর্তন হলে ExoPlayer-এ লোড করা ও লাস্ট প্লেব্যাক পজিশন উদ্ধার
     LaunchedEffect(activeVideoItem.id) {
         val lastPos = LocalMediaScanner.getLastPlaybackPosition(context, activeVideoItem.id)
         val mediaItem = MediaItem.fromUri(activeVideoItem.contentUri)
@@ -305,7 +306,7 @@ fun LocalPlayerScreen(
                     )
                 }
 
-                // ২.২) নিচের স্ক্রোলেবল ফোল্ডার ভিডিও প্লেলিস্ট (লং ভিডিওর মতো)
+                // ২.২) নিচের স্ক্রোলেবল ফোল্ডার ভিডিও প্লেলিস্ট
                 LocalPlayerFolderPlaylist(
                     folderName = activeVideoItem.folderName,
                     videos = folderVideos,
