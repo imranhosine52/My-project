@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -71,7 +70,7 @@ private fun DiagonalFullscreenIcon(color: Color = Color.White) {
 }
 
 /**
- * ⚡ আল্ট্রা-স্লিম ল্যাগ-মুক্ত লোকাল টাইমলাইন বার
+ * ⚡ আল্ট্রা-স্লিম ল্যাগ-মুক্ত ও NaN-সুরক্ষিত লোকাল টাইমলাইন বার
  */
 @Composable
 fun SleekLocalTimeline(
@@ -94,10 +93,12 @@ fun SleekLocalTimeline(
     } else 0f
 
     val effectiveProgress = if (isDragging && dragFraction in 0f..1f) dragFraction else currentFraction
+    val safeProgress = if (effectiveProgress.isNaN() || effectiveProgress.isInfinite()) 0f else effectiveProgress.coerceIn(0f, 1f)
 
     val bufferedProgress = if (totalDurationMs > 0) {
         (bufferedPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
+    val safeBuffered = if (bufferedProgress.isNaN() || bufferedProgress.isInfinite()) 0f else bufferedProgress.coerceIn(0f, 1f)
 
     Box(
         modifier = modifier
@@ -105,7 +106,7 @@ fun SleekLocalTimeline(
             .height(26.dp)
             .pointerInput(totalDurationMs) {
                 detectTapGestures { offset ->
-                    if (totalDurationMs > 0) {
+                    if (totalDurationMs > 0 && size.width > 0) {
                         val tapFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                         val targetMs = (tapFraction * totalDurationMs).toLong()
                         onSeeking(targetMs)
@@ -118,7 +119,7 @@ fun SleekLocalTimeline(
                     onDragStart = { offset ->
                         isDragging = true
                         onSeekStarted()
-                        if (totalDurationMs > 0) {
+                        if (totalDurationMs > 0 && size.width > 0) {
                             val startFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                             dragFraction = startFraction
                             onSeeking((startFraction * totalDurationMs).toLong())
@@ -142,7 +143,7 @@ fun SleekLocalTimeline(
                         dragFraction = -1f
                     },
                     onHorizontalDrag = { change, _ ->
-                        if (totalDurationMs > 0) {
+                        if (totalDurationMs > 0 && size.width > 0) {
                             val newFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
                             dragFraction = newFraction
                             val newTarget = (newFraction * totalDurationMs).toLong()
@@ -169,7 +170,7 @@ fun SleekLocalTimeline(
             )
 
             // বাফার্ড ট্র্যাক
-            val bufferedEnd = trackWidth * bufferedProgress
+            val bufferedEnd = trackWidth * safeBuffered
             if (bufferedEnd > 0) {
                 drawLine(
                     color = bufferedColor,
@@ -181,7 +182,7 @@ fun SleekLocalTimeline(
             }
 
             // প্রোগ্রেস ট্র্যাক
-            val activeEnd = trackWidth * effectiveProgress
+            val activeEnd = trackWidth * safeProgress
             if (activeEnd > 0) {
                 drawLine(
                     color = activeColor,
@@ -274,7 +275,7 @@ fun LocalPlayerControlsOverlay(
                         )
                     }
 
-                    // 🔥 লম্বা প্লেয়ারে টাইটেল থাকবে না, শুধু ফুলস্ক্রিন (Landscape)-এ দেখাবে
+                    // ফুলস্ক্রিন (Landscape) এ টাইটেল দেখাবে
                     if (isLandscape) {
                         Text(
                             text = videoTitle,
@@ -328,7 +329,7 @@ fun LocalPlayerControlsOverlay(
 
         // =============================================================
         // 🎯 ৩. ডান পাশের ফ্লোটিং বাটন (স্ক্রিন লক ও পরবর্তী ভিডিও ⏭️ বাটন)
-        // 🔥 লম্বা প্লেয়ারে সম্পূর্ণ বন্ধ থাকবে, শুধু ফুলস্ক্রিন (Landscape)-এ দেখাবে
+        // ফুলস্ক্রিন (Landscape)-এ দেখাবে
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked && isLandscape,
@@ -352,14 +353,14 @@ fun LocalPlayerControlsOverlay(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.LockOpen,
+                        imageVector = Icons.Default.LockOpen,
                         contentDescription = "Lock Screen",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
                 }
 
-                // পরবর্তী ভিডিও বাটন (Next Video Button)
+                // পরবর্তী ভিডিও বাটন (Next Video)
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -380,7 +381,7 @@ fun LocalPlayerControlsOverlay(
         }
 
         // =============================================================
-        // 📺 ৪. বটম কন্ট্রোল বার (৩ নম্বর ছবির স্টাইলে স্পিডোমিটার ও অডিও আইকন)
+        // 📺 ৪. বটম কন্ট্রোল বার (স্পিডোমিটার ও অডিও আইকন সহ)
         // =============================================================
         AnimatedVisibility(
             visible = isControlsVisible && !isScreenLocked,
@@ -481,7 +482,7 @@ fun LocalPlayerControlsOverlay(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // ⏱️ ৩ নম্বর ছবির মতো স্পিডোমিটার আইকন সহ স্পিড চিপ
+                        // ⏱️ স্পিডোমিটার আইকন সহ স্পিড চিপ
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -504,7 +505,7 @@ fun LocalPlayerControlsOverlay(
                             )
                         }
 
-                        // 🎵 ৩ নম্বর ছবির মতো সায়ান মিউজিক নোট সহ অডিও ট্র্যাক চিপ
+                        // 🎵 সায়ান মিউজিক নোট সহ অডিও ট্র্যাক চিপ
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -538,8 +539,6 @@ fun LocalPlayerControlsOverlay(
                                 .clickable { onSubtitleClick() }
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                         )
-
-                        // ❌ বটম বারের প্লেলিস্ট আইকন সম্পূর্ণরূপে অপসারিত
 
                         // ফুলস্ক্রিন টগল
                         Box(
