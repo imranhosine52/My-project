@@ -22,8 +22,8 @@ import com.example.ui.screens.player.RealAudioTrack
 private val ActiveCyan = Color(0xFF00E5FF)
 
 /**
- * 🎵 ছবি ১ ও ২ এর হুবহু আল্ট্রা-ক্লিন অডিও ল্যাঙ্গুয়েজ ড্রয়ার
- * কোনো অতিরিক্ত কার্ড, ব্যাজ বা ভারী ব্যাকগ্রাউন্ড ছাড়া একদম ক্লিন ফ্লোটিং টেক্সট ডিজাইন।
+ * 🎵 আল্ট্রা-ক্লিন অডিও ল্যাঙ্গুয়েজ ড্রয়ার
+ * স্ক্রিনের একদম সাইড থেকে শুরু (জিরো মার্জিন), লাইনের মধ্যবর্তী কমপ্যাক্ট স্পেসিং এবং হালকা ব্যাকগ্রাউন্ড।
  */
 @Composable
 fun LocalPlayerAudioDrawer(
@@ -33,61 +33,63 @@ fun LocalPlayerAudioDrawer(
     onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // ছবি ২ এর মতো হালকা কালো শ্যাডো ফেড গ্রেডিয়েন্ট (কোনো কড়া বা ভারী সলিড ব্যাকগ্রাউন্ড নেই)
+    // স্ক্রিনশটের মতো অত্যন্ত হালকা কালো গ্রেডিয়েন্ট (কোনো চারকোনা বা কড়া ভারী ব্যাকগ্রাউন্ড নেই)
     val softFadeGradient = Brush.horizontalGradient(
         colors = listOf(
             Color.Transparent,
-            Color.Black.copy(alpha = 0.25f),
-            Color.Black.copy(alpha = 0.55f),
-            Color.Black.copy(alpha = 0.82f)
+            Color.Black.copy(alpha = 0.18f),
+            Color.Black.copy(alpha = 0.45f),
+            Color.Black.copy(alpha = 0.72f)
         )
     )
 
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .width(200.dp)
+            .widthIn(min = 160.dp, max = 210.dp)
             .background(softFadeGradient)
-            .padding(top = 22.dp, bottom = 20.dp, end = 24.dp, start = 14.dp),
+            // 🎯 সাইডের অতিরিক্ত স্পেস সম্পূর্ণ দূর করা হয়েছে (end = 8.dp)
+            .padding(top = 18.dp, bottom = 16.dp, end = 8.dp, start = 10.dp),
         horizontalAlignment = Alignment.End
     ) {
         // =============================================================
-        // ১. ছবি ১ এর হুবহু "AUDIO LANGUAGE" হেডার + সায়ান আন্ডারলাইন
+        // ১. "AUDIO LANGUAGE" হেডার + আন্ডারলাইন
         // =============================================================
         Column(
             horizontalAlignment = Alignment.End,
-            modifier = Modifier.padding(bottom = 22.dp)
+            modifier = Modifier.padding(bottom = 14.dp, end = 4.dp)
         ) {
             Text(
                 text = "AUDIO LANGUAGE",
                 color = ActiveCyan,
-                fontSize = 13.5.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.6.sp
+                letterSpacing = 0.5.sp
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Box(
                 modifier = Modifier
-                    .width(78.dp)
+                    .width(74.dp)
                     .height(2.dp)
                     .background(ActiveCyan)
             )
         }
 
         // =============================================================
-        // ২. ছবি ১ এর হুবহু ক্লিন ফ্লোটিং ল্যাঙ্গুয়েজ টেক্সট লিস্ট (নো কার্ড, নো ব্যাজ)
+        // ২. কাছাকাছি সাজানো কম্প্যাক্ট ল্যাঙ্গুয়েজ টেক্সট লিস্ট
         // =============================================================
         if (availableAudioTracks.isEmpty()) {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(end = 4.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Text(
                     text = "Default Audio",
                     color = ActiveCyan,
-                    fontSize = 15.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -97,7 +99,8 @@ fun LocalPlayerAudioDrawer(
                     .weight(1f)
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                // 🎯 অতিরিক্ত ফাঁকা জায়গা কমিয়ে সুন্দরভাবে কাছাকাছি (চাপিয়ে) রাখা হয়েছে
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 items(
                     items = availableAudioTracks,
@@ -109,7 +112,7 @@ fun LocalPlayerAudioDrawer(
                     Text(
                         text = track.displayName,
                         color = if (isSelected) ActiveCyan else Color.White,
-                        fontSize = 15.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                         modifier = Modifier
                             .clickable(
@@ -118,7 +121,7 @@ fun LocalPlayerAudioDrawer(
                             ) {
                                 onSelectAudioTrack(track)
                             }
-                            .padding(vertical = 2.dp)
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
                     )
                 }
             }
