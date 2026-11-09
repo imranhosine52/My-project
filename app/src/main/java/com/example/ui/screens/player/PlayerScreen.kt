@@ -124,7 +124,7 @@ private fun findActivityFromContext(context: Context): Activity? {
 }
 
 /**
- * 🎯 ডিরেক্ট মিডিয়া স্ট্রিম বনাম Web Embed লিংক নিখুঁতভাবে শনাক্তকারী
+ * 🎯 ডিরেক্ট মিডিয়া ফাইল (MP4, MKV ইত্যাদি) বনাম Web Embed লিংক নির্ভুলভাবে শনাক্তকারী
  */
 private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
@@ -134,7 +134,7 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (lower == "null" || lower == "none" || lower == "n/a" || lower == "undefined") return false
     if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false
 
-    // ১. পরিচিত Web Embed ও আইফ্রেম প্রোভাইডার
+    // Web Embed প্রোভাইডার
     val knownEmbedKeywords = listOf(
         "/e/", "/embed", "byse", "streamtape", "streamwish", "dood",
         "vidhide", "youtube.com", "youtu.be", "iframe", "playertv",
@@ -144,7 +144,6 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
         return false
     }
 
-    // ২. ডিরেক্ট মিডিয়া ফাইল এক্সটেনশন
     val cleanUrl = lower.substringBefore("?").substringBefore("#")
     val hasDirectExtension = cleanUrl.endsWith(".mp4") ||
             cleanUrl.endsWith(".mkv") ||
@@ -152,18 +151,14 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
             cleanUrl.endsWith(".mpd") ||
             cleanUrl.endsWith(".webm") ||
             cleanUrl.endsWith(".m4v") ||
-            cleanUrl.endsWith(".ts") ||
-            cleanUrl.endsWith(".mov") ||
-            cleanUrl.endsWith(".avi")
+            cleanUrl.endsWith(".ts")
 
     if (hasDirectExtension) return true
 
-    // ৩. কুয়েরি স্ট্রিং বা টোকেনযুক্ত ডিরেক্ট ভিডিও ফাইল
     if (lower.contains(".mp4?") || lower.contains(".mkv?") || lower.contains(".m3u8?") || lower.contains(".mpd?")) {
         return true
     }
 
-    // ৪. ক্লাউড ও CDN স্ট্রিমিং এন্ডপয়েন্ট
     if (lower.contains("workers.dev") || lower.contains("cdn.playdramaflix.com") || lower.contains("storage.googleapis.com")) {
         return true
     }
@@ -171,9 +166,6 @@ private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     return false
 }
 
-/**
- * 💬 সাবটাইটেল এক্সটেনশন থেকে নির্ভরযোগ্য MIME Type নির্ধারণ
- */
 private fun resolveSubtitleMimeType(url: String): String {
     val clean = url.substringBefore("?").substringBefore("#").lowercase()
     return when {
@@ -352,17 +344,16 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🚀 CLEAN & ROBUST EXOPLAYER (BROWSER-PARITY HEADERS & BALANCED BUFFER)
+    // 🚀 BROWSER-IDENTICAL EXOPLAYER (NO REFERER BLOCK, CLEAN STANDARD STREAMING)
     // =========================================================================
     val exoPlayer = remember {
-        // ১. মাল্টি-হপ রিডাইরেক্টে কুকি ধরে রাখার জন্য সিস্টেম কুকি ম্যানেজার
         try {
             if (CookieHandler.getDefault() == null) {
                 CookieHandler.setDefault(java.net.CookieManager())
             }
         } catch (_: Exception) {}
 
-        // ২. ব্রাউজারের হুবহু হেডার সহ স্ট্যান্ডার্ড HTTP ডাটা সোর্স
+        // 🎯 ব্রাউজারের অ্যাড্রেস বারের মতো ক্লিন রিকোয়েস্ট (কোনো ব্লকযোগ্য Referer ছাড়া)
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
@@ -370,35 +361,31 @@ fun PlayerScreen(
             .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
             .setDefaultRequestProperties(
                 mapOf(
-                    "Accept" to "*/*",
-                    "Referer" to "https://playdramaflix.com/"
+                    "Accept" to "*/*"
                 )
             )
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-
-        // ৩. ক্লিন ও নির্ভরযোগ্য স্ট্যান্ডার্ড এক্সট্র্যাক্টরস ফ্যাক্টরি
         val extractorsFactory = DefaultExtractorsFactory()
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        // ৪. হার্ডওয়্যার ডিকোডার ফেইল করলে অটোমেটিক সফটওয়্যার ডিকোডারে যাওয়ার সুবিধা
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
 
-        // ৫. ব্যালেন্সড ও ফাস্ট বাফার লোড কন্ট্রোল (টাইম থ্রেশহোল্ড বাধ্যবাধকতা ছাড়া)
-        val balancedLoadControl = DefaultLoadControl.Builder()
+        // স্বাভাবিক মোবাইল বাফার
+        val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                20_000, // minBuffer: ২০ সেকেন্ড
-                50_000, // maxBuffer: ৫০ সেকেন্ড
-                1000,   // bufferForPlayback: মাত্র ১ সেকেন্ড বাফার হলেই প্লেব্যাক শুরু
-                2000    // bufferAfterRebuffer: ২ সেকেন্ড
+                25_000,
+                50_000,
+                1000,
+                2000
             )
-            .setBackBuffer(30_000, true) // ৩০ সেকেন্ড ব্যাক-বাফার
+            .setBackBuffer(30_000, true)
             .build()
 
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(balancedLoadControl)
+            .setLoadControl(loadControl)
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
@@ -826,8 +813,8 @@ fun PlayerScreen(
                     val cleanPath = resolvedUrl.substringBefore("?").substringBefore("#").lowercase()
 
                     // =========================================================================
-                    // ⚠️ গুরুত্বপূর্ণ: প্রগ্রেসিভ MP4 ও MKV-র জন্য কোনো MIME Type সেট করবেন না।
-                    // শুধু অ্যাডাপ্টিভ HLS (.m3u8) এবং DASH (.mpd)-এর জন্য সেট করুন।
+                    // ⚠️ প্রগ্রেসিভ MP4 ও MKV-তে কোনো কন্টেইনার MIME Type দেওয়া যাবে না!
+                    // শুধুমাত্র HLS (.m3u8) ও DASH (.mpd)-এ MIME Type দিতে হবে।
                     // =========================================================================
                     val adaptiveMimeType = when {
                         cleanPath.endsWith(".m3u8") || resolvedUrl.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
@@ -843,7 +830,7 @@ fun PlayerScreen(
                             }
                         }
 
-                    // 💬 External Subtitles ইনজেকশন (যদি সার্ভার অপশনে সাবফাইল থাকে)
+                    // 💬 External Subtitles ইনজেকশন
                     val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
                     currentEp.downloadOptions?.forEachIndexed { index, option ->
                         val optUrl = option.url.trim()
