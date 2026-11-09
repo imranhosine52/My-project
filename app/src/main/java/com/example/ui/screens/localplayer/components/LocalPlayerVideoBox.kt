@@ -74,34 +74,129 @@ private fun findActivity(context: Context): Activity? {
 }
 
 /**
- * 🌍 ISO 639-1 / 639-2 ল্যাঙ্গুয়েজ কোড থেকে পরিচ্ছন্ন নাম নির্ণায়ক
+ * 🌍 ইন্টেলিজেন্ট অডিও ল্যাঙ্গুয়েজ রেজলভার ও অ্যান্টি-স্প্যাম ফিল্টার
+ * ওয়েবসাইটের বিজ্ঞাপন বা স্প্যাম লেবেল এড়িয়ে ISO কোড থেকে আসল ভাষার নাম বের করে।
  */
-private fun resolveLanguageDisplayName(langCode: String?, label: String?): String {
+private fun resolveLanguageDisplayName(langCode: String?, label: String?, trackNumber: Int): String {
+    val cleanCode = langCode?.trim()?.lowercase() ?: ""
     val cleanLabel = label?.trim() ?: ""
-    if (cleanLabel.isNotBlank() && !cleanLabel.equals("und", true) && !cleanLabel.equals("unknown", true)) {
-        return cleanLabel
+
+    // ১. ISO 639-1 / 639-2 ল্যাঙ্গুয়েজ কোড থেকে নিশ্চিত ভাষা শনাক্তকরণ
+    val detectedFromCode = when {
+        cleanCode in listOf("hi", "hin", "hindi") -> "Hindi"
+        cleanCode in listOf("bn", "ben", "bangla", "bengali") -> "Bengali"
+        cleanCode in listOf("en", "eng", "english") -> "English"
+        cleanCode in listOf("ja", "jpn", "japanese") -> "Japanese"
+        cleanCode in listOf("ko", "kor", "korean") -> "Korean"
+        cleanCode in listOf("zh", "zho", "chi", "chinese") -> "Chinese"
+        cleanCode in listOf("ta", "tam", "tamil") -> "Tamil"
+        cleanCode in listOf("te", "tel", "telugu") -> "Telugu"
+        cleanCode in listOf("ur", "urd", "urdu") -> "Urdu"
+        cleanCode in listOf("ml", "mal", "malayalam") -> "Malayalam"
+        cleanCode in listOf("mr", "mar", "marathi") -> "Marathi"
+        cleanCode in listOf("es", "spa", "spanish") -> "Spanish"
+        cleanCode in listOf("fr", "fra", "fre", "french") -> "French"
+        cleanCode in listOf("de", "deu", "ger", "german") -> "German"
+        cleanCode in listOf("ru", "rus", "russian") -> "Russian"
+        cleanCode in listOf("ar", "ara", "arabic") -> "Arabic"
+        cleanCode in listOf("pt", "por", "portuguese") -> "Portuguese"
+        cleanCode in listOf("it", "ita", "italian") -> "Italian"
+        cleanCode in listOf("tr", "tur", "turkish") -> "Turkish"
+        cleanCode in listOf("id", "ind", "indonesian") -> "Indonesian"
+        cleanCode.isNotBlank() && cleanCode != "und" && cleanCode != "mis" && cleanCode != "zxx" -> {
+            try {
+                val loc = Locale(cleanCode)
+                val display = loc.getDisplayLanguage(Locale.ENGLISH)
+                if (display.isNotBlank() && !display.equals(cleanCode, ignoreCase = true)) display
+                else cleanCode.uppercase()
+            } catch (_: Exception) {
+                null
+            }
+        }
+        else -> null
     }
-    val code = langCode?.trim()?.lowercase() ?: ""
-    return when {
-        code in listOf("hi", "hin") -> "Hindi"
-        code in listOf("bn", "ben") -> "Bengali"
-        code in listOf("en", "eng") -> "English"
-        code in listOf("zh", "zho", "chi") -> "Chinese"
-        code in listOf("ja", "jpn") -> "Japanese"
-        code in listOf("ko", "kor") -> "Korean"
-        code in listOf("ta", "tam") -> "Tamil"
-        code in listOf("te", "tel") -> "Telugu"
-        code in listOf("ur", "urd") -> "Urdu"
-        code in listOf("es", "spa") -> "Spanish"
-        code in listOf("fr", "fra", "fre") -> "French"
-        code in listOf("de", "deu", "ger") -> "German"
-        code in listOf("ru", "rus") -> "Russian"
-        code in listOf("ar", "ara") -> "Arabic"
-        code in listOf("pt", "por") -> "Portuguese"
-        code in listOf("it", "ita") -> "Italian"
-        code in listOf("tr", "tur") -> "Turkish"
-        code.isNotBlank() -> Locale(code).displayLanguage.takeIf { it.isNotBlank() } ?: code.uppercase()
-        else -> "Audio"
+
+    // ২. লেবেল টেক্সটের ভেতর কোনো ভাষার নাম লেখা আছে কি না যাচাই
+    val detectedFromLabel = when {
+        cleanLabel.contains("bengali", true) || cleanLabel.contains("bangla", true) -> "Bengali"
+        cleanLabel.contains("hindi", true) || cleanLabel.contains("hin", true) -> "Hindi"
+        cleanLabel.contains("japanese", true) || cleanLabel.contains("jap", true) || cleanLabel.contains("jpn", true) -> "Japanese"
+        cleanLabel.contains("english", true) || cleanLabel.contains("eng", true) -> "English"
+        cleanLabel.contains("korean", true) || cleanLabel.contains("kor", true) -> "Korean"
+        cleanLabel.contains("chinese", true) || cleanLabel.contains("chi", true) -> "Chinese"
+        cleanLabel.contains("tamil", true) || cleanLabel.contains("tam", true) -> "Tamil"
+        cleanLabel.contains("telugu", true) || cleanLabel.contains("tel", true) -> "Telugu"
+        cleanLabel.contains("urdu", true) || cleanLabel.contains("urd", true) -> "Urdu"
+        cleanLabel.contains("spanish", true) || cleanLabel.contains("spa", true) -> "Spanish"
+        cleanLabel.contains("french", true) || cleanLabel.contains("fre", true) -> "French"
+        cleanLabel.contains("german", true) || cleanLabel.contains("ger", true) -> "German"
+        cleanLabel.contains("russian", true) || cleanLabel.contains("rus", true) -> "Russian"
+        cleanLabel.contains("arabic", true) || cleanLabel.contains("ara", true) -> "Arabic"
+        else -> null
+    }
+
+    // লেবেলটি কি কোনো ওয়েবসাইটের নাম বা বিজ্ঞাপন স্প্যাম?
+    val isWebsiteSpam = cleanLabel.contains(".co", true) ||
+            cleanLabel.contains(".com", true) ||
+            cleanLabel.contains(".net", true) ||
+            cleanLabel.contains(".org", true) ||
+            cleanLabel.contains("www.", true) ||
+            cleanLabel.contains("http", true) ||
+            cleanLabel.contains("@")
+
+    val finalLanguage = detectedFromCode ?: detectedFromLabel
+
+    return if (finalLanguage != null) {
+        // যদি লেবেলে দরকারী কোনো ট্যাগ থাকে (যেমন: Original, Dubbed), স্প্যাম না হলে সেটি ব্র্যাকেটে দেখাবে
+        val extraTag = if (!isWebsiteSpam && cleanLabel.isNotBlank() && !cleanLabel.equals(finalLanguage, true)) {
+            val stripped = cleanLabel
+                .replace(finalLanguage, "", ignoreCase = true)
+                .replace("audio", "", ignoreCase = true)
+                .replace("dub", "Dubbed", ignoreCase = true)
+                .trim('[', ']', '(', ')', '-', ' ', '_')
+            if (stripped.isNotBlank() && stripped.length in 3..18) " ($stripped)" else ""
+        } else ""
+
+        "$finalLanguage$extraTag"
+    } else if (!isWebsiteSpam && cleanLabel.isNotBlank() && cleanLabel != "und" && cleanLabel != "unknown") {
+        cleanLabel
+    } else {
+        "Audio Track $trackNumber"
+    }
+}
+
+/**
+ * 💬 সাবটাইটেল ভাষা রেজলভার ও স্প্যাম ফিল্টার
+ */
+private fun resolveSubtitleDisplayName(langCode: String?, label: String?, trackNumber: Int): String {
+    val cleanCode = langCode?.trim()?.lowercase() ?: ""
+    val cleanLabel = label?.trim() ?: ""
+
+    val detectedLang = when {
+        cleanCode in listOf("bn", "ben") || cleanLabel.contains("bengali", true) || cleanLabel.contains("bangla", true) -> "Bengali"
+        cleanCode in listOf("hi", "hin") || cleanLabel.contains("hindi", true) -> "Hindi"
+        cleanCode in listOf("en", "eng") || cleanLabel.contains("english", true) -> "English"
+        cleanCode in listOf("ja", "jpn") || cleanLabel.contains("japanese", true) -> "Japanese"
+        cleanCode in listOf("ko", "kor") || cleanLabel.contains("korean", true) -> "Korean"
+        cleanCode in listOf("zh", "zho", "chi") || cleanLabel.contains("chinese", true) -> "Chinese"
+        cleanCode in listOf("es", "spa") || cleanLabel.contains("spanish", true) -> "Spanish"
+        cleanCode in listOf("ar", "ara") || cleanLabel.contains("arabic", true) -> "Arabic"
+        cleanCode.isNotBlank() && cleanCode != "und" && cleanCode != "mis" -> {
+            try {
+                Locale(cleanCode).getDisplayLanguage(Locale.ENGLISH).takeIf { it.isNotBlank() } ?: cleanCode.uppercase()
+            } catch (_: Exception) { null }
+        }
+        else -> null
+    }
+
+    val isWebsiteSpam = cleanLabel.contains(".co", true) || cleanLabel.contains(".com", true) || cleanLabel.contains("www.", true)
+
+    return if (detectedLang != null) {
+        "$detectedLang Subtitle"
+    } else if (!isWebsiteSpam && cleanLabel.isNotBlank() && cleanLabel != "und") {
+        cleanLabel
+    } else {
+        "Subtitle $trackNumber"
     }
 }
 
@@ -227,15 +322,18 @@ fun LocalPlayerVideoBox(
     fun extractTracks(tracks: Tracks) {
         val foundAudioTracks = mutableListOf<AdvancedAudioTrackInfo>()
         val foundSubtitleTracks = mutableListOf<AdvancedSubtitleTrackInfo>()
+        var audioCounter = 0
+        var subtitleCounter = 0
 
         for ((groupIndex, group) in tracks.groups.withIndex()) {
             if (group.type == C.TRACK_TYPE_AUDIO) {
                 for (i in 0 until group.length) {
+                    audioCounter++
                     val format = group.getTrackFormat(i)
                     val lang = format.language?.lowercase() ?: ""
                     val isSelected = group.isTrackSelected(i)
 
-                    val readableName = resolveLanguageDisplayName(lang, format.label)
+                    val readableName = resolveLanguageDisplayName(lang, format.label, audioCounter)
                     val channelInfo = resolveAudioChannelLayout(format.channelCount)
                     val codecName = resolveAudioCodecFormat(format.sampleMimeType)
 
@@ -245,13 +343,17 @@ fun LocalPlayerVideoBox(
                         currentAudioLabel = readableName
                     }
 
+                    // একই নামের একাধিক ট্র্যাক থাকলে (যেমন ২টা Hindi ট্র্যাক) আলাদা করার জন্য নম্বর বসানো
+                    val uniqueName = if (foundAudioTracks.any { it.displayName == readableName }) {
+                        val count = foundAudioTracks.count { it.displayName.startsWith(readableName) } + 1
+                        "$readableName ($count)"
+                    } else readableName
+
                     foundAudioTracks.add(
                         AdvancedAudioTrackInfo(
                             id = trackId,
                             languageCode = lang.ifBlank { "und" },
-                            displayName = if (foundAudioTracks.any { it.displayName == readableName }) {
-                                "$readableName (${foundAudioTracks.size + 1})"
-                            } else readableName,
+                            displayName = uniqueName,
                             channelInfo = channelInfo,
                             codec = codecName,
                             bitRate = format.bitrate,
@@ -263,22 +365,12 @@ fun LocalPlayerVideoBox(
                 }
             } else if (group.type == C.TRACK_TYPE_TEXT) {
                 for (i in 0 until group.length) {
+                    subtitleCounter++
                     val format = group.getTrackFormat(i)
                     val lang = format.language?.lowercase() ?: ""
                     val isSelected = group.isTrackSelected(i)
 
-                    val readableName = when {
-                        !format.label.isNullOrBlank() -> format.label!!.trim()
-                        lang in listOf("bn", "ben") -> "Bangla Subtitle"
-                        lang in listOf("en", "eng") -> "English Subtitle"
-                        lang in listOf("hi", "hin") -> "Hindi Subtitle"
-                        lang in listOf("zh", "zho", "chi") -> "Chinese Subtitle"
-                        lang in listOf("ja", "jpn") -> "Japanese Subtitle"
-                        lang in listOf("ko", "kor") -> "Korean Subtitle"
-                        lang.isNotBlank() -> "${Locale(lang).displayLanguage} Subtitle"
-                        else -> "Subtitle ${foundSubtitleTracks.size + 1}"
-                    }
-
+                    val readableName = resolveSubtitleDisplayName(lang, format.label, subtitleCounter)
                     val trackId = "sub_${groupIndex}_$i"
                     if (isSelected) {
                         selectedSubtitleTrackId = trackId
@@ -302,8 +394,12 @@ fun LocalPlayerVideoBox(
 
         availableAudioTracks = foundAudioTracks
         availableSubtitleTracks = foundSubtitleTracks
+
+        // যদি কোনো অডিও সিলেক্টেড না পাওয়া যায় তবে প্রথম ট্র্যাকটিকে ডিফল্ট ধরা
         if (availableAudioTracks.isNotEmpty() && (selectedAudioTrackId == "default" || currentAudioLabel == "Audio")) {
-            currentAudioLabel = availableAudioTracks.first().displayName
+            val selected = availableAudioTracks.find { it.isSelected } ?: availableAudioTracks.first()
+            selectedAudioTrackId = selected.id
+            currentAudioLabel = selected.displayName
         }
     }
 
@@ -322,7 +418,7 @@ fun LocalPlayerVideoBox(
                 .buildUpon()
                 .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, track.trackIndex))
                 .build()
-            Toast.makeText(context, "Audio: ${track.displayName} (${track.channelInfo})", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Switched to: ${track.displayName} (${track.channelInfo})", Toast.LENGTH_SHORT).show()
         }
     }
 
