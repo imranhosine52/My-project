@@ -35,13 +35,15 @@ data class VideoSortOrder(
     val field: VideoSortField = VideoSortField.DATE_ADDED,
     val direction: SortDirection = SortDirection.DESCENDING
 ) {
+    private fun resolveDisplayLabel(): String = when (field) {
+        VideoSortField.DATE_ADDED -> if (direction == SortDirection.DESCENDING) "Newest First" else "Oldest First"
+        VideoSortField.TITLE -> if (direction == SortDirection.ASCENDING) "Name (A to Z)" else "Name (Z to A)"
+        VideoSortField.SIZE -> if (direction == SortDirection.DESCENDING) "Largest First" else "Smallest First"
+        VideoSortField.DURATION -> if (direction == SortDirection.DESCENDING) "Longest First" else "Shortest First"
+    }
+
     val displayLabel: String
-        get() = when (field) {
-            VideoSortField.DATE_ADDED -> if (direction == SortDirection.DESCENDING) "Newest First" else "Oldest First"
-            VideoSortField.TITLE -> if (direction == SortDirection.ASCENDING) "Name (A to Z)" else "Name (Z to A)"
-            VideoSortField.SIZE -> if (direction == SortDirection.DESCENDING) "Largest First" else "Smallest First"
-            VideoSortField.DURATION -> if (direction == SortDirection.DESCENDING) "Longest First" else "Shortest First"
-        }
+        get() = resolveDisplayLabel()
 }
 
 /**
