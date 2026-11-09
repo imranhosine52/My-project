@@ -561,7 +561,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🎯 ৬. সেকশন ভিত্তিক ভিডিও ফিল্টারিং ও সর্টিং (Recently Played অপসারিত)
+    // 🎯 ৬. সেকশন ভিত্তিক ভিডিও ফিল্টারিং ও সর্টিং (নতুন GallerySection-এর সাথে সিঙ্কড)
     // =========================================================================
     suspend fun getVideosForSection(
         context: Context,
@@ -569,22 +569,11 @@ object LocalMediaScanner {
         allVideos: List<LocalVideoItem>
     ): List<LocalVideoItem> = withContext(Dispatchers.Default) {
         when (section) {
-            GallerySection.ALL_VIDEOS -> allVideos
             GallerySection.FOLDERS -> allVideos
-            GallerySection.RECENTLY_ADDED -> {
-                val fourteenDaysAgo = (System.currentTimeMillis() / 1000) - (14 * 24 * 3600)
-                allVideos.filter { it.dateAdded >= fourteenDaysAgo }.sortedByDescending { it.dateAdded }
-            }
-            GallerySection.DOWNLOADS -> {
-                allVideos.filter {
-                    it.folderName.contains("download", ignoreCase = true) ||
-                            it.path.contains("Download", ignoreCase = true)
-                }
-            }
-            GallerySection.FAVORITES -> {
-                val starred = getStarredPaths(context)
-                allVideos.filter { it.path in starred }
-            }
+            GallerySection.VIDEOS -> allVideos
+            GallerySection.MUSIC -> getAllAudioTracks(context)
+            GallerySection.IMAGES -> getAllImages(context)
+            GallerySection.FILES -> getAllDocuments(context)
         }
     }
 
