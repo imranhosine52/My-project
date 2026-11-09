@@ -221,7 +221,6 @@ fun LocalGalleryScreen(
                     }
                 }
                 SpecialViewType.NONE -> {
-                    // দ্রুত অভিজ্ঞতার জন্য প্রথমে অ্যাক্টিভ ট্যাব, তারপর বাকিগুলো লোড
                     loadDataForTab(currentActiveTab)
                     MediaTabType.entries.filter { it != currentActiveTab }.forEach { tab ->
                         loadDataForTab(tab)
@@ -268,7 +267,8 @@ fun LocalGalleryScreen(
             selectedFolder = null
         } else if (tabPagerState.currentPage != 0) {
             coroutineScope.launch {
-                tabPagerState.animateScrollToPage(0, tween(250, easing = FastOutSlowInEasing))
+                // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
+                tabPagerState.animateScrollToPage(page = 0)
             }
         } else {
             onBackClick()
@@ -298,7 +298,8 @@ fun LocalGalleryScreen(
                         drawerState.close()
                         selectedFolder = null
                         specialView = SpecialViewType.NONE
-                        tabPagerState.animateScrollToPage(MediaTabType.MUSIC.index, tween(300, easing = FastOutSlowInEasing))
+                        // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
+                        tabPagerState.animateScrollToPage(page = MediaTabType.MUSIC.index)
                     }
                 },
                 onOpenStarred = {
@@ -423,7 +424,8 @@ fun LocalGalleryScreen(
                                     .clickable {
                                         selectedFolder = null
                                         coroutineScope.launch {
-                                            tabPagerState.animateScrollToPage(MediaTabType.FILES.index, tween(300, easing = FastOutSlowInEasing))
+                                            // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
+                                            tabPagerState.animateScrollToPage(page = MediaTabType.FILES.index)
                                         }
                                     }
                             )
@@ -496,7 +498,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // 📂 ২. স্ক্রিনশটের হুবহু সাব-ট্যাব বার (Folders | Videos Music Images Files)
+                // 📂 ২. সাব-ট্যাব বার (Folders | Videos Music Images Files)
                 // =============================================================
                 if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                     Row(
@@ -528,10 +530,8 @@ fun LocalGalleryScreen(
                                             indication = null
                                         ) {
                                             coroutineScope.launch {
-                                                tabPagerState.animateScrollToPage(
-                                                    page = tab.index,
-                                                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
-                                                )
+                                                // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
+                                                tabPagerState.animateScrollToPage(page = tab.index)
                                             }
                                         }
                                         .padding(horizontal = 4.dp, vertical = 2.dp)
@@ -661,12 +661,11 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // 🌟 মূল ফোল্ডার পেজার: ডানে-বামে সোয়াইপ করলে ট্যাব ও ফোল্ডার স্মুথলি চেঞ্জ হবে
+                        // মূল ফোল্ডার পেজার
                         else -> {
                             HorizontalPager(
                                 state = tabPagerState,
-                                modifier = Modifier
-                                    .fillMaxSize()
+                                modifier = Modifier.fillMaxSize()
                             ) { pageIndex ->
                                 val tab = MediaTabType.entries[pageIndex]
                                 val folders = (allTabFolders[tab] ?: emptyList()).filter {
