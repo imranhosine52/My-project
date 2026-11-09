@@ -184,7 +184,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // 🚀 ব্যবহারকারী অ্যাপে ফিরে এলে তৎক্ষণাৎ অনলাইন উপস্থিতি পাঠানো ও হার্টবিট লুপ চালু করা
         try {
             val savedUserId = viewModel.repository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
             AppAnalyticsTracker.init(applicationContext, savedUserId)
@@ -193,7 +192,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // 🛑 ব্যবহারকারী হোম বাটন চেপে বা অ্যাপ থেকে বের হওয়া মাত্রই ইনস্ট্যান্ট অফলাইন সিগন্যাল সার্ভারে পাঠানো
         try {
             AppAnalyticsTracker.sendOfflineSignal(applicationContext)
         } catch (_: Exception) {}
@@ -889,7 +887,8 @@ private fun MainAppContent(
             )
         }
 
-        if (!shouldHideBottomNav && currentScreen !is Screen.Player) {
+        // 🛡️ গ্যালারি স্ক্রিন চলাকালীন কোনো ব্যানার অ্যাড বটম অ্যাকশন ডকের উপরে আসবে না
+        if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.LocalGallery) {
             SocialBarAdOverlay(
                 isVip = isVip,
                 modifier = Modifier
