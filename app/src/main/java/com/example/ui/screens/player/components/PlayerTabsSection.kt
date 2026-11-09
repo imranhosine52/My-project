@@ -1,8 +1,12 @@
 package com.example.ui.screens.player.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,7 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +42,7 @@ import java.util.Locale
 private val GoldRating = Color(0xFFFFB300)
 
 // =============================================================================
-// 📑 ট্যাব হেডার (For you এবং Comments সিলেকশন)
+// 📑 ২ নম্বর ছবির হুবহু ট্যাব হেডার (For you এবং Comments(99+))
 // =============================================================================
 @Composable
 fun PlayerTabsHeader(
@@ -47,6 +51,11 @@ fun PlayerTabsHeader(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // ২ নম্বর ছবি অনুযায়ী কমেন্ট সংখ্যা ৯৯-এর বেশি হলে '99+' দেখাবে
+    val formattedCommentsCount = remember(commentsCount) {
+        if (commentsCount > 99) "99+" else "$commentsCount"
+    }
+
     Surface(
         color = Color(0xFF0C0F15),
         modifier = modifier.fillMaxWidth()
@@ -54,53 +63,65 @@ fun PlayerTabsHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // For you Tab
+            // ১. "For you" Tab
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .clickable { onTabSelected(0) }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onTabSelected(0) }
                     .padding(vertical = 2.dp)
             ) {
                 Text(
                     text = "For you",
                     color = if (selectedTabIndex == 0) Color.White else Color(0xFF8E95A5),
-                    fontSize = 14.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
                 )
+
                 Spacer(modifier = Modifier.height(4.dp))
+
+                // ২ নম্বর ছবির মতো অ্যাক্টিভ হলে পিওর হোয়াইট ইন্ডিকেটর লাইন
                 Box(
                     modifier = Modifier
-                        .width(26.dp)
+                        .width(46.dp)
                         .height(2.5.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (selectedTabIndex == 0) Color(0xFF00E5FF) else Color.Transparent)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (selectedTabIndex == 0) Color.White else Color.Transparent)
                 )
             }
 
-            // Comments Tab
+            // ২. "Comments(99+)" Tab
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .clickable { onTabSelected(1) }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onTabSelected(1) }
                     .padding(vertical = 2.dp)
             ) {
                 Text(
-                    text = "Comments ($commentsCount)",
+                    text = "Comments($formattedCommentsCount)",
                     color = if (selectedTabIndex == 1) Color.White else Color(0xFF8E95A5),
-                    fontSize = 14.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
                 )
+
                 Spacer(modifier = Modifier.height(4.dp))
+
+                // ২ নম্বর ছবির মতো অ্যাক্টিভ হলে পিওর হোয়াইট ইন্ডিকেটর লাইন
                 Box(
                     modifier = Modifier
-                        .width(34.dp)
+                        .width(96.dp)
                         .height(2.5.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (selectedTabIndex == 1) Color(0xFF00E5FF) else Color.Transparent)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (selectedTabIndex == 1) Color.White else Color.Transparent)
                 )
             }
         }
@@ -108,8 +129,8 @@ fun PlayerTabsHeader(
 }
 
 // =============================================================================
-// 🎬 রিকমেন্ডেশন কার্ড (🎯 উপরে ডাব ব্যাজ, নিচে রেটিং ও Display Name সহ)
-// =========================================================================
+// 🎬 রিকমেন্ডেশন কার্ড (উপরে ডাব ব্যাজ, নিচে রেটিং ও Display Name সহ)
+// =============================================================================
 @Composable
 fun PlayerRecommendationCard(
     drama: ContentItemDto,
@@ -149,7 +170,7 @@ fun PlayerRecommendationCard(
                     )
             )
 
-            // 🎯 ১. উপরে ডানে সার্ভারের ডাইনামিক ডাবিং ব্যাজ
+            // ১. উপরে ডানে সার্ভারের ডাইনামিক ডাবিং ব্যাজ
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
@@ -167,7 +188,7 @@ fun PlayerRecommendationCard(
                     .padding(horizontal = 5.dp, vertical = 4.dp)
             )
 
-            // 🎯 ৩. নিচে ডানে হালকা রেটিং (কোনো ভারী বক্স ছাড়া)
+            // ৩. নিচে ডানে হালকা রেটিং
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -192,7 +213,7 @@ fun PlayerRecommendationCard(
 
         Spacer(modifier = Modifier.height(3.5.dp))
 
-        // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
+        // ছোট ও পরিচ্ছন্ন নাম (Display Name)
         Text(
             text = drama.displayName,
             color = Color(0xFFCCD0DB),
