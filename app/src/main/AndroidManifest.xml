@@ -40,11 +40,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:hardwareAccelerated="true"
+        android:largeHeap="true"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- 📢 ফায়ারবেস ডিফল্ট নোটিফিকেশন চ্যানেল (Background & Killed state notification handler) -->
+        <!-- 📢 ফায়ারবেস ডিফল্ট নোটিফিকেশন চ্যানেল -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="high_importance_channel" />
@@ -150,15 +151,36 @@
                 <data android:scheme="http" android:host="www.playdramaflix.com" />
             </intent-filter>
 
-            <!-- 🎬 ৫. লোকাল ফাইল থেকে ভিডিও বা অডিও ওপেনার -->
+            <!-- 🎬 ৫. লোকাল ও এক্সটার্নাল ফাইল থেকে ভিডিও বা অডিও ওপেনার (MKV ও MP4 সহ) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
+                <data android:mimeType="application/x-matroska" />
+                <data android:mimeType="application/mkv" />
+                <data android:mimeType="video/x-matroska" />
+                <data android:mimeType="video/mp4" />
+                <data android:mimeType="application/mp4" />
+            </intent-filter>
+
+            <!-- 🎯 এক্সটেনশন ভিত্তিক সরাসরি ফাইল ওপেনার (MP4, MKV, WEBM) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.mp4" />
+                <data android:pathPattern=".*\\.mkv" />
+                <data android:pathPattern=".*\\.webm" />
+                <data android:pathPattern=".*\\.ts" />
             </intent-filter>
 
             <!-- 📤 ৬. সেন্ড ও শেয়ার টার্গেট -->
@@ -167,6 +189,9 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
+                <data android:mimeType="application/x-matroska" />
+                <data android:mimeType="video/x-matroska" />
+                <data android:mimeType="video/mp4" />
             </intent-filter>
 
         </activity>
