@@ -19,6 +19,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -88,7 +89,7 @@ private val BorderSubtle = Color(0xFF1D273B)
 private val TextMuted = Color(0xFF8E95A5)
 
 /**
- * 🧭 পাথ-মেমোরি হেল্পার: ভিডিও প্লেয়ার থেকে ব্যাক করলে হুবহু সেই ট্যাব ও ফোল্ডারে ফিরিয়ে আনে
+ * 🧭 পাথ-মেমোরি হেল্পার
  */
 object GalleryNavMemory {
     var activeTabPageIndex: Int = 0 // 0: Folders, 1: Videos, 2: Music, 3: Images, 4: Files
@@ -96,7 +97,7 @@ object GalleryNavMemory {
 }
 
 /**
- * ⚡ ইন-মেমোরি ফাস্ট ফোল্ডার জেনারেটর
+ * ⚡ ইন-মেমোরি ফাস্ট ফোল্ডার জেনারেটর (RAM প্রসেসিং)
  */
 private fun groupItemsIntoFoldersFast(items: List<LocalVideoItem>): List<LocalVideoFolder> {
     return items.groupBy { it.bucketId.ifBlank { it.folderName.hashCode().toString() } }
@@ -129,13 +130,11 @@ fun LocalGalleryScreen(
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    // 🎯 পাথ মেমোরি থেকে পূর্বে থাকা ট্যাব পুনরুদ্ধার
     val tabPagerState = rememberPagerState(
         initialPage = GalleryNavMemory.activeTabPageIndex.coerceIn(0, 4),
         pageCount = { 5 }
     )
 
-    // পেজ পরিবর্তন হলে মেমোরিতে ট্র্যাক রাখা
     LaunchedEffect(tabPagerState.currentPage) {
         GalleryNavMemory.activeTabPageIndex = tabPagerState.currentPage
     }
@@ -163,9 +162,7 @@ fun LocalGalleryScreen(
     var deleteProgressState by remember { mutableStateOf(DeleteProgressState()) }
     var showDeleteProgressDialog by remember { mutableStateOf(false) }
 
-    // 🌟 Starred Items আলাদা পেজ স্টেট
     var showStarredScreen by remember { mutableStateOf(false) }
-
     var showRecycleBinScreen by remember { mutableStateOf(false) }
     var showSafePinScreen by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
@@ -196,9 +193,6 @@ fun LocalGalleryScreen(
         )
     }
 
-    // =========================================================================
-    // ⚡ ইনস্ট্যান্ট আল্ট্রা-ফাস্ট মিডিয়া লোডার (< 1s)
-    // =========================================================================
     fun loadGalleryData() {
         coroutineScope.launch {
             val vids = withContext(Dispatchers.IO) {
@@ -208,14 +202,12 @@ fun LocalGalleryScreen(
             val folders = groupItemsIntoFoldersFast(vids)
             videoFolders = folders
 
-            // 🎯 পাথ মেমোরিতে থাকা পূর্বে ওপেন করা ফোল্ডার স্বয়ংক্রিয়ভাবে পুনরুদ্ধার
             if (GalleryNavMemory.activeFolderBucketId != null && selectedFolder == null) {
                 selectedFolder = folders.find { it.bucketId == GalleryNavMemory.activeFolderBucketId }
             }
 
             isLoading = false
 
-            // ব্যাকগ্রাউন্ড থ্রেডে প্যারালাল অ্যাসুরেন্সে অডিও, ইমেজ ও ফাইল লোড
             launch(Dispatchers.IO) {
                 val audsDeferred = async { LocalMediaScanner.getAllAudioTracks(context) }
                 val imgsDeferred = async { LocalMediaScanner.getAllImages(context) }
@@ -264,6 +256,33 @@ fun LocalGalleryScreen(
         }
     }
 
+    // =========================================================================
+    // ⚡ টপ-লেভেল মেমোইজেশন: সোয়াইপ বা পেজ পরিবর্তনের সময় যাতে কোনো ল্যাগ না হয়
+    // =========================================================================
+    val displayVideoFolders = remember(videoFolders, searchQuery) {
+        if (searchQuery.isBlank()) videoFolders
+        else videoFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val displayVideos = remember(allIndexedVideos, sortOrder, filterConfig, searchQuery) {
+        LocalMediaScanner.applyFiltersAndSorting(allIndexedVideos, sortOrder, filterConfig, searchQuery)
+    }
+
+    val displayAudios = remember(allIndexedAudios, searchQuery) {
+        if (searchQuery.isBlank()) allIndexedAudios
+        else allIndexedAudios.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val displayImages = remember(allIndexedImages, searchQuery) {
+        if (searchQuery.isBlank()) allIndexedImages
+        else allIndexedImages.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val displayFiles = remember(allIndexedFiles, searchQuery) {
+        if (searchQuery.isBlank()) allIndexedFiles
+        else allIndexedFiles.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
+    }
+
     val currentActiveItems = remember(tabPagerState.currentPage, allIndexedVideos, allIndexedAudios, allIndexedImages, allIndexedFiles) {
         when (tabPagerState.currentPage) {
             0, 1 -> allIndexedVideos
@@ -285,7 +304,7 @@ fun LocalGalleryScreen(
     }
 
     // =========================================================================
-    // 🔙 ১০০% নিখুঁত পাথ-ফলোয়িং ব্যাক ন্যাভিগেশন
+    // 🔙 স্মার্ট ব্যাক ন্যাভিগেশন (পাথ অনুসরণ)
     // =========================================================================
     BackHandler {
         if (fullscreenImageIndex != -1) {
@@ -308,16 +327,16 @@ fun LocalGalleryScreen(
             isSearchActive = false
             searchQuery = ""
         } else if (selectedFolder != null) {
-            // ফোল্ডার থেকে বের হওয়া
             selectedFolder = null
             GalleryNavMemory.activeFolderBucketId = null
         } else if (tabPagerState.currentPage != 0) {
-            // যেকোনো ট্যাব থেকে Folders ট্যাবে ফেরত
             coroutineScope.launch {
-                tabPagerState.animateScrollToPage(0)
+                tabPagerState.animateScrollToPage(
+                    page = 0,
+                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                )
             }
         } else {
-            // গ্যালারি স্ক্রিন এক্সিট
             onBackClick()
         }
     }
@@ -333,7 +352,7 @@ fun LocalGalleryScreen(
         return
     }
 
-    // 🌟 Starred Items আলাদা ডেডিকেটেড পেজ
+    // Starred Items আলাদা পেজ
     if (showStarredScreen) {
         val allStarredItems = remember(allIndexedVideos, allIndexedAudios, allIndexedImages, allIndexedFiles) {
             val starredPaths = LocalMediaScanner.getStarredPaths(context)
@@ -347,7 +366,6 @@ fun LocalGalleryScreen(
                 .statusBarsPadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Starred পেজ হেডার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -418,7 +436,7 @@ fun LocalGalleryScreen(
         GalleryRecycleBinScreen(
             onBackClick = {
                 showRecycleBinScreen = false
-                loadBinDataSafe(context) { loadGalleryData() }
+                loadGalleryData()
             }
         )
         return
@@ -447,13 +465,15 @@ fun LocalGalleryScreen(
                         drawerState.close()
                         selectedFolder = null
                         GalleryNavMemory.activeFolderBucketId = null
-                        tabPagerState.animateScrollToPage(2)
+                        tabPagerState.animateScrollToPage(
+                            page = 2,
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        )
                     }
                 },
                 onOpenStarred = {
                     coroutineScope.launch {
                         drawerState.close()
-                        // 🌟 Starred Items আলাদা পেজ ওপেন
                         showStarredScreen = true
                     }
                 },
@@ -687,7 +707,10 @@ fun LocalGalleryScreen(
                                     indication = null
                                 ) {
                                     coroutineScope.launch {
-                                        tabPagerState.animateScrollToPage(0)
+                                        tabPagerState.animateScrollToPage(
+                                            page = 0,
+                                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                                        )
                                     }
                                 }
                                 .padding(vertical = 4.dp)
@@ -719,7 +742,10 @@ fun LocalGalleryScreen(
                                             indication = null
                                         ) {
                                             coroutineScope.launch {
-                                                tabPagerState.animateScrollToPage(targetPage)
+                                                tabPagerState.animateScrollToPage(
+                                                    page = targetPage,
+                                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                                                )
                                             }
                                         }
                                         .padding(vertical = 4.dp)
@@ -730,7 +756,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // ↔️ ৩. ফ্লুইড সোয়াইপেবল HorizontalPager
+                // ↔️ ৩. বাটার-স্মুথ প্রি-রেন্ডারড HorizontalPager (মাখনের মতো নেভিগেশন)
                 // =============================================================
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
@@ -782,7 +808,6 @@ fun LocalGalleryScreen(
                                             } else if (item.mimeType?.startsWith("image") == true) {
                                                 fullscreenImageIndex = allIndexedImages.indexOfFirst { it.id == item.id }
                                             } else {
-                                                // 🎯 পাথ মেমোরি সেভ করে ভিডিও ওপেন
                                                 GalleryNavMemory.activeFolderBucketId = selectedFolder?.bucketId
                                                 onVideoClick(item)
                                             }
@@ -810,7 +835,6 @@ fun LocalGalleryScreen(
                                             } else if (item.mimeType?.startsWith("image") == true) {
                                                 fullscreenImageIndex = allIndexedImages.indexOfFirst { it.id == item.id }
                                             } else {
-                                                // 🎯 পাথ মেমোরি সেভ করে ভিডিও ওপেন
                                                 GalleryNavMemory.activeFolderBucketId = selectedFolder?.bucketId
                                                 onVideoClick(item)
                                             }
@@ -822,19 +846,16 @@ fun LocalGalleryScreen(
                             }
                         }
                     } else {
+                        // 🌟 beyondViewportPageCount = 1 দ্বারা ব্যাকগ্রাউন্ডে প্রি-রেন্ডার থাকায় সোয়াইপ একদম ল্যাগ-মুক্ত
                         HorizontalPager(
                             state = tabPagerState,
+                            beyondViewportPageCount = 1,
                             modifier = Modifier.fillMaxSize()
                         ) { page ->
                             when (page) {
                                 // পেজ ০: Folders
                                 0 -> {
-                                    val displayFolders = remember(videoFolders, searchQuery) {
-                                        if (searchQuery.isBlank()) videoFolders
-                                        else videoFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
-                                    }
-
-                                    if (displayFolders.isEmpty()) {
+                                    if (displayVideoFolders.isEmpty()) {
                                         EmptyGalleryNotice("No video folders found")
                                     } else {
                                         LazyColumn(
@@ -842,7 +863,7 @@ fun LocalGalleryScreen(
                                             contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 100.dp),
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            items(displayFolders, key = { it.bucketId }) { folder ->
+                                            items(displayVideoFolders, key = { it.bucketId }) { folder ->
                                                 ScreenshotStyleFolderItem(
                                                     folder = folder,
                                                     onClick = {
@@ -857,15 +878,6 @@ fun LocalGalleryScreen(
 
                                 // পেজ ১: Videos
                                 1 -> {
-                                    val displayVideos = remember(allIndexedVideos, sortOrder, filterConfig, searchQuery) {
-                                        LocalMediaScanner.applyFiltersAndSorting(
-                                            videos = allIndexedVideos,
-                                            sortOrder = sortOrder,
-                                            filterConfig = filterConfig,
-                                            searchQuery = searchQuery
-                                        )
-                                    }
-
                                     if (displayVideos.isEmpty()) {
                                         EmptyGalleryNotice("No videos found")
                                     } else if (isGridView) {
@@ -923,11 +935,6 @@ fun LocalGalleryScreen(
 
                                 // পেজ ২: Music
                                 2 -> {
-                                    val displayAudios = remember(allIndexedAudios, searchQuery) {
-                                        if (searchQuery.isBlank()) allIndexedAudios
-                                        else allIndexedAudios.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
-                                    }
-
                                     if (displayAudios.isEmpty()) {
                                         EmptyGalleryNotice("No audio tracks found")
                                     } else {
@@ -959,11 +966,6 @@ fun LocalGalleryScreen(
 
                                 // পেজ ৩: Images
                                 3 -> {
-                                    val displayImages = remember(allIndexedImages, searchQuery) {
-                                        if (searchQuery.isBlank()) allIndexedImages
-                                        else allIndexedImages.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
-                                    }
-
                                     if (displayImages.isEmpty()) {
                                         EmptyGalleryNotice("No images found")
                                     } else {
@@ -997,11 +999,6 @@ fun LocalGalleryScreen(
 
                                 // পেজ ৪: Files
                                 4 -> {
-                                    val displayFiles = remember(allIndexedFiles, searchQuery) {
-                                        if (searchQuery.isBlank()) allIndexedFiles
-                                        else allIndexedFiles.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
-                                    }
-
                                     if (displayFiles.isEmpty()) {
                                         EmptyGalleryNotice("No files found")
                                     } else {
@@ -1349,10 +1346,6 @@ fun LocalGalleryScreen(
             }
         }
     }
-}
-
-private fun loadBinDataSafe(context: Context, onDone: () -> Unit) {
-    onDone()
 }
 
 // =============================================================================
