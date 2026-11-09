@@ -14,7 +14,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -35,9 +34,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -120,6 +123,140 @@ private val TelegramDarkMenuBg = Color(0xFF232D3B)
 private val TelegramMenuBorder = Color(0xFF323F52)
 private val TelegramMenuText = Color(0xFFE4ECF5)
 
+// =========================================================================
+// 🎯 ১ নম্বর ছবির হুবহু ভেক্টর আউটলাইন Prev এবং Next আইকন কম্পোনেন্ট
+// =========================================================================
+
+@Composable
+fun EpisodePrevNavButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val tintColor = if (enabled) Color(0xFF9E9E9E) else Color(0xFF555555)
+
+    Column(
+        modifier = modifier
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // ১ নম্বর ছবির হুবহু |◁ আউটলাইন আইকন
+        Canvas(modifier = Modifier.size(width = 22.dp, height = 18.dp)) {
+            val strokeW = 1.9.dp.toPx()
+            val w = size.width
+            val h = size.height
+
+            // বাম পাশের খাঁড়া দণ্ড (|)
+            drawLine(
+                color = tintColor,
+                start = Offset(x = w * 0.16f, y = h * 0.12f),
+                end = Offset(x = w * 0.16f, y = h * 0.88f),
+                strokeWidth = strokeW,
+                cap = StrokeCap.Round
+            )
+
+            // বামমুখী ত্রিভুজ আউটলাইন (◁)
+            val trianglePath = Path().apply {
+                moveTo(w * 0.88f, h * 0.15f)
+                lineTo(w * 0.36f, h * 0.50f)
+                lineTo(w * 0.88f, h * 0.85f)
+                close()
+            }
+            drawPath(
+                path = trianglePath,
+                color = tintColor,
+                style = Stroke(
+                    width = strokeW,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        Text(
+            text = "Prev",
+            color = tintColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun EpisodeNextNavButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val tintColor = if (enabled) Color.White else Color(0xFF666666)
+
+    Column(
+        modifier = modifier
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // ১ নম্বর ছবির হুবহু ▷| আউটলাইন আইকন
+        Canvas(modifier = Modifier.size(width = 22.dp, height = 18.dp)) {
+            val strokeW = 1.9.dp.toPx()
+            val w = size.width
+            val h = size.height
+
+            // ডানমুখী ত্রিভুজ আউটলাইন (▷)
+            val trianglePath = Path().apply {
+                moveTo(w * 0.12f, h * 0.15f)
+                lineTo(w * 0.64f, h * 0.50f)
+                lineTo(w * 0.12f, h * 0.85f)
+                close()
+            }
+            drawPath(
+                path = trianglePath,
+                color = tintColor,
+                style = Stroke(
+                    width = strokeW,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // ডান পাশের খাঁড়া দণ্ড (|)
+            drawLine(
+                color = tintColor,
+                start = Offset(x = w * 0.84f, y = h * 0.12f),
+                end = Offset(x = w * 0.84f, y = h * 0.88f),
+                strokeWidth = strokeW,
+                cap = StrokeCap.Round
+            )
+        }
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        Text(
+            text = "Next",
+            color = tintColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+// =========================================================================
+// 🎬 মূল হেডার সেকশন
+// =========================================================================
+
 @Composable
 fun PlayerHeaderSection(
     content: ContentItemDto,
@@ -144,7 +281,6 @@ fun PlayerHeaderSection(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val pullDownOffsetY = remember { Animatable(0f) }
 
     var showContextMenu by remember { mutableStateOf(false) }
     var isShowingFullEmojiPickerInPopup by remember { mutableStateOf(false) }
@@ -214,15 +350,11 @@ fun PlayerHeaderSection(
         reactions.filter { it.key.lowercase() != "heart" && it.value > 0 }
     }
 
-    // =========================================================================
-    // 🎯 নির্দিষ্ট ইমোজির অ্যানিমেশন ট্র্যাকার
-    // =========================================================================
     var animatingReactionKey by remember { mutableStateOf<String?>(null) }
     val reactionAnimScale = remember { Animatable(1f) }
 
     fun triggerReactionWithBounce(key: String) {
         coroutineScope.launch {
-            // শুধুমাত্র যেই ইমোজি পাঠানো হয়েছে সেটির কী (Key) সেট করা
             animatingReactionKey = key.lowercase()
             reactionAnimScale.snapTo(0.55f)
             reactionAnimScale.animateTo(
@@ -234,7 +366,7 @@ fun PlayerHeaderSection(
             )
             delay(130)
             reactionAnimScale.animateTo(1f, tween(150))
-            animatingReactionKey = null // অ্যানিমেশন শেষে রিসেট
+            animatingReactionKey = null
         }
 
         if (key.equals("heart", ignoreCase = true)) {
@@ -250,7 +382,7 @@ fun PlayerHeaderSection(
                 .fillMaxWidth()
                 .padding(bottom = 2.dp)
         ) {
-            // ১. টাইটেল ও Pre / Next বাটন
+            // ১. টাইটেল ও ১ নম্বর ছবির মতো Prev / Next বাটন
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -261,7 +393,7 @@ fun PlayerHeaderSection(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 8.dp),
+                        .padding(end = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
@@ -302,59 +434,33 @@ fun PlayerHeaderSection(
                     }
                 }
 
-                // ডান পাশের Pre/Next এবং কালো ইন্টারঅ্যাক্টিভ এরিয়া
+                // =========================================================================
+                // 🎯 ডানপাশে ১ নম্বর ছবির হুবহু [Prev] এবং [Next] বাটন ও রিঅ্যাকশন কাউন্টার
+                // =========================================================================
                 Column(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF161A23),
-                            border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                            modifier = Modifier
-                                .size(width = 54.dp, height = 30.dp)
-                                .clickable { onPreviousClick() }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "Pre",
-                                    color = Color(0xFFB0B7C6),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
+                        // ১ নম্বর ছবির হুবহু Prev বাটন
+                        EpisodePrevNavButton(
+                            onClick = onPreviousClick
+                        )
 
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF161A23),
-                            border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                            modifier = Modifier
-                                .size(width = 54.dp, height = 30.dp)
-                                .clickable { onNextClick() }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "Next",
-                                    color = Color(0xFFB0B7C6),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
+                        // ১ নম্বর ছবির হুবহু Next বাটন
+                        EpisodeNextNavButton(
+                            onClick = onNextClick
+                        )
                     }
 
-                    // =====================================================================
-                    // 🎯 কালো ইন্টারঅ্যাক্টিভ এরিয়া:
-                    // =====================================================================
+                    // রিঅ্যাকশন এরিয়া
                     Box(
                         modifier = Modifier
-                            .widthIn(min = 190.dp)
-                            .heightIn(min = 40.dp)
+                            .widthIn(min = 180.dp)
+                            .heightIn(min = 34.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.Transparent)
                             .pointerInput(isLiked, likesCount, myReaction, reactions) {
@@ -367,14 +473,13 @@ fun PlayerHeaderSection(
                                     }
                                 )
                             }
-                            .padding(top = 4.dp, bottom = 2.dp),
+                            .padding(top = 2.dp, bottom = 2.dp),
                         contentAlignment = Alignment.CenterEnd
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // ১. অন্যান্য রিঅ্যাকশনসমূহ (🎯 শুধুমাত্র সিলেক্টেড ইমোজির স্কেল অ্যানিমেট হবে)
                             if (activeOtherReactions.isNotEmpty()) {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -382,13 +487,13 @@ fun PlayerHeaderSection(
                                 ) {
                                     activeOtherReactions.toList().take(3).forEach { (key, count) ->
                                         val emojiChar = getEmojiSymbolForKey(key)
-                                        val isThisEmojiAnimating = (animatingReactionKey.equals(key, ignoreCase = true))
+                                        val isThisEmojiAnimating = animatingReactionKey.equals(key, ignoreCase = true)
                                         val currentScale = if (isThisEmojiAnimating) reactionAnimScale.value else 1f
 
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                            modifier = Modifier.scale(currentScale) // 👈 শুধুমাত্র এই ইমোজিতে স্কেল হবে
+                                            modifier = Modifier.scale(currentScale)
                                         ) {
                                             Text(text = emojiChar, fontSize = 12.sp)
                                             Text(
@@ -402,14 +507,13 @@ fun PlayerHeaderSection(
                                 }
                             }
 
-                            // ২. লাভ রিঅ্যাক্ট (🎯 শুধুমাত্র লাভ পাঠানো হলে অ্যানিমেট হবে)
-                            val isHeartAnimating = (animatingReactionKey.equals("heart", ignoreCase = true))
+                            val isHeartAnimating = animatingReactionKey.equals("heart", ignoreCase = true)
                             val heartScale = if (isHeartAnimating) reactionAnimScale.value else 1f
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                modifier = Modifier.scale(heartScale) // 👈 অন্য ইমোজি পাঠালে এটা ১f ফিক্সড থাকবে
+                                modifier = Modifier.scale(heartScale)
                             ) {
                                 Icon(
                                     imageVector = if (isLiked || myReaction?.equals("heart", true) == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -425,7 +529,6 @@ fun PlayerHeaderSection(
                                 )
                             }
 
-                            // ৩. ভিউস কাউন্টার
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -448,7 +551,7 @@ fun PlayerHeaderSection(
                 }
             }
 
-            // ডেসক্রিপশন এক্সপ্যান্ডেড ভিউ
+            // ডেসক্রিপশন ড্রপডাউন
             if (isDescriptionExpanded) {
                 Column(
                     modifier = Modifier
@@ -466,15 +569,13 @@ fun PlayerHeaderSection(
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রাম পপআপ
+        // 🌟 টেলিগ্রাম স্টাইল রিয়্যাকশন পপআপ
         // =========================================================================
         if (showContextMenu) {
             Popup(
                 alignment = Alignment.TopEnd,
                 offset = IntOffset(x = (-12).dp.value.toInt(), y = 64.dp.value.toInt()),
-                onDismissRequest = {
-                    dismissPopupSmoothly()
-                },
+                onDismissRequest = { dismissPopupSmoothly() },
                 properties = PopupProperties(
                     focusable = true,
                     dismissOnBackPress = true,
@@ -535,7 +636,7 @@ fun PlayerHeaderSection(
                                                     modifier = Modifier
                                                         .clip(CircleShape)
                                                         .clickable {
-                                                            triggerReactionWithBounce(item.key) // 👈 নির্দিষ্ট ইমোজিতে বাউন্স শুরু হবে
+                                                            triggerReactionWithBounce(item.key)
                                                             dismissPopupSmoothly()
                                                         }
                                                         .padding(3.dp)
@@ -548,9 +649,7 @@ fun PlayerHeaderSection(
                                                 .size(26.dp)
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF333E50))
-                                                .clickable {
-                                                    isShowingFullEmojiPickerInPopup = true
-                                                },
+                                                .clickable { isShowingFullEmojiPickerInPopup = true },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
@@ -591,9 +690,7 @@ fun PlayerHeaderSection(
                                             icon = Icons.AutoMirrored.Filled.Reply,
                                             label = "Reply",
                                             onClick = {
-                                                dismissPopupSmoothly {
-                                                    onReplyClick()
-                                                }
+                                                dismissPopupSmoothly { onReplyClick() }
                                             }
                                         )
 
@@ -680,9 +777,7 @@ fun PlayerHeaderSection(
                                                     .size(28.dp)
                                                     .clip(CircleShape)
                                                     .background(Color(0xFF2C394B))
-                                                    .clickable {
-                                                        isShowingFullEmojiPickerInPopup = false
-                                                    },
+                                                    .clickable { isShowingFullEmojiPickerInPopup = false },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
@@ -708,9 +803,7 @@ fun PlayerHeaderSection(
                                             modifier = Modifier
                                                 .size(20.dp)
                                                 .clip(CircleShape)
-                                                .clickable {
-                                                    dismissPopupSmoothly()
-                                                }
+                                                .clickable { dismissPopupSmoothly() }
                                         )
                                     }
 
@@ -730,7 +823,7 @@ fun PlayerHeaderSection(
                                                     .aspectRatio(1f)
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
-                                                        triggerReactionWithBounce(item.key) // 👈 ফুল গ্রিড থেকেও নির্দিষ্ট ইমোজি অ্যানিমেট হবে
+                                                        triggerReactionWithBounce(item.key)
                                                         dismissPopupSmoothly()
                                                     },
                                                 contentAlignment = Alignment.Center
