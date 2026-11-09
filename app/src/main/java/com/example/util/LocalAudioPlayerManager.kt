@@ -20,6 +20,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
+/**
+ * 🎵 LocalAudioPlayerManager
+ * লোকাল অডিও প্লেব্যাকের সেন্ট্রাল কন্ট্রোলার ও ব্যাকগ্রাউন্ড সার্ভিস সিঙ্ক ইঞ্জিন।
+ */
 object LocalAudioPlayerManager {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -96,7 +100,7 @@ object LocalAudioPlayerManager {
     }
 
     /**
-     * 🎶 অডিও ট্র্যাক চালানো ও ব্যাকগ্রাউন্ড সার্ভিস সক্রিয় করা
+     * 🎶 অডিও ট্র্যাক চালানো ও সাথে সাথে নোটিফিকেশন সার্ভিস সক্রিয় করা
      */
     fun playTrack(context: Context, track: LocalVideoItem, trackList: List<LocalVideoItem> = emptyList()) {
         init(context)
@@ -116,9 +120,14 @@ object LocalAudioPlayerManager {
         player.prepare()
         player.play()
 
-        // 🌟 কভার আর্ট ব্যাকগ্রাউন্ডে লোড এবং Foreground Notification Service চালু
+        // 🚀 ১. কভার আর্টের জন্য অপেক্ষা না করে সাথে সাথে সার্ভিস স্টার্ট (ইনস্ট্যান্ট নোটিফিকেশন)
+        AudioPlaybackService.start(context)
+
+        // 🌟 ২. ব্যাকগ্রাউন্ড থ্রেডে কভার আর্ট লোড এবং নোটিফিকেশন আপডেট
         scope.launch(Dispatchers.IO) {
-            cachedCoverBitmap = extractAlbumArt(context, track)
+            val art = extractAlbumArt(context, track)
+            cachedCoverBitmap = art
+            // ইমেজ ডিকোড হয়ে গেলে নোটিফিকেশনে কভার আর্ট সিঙ্ক করা
             withContext(Dispatchers.Main) {
                 AudioPlaybackService.start(context)
             }
@@ -126,7 +135,7 @@ object LocalAudioPlayerManager {
     }
 
     /**
-     * অডিও ফাইল থেকে অ্যালবাম আর্ট বা থাম্বনেইল উদ্ধার করে
+     * অডিও ফাইল থেকে অ্যালবাম আর্ট বা থাম্বনেইল উদ্ধার করে (Memory Safe)
      */
     private fun extractAlbumArt(context: Context, track: LocalVideoItem): Bitmap? {
         val retriever = MediaMetadataRetriever()
@@ -137,8 +146,22 @@ object LocalAudioPlayerManager {
                 retriever.setDataSource(context, Uri.parse(track.contentUriString))
             }
             val rawBytes = retriever.embeddedPicture
-            if (rawBytes != null) {
-                BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+            if (rawBytes != null && rawBytes.isNotEmpty()) {
+                val opts = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, opts)
+
+                // মেমোরি সুরক্ষার জন্য বড় ইমেজকে ২৫৬x২৫৬ সাইজে ডাউনস্কেল করা
+                var sampleSize = 1
+                while (opts.outWidth / sampleSize > 256 || opts.outHeight / sampleSize > 256) {
+                    sampleSize *= 2
+                }
+
+                val decodeOpts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts)
             } else {
                 null
             }
