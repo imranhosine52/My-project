@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -94,17 +96,28 @@ fun LocalGalleryScreen(
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    var activeTab by remember { mutableStateOf(MediaTabType.VIDEOS) }
+    // =========================================================================
+    // 🎯 ডানে-বামে স্মুথ সোয়াইপ পেজার (Videos, Music, Images, Files)
+    // =========================================================================
+    val tabPagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { MediaTabType.entries.size }
+    )
+
+    val currentActiveTab = remember(tabPagerState.currentPage) {
+        MediaTabType.entries[tabPagerState.currentPage]
+    }
+
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
     var specialView by remember { mutableStateOf(SpecialViewType.NONE) }
 
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    // ডিফল্ট ৩-কলাম গ্রিড ভিউ
     var isGridView by remember { mutableStateOf(true) }
 
-    var currentFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
-    var currentItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
+    // ⚡ মাখনের মতো মসৃণ ট্রানজিশনের জন্য সকল ট্যাবের ডেটা ক্যাশ
+    var allTabFolders by remember { mutableStateOf<Map<MediaTabType, List<LocalVideoFolder>>>(emptyMap()) }
+    var allTabItems by remember { mutableStateOf<Map<MediaTabType, List<LocalVideoItem>>>(emptyMap()) }
     var specialItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
 
     var viewingImageInitialIndex by remember { mutableIntStateOf(-1) }
@@ -120,7 +133,6 @@ fun LocalGalleryScreen(
     var showPinScreen by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
 
-    var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
@@ -142,13 +154,6 @@ fun LocalGalleryScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (Environment.isExternalStorageManager()) {
                 showStoragePermissionDialog = false
-                coroutineScope.launch {
-                    loadCategoryDataDirect(context, activeTab, specialView) { items, folders, specials ->
-                        currentItems = items
-                        currentFolders = folders
-                        specialItems = specials
-                    }
-                }
             }
         }
     }
@@ -169,41 +174,60 @@ fun LocalGalleryScreen(
         )
     }
 
-    fun loadSelectedCategoryData() {
-        if (activeTab == MediaTabType.FILES && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    // 🚀 ব্যাকগ্রাউন্ডে ডেটা লোড করার মেথড
+    fun loadDataForTab(tab: MediaTabType) {
+        coroutineScope.launch {
+            withContext(Dispatchers.IO) {
+                val items = when (tab) {
+                    MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
+                    MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
+                    MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
+                    MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
+                }
+                val folders = LocalMediaScanner.getCategoryFolders(context, tab.index)
+                allTabItems = allTabItems + (tab to items)
+                allTabFolders = allTabFolders + (tab to folders)
+            }
+        }
+    }
+
+    fun loadAllMediaData() {
+        if (currentActiveTab == MediaTabType.FILES && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 showStoragePermissionDialog = true
             }
         }
 
         coroutineScope.launch {
-            isLoading = true
             when (specialView) {
                 SpecialViewType.STARRED -> {
-                    val all = LocalMediaScanner.getAllVideos(context) +
-                            LocalMediaScanner.getAllAudioTracks(context) +
-                            LocalMediaScanner.getAllImages(context) +
-                            LocalMediaScanner.getAllDocuments(context)
-                    val starredPaths = LocalMediaScanner.getStarredPaths(context)
-                    specialItems = all.filter { it.path in starredPaths }
+                    withContext(Dispatchers.IO) {
+                        val all = LocalMediaScanner.getAllVideos(context) +
+                                LocalMediaScanner.getAllAudioTracks(context) +
+                                LocalMediaScanner.getAllImages(context) +
+                                LocalMediaScanner.getAllDocuments(context)
+                        val starredPaths = LocalMediaScanner.getStarredPaths(context)
+                        specialItems = all.filter { it.path in starredPaths }
+                    }
                 }
                 SpecialViewType.SAFE_FOLDER -> {
-                    specialItems = LocalMediaScanner.getSafeFolderItems(context)
+                    withContext(Dispatchers.IO) {
+                        specialItems = LocalMediaScanner.getSafeFolderItems(context)
+                    }
                 }
                 SpecialViewType.TRASH -> {
-                    specialItems = LocalMediaScanner.getTrashItems(context)
+                    withContext(Dispatchers.IO) {
+                        specialItems = LocalMediaScanner.getTrashItems(context)
+                    }
                 }
                 SpecialViewType.NONE -> {
-                    currentItems = when (activeTab) {
-                        MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
-                        MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
-                        MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
-                        MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
+                    // দ্রুত অভিজ্ঞতার জন্য প্রথমে অ্যাক্টিভ ট্যাব, তারপর বাকিগুলো লোড
+                    loadDataForTab(currentActiveTab)
+                    MediaTabType.entries.filter { it != currentActiveTab }.forEach { tab ->
+                        loadDataForTab(tab)
                     }
-                    currentFolders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
                 }
             }
-            isLoading = false
         }
     }
 
@@ -211,13 +235,17 @@ fun LocalGalleryScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
         hasPermission = permissionsToRequest.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
-        if (hasPermission) loadSelectedCategoryData()
+        if (hasPermission) loadAllMediaData()
     }
 
-    LaunchedEffect(activeTab, specialView, hasPermission) {
+    LaunchedEffect(tabPagerState.currentPage, specialView, hasPermission) {
         hasPermission = permissionsToRequest.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         if (hasPermission) {
-            loadSelectedCategoryData()
+            if (specialView != SpecialViewType.NONE) {
+                loadAllMediaData()
+            } else {
+                loadDataForTab(currentActiveTab)
+            }
         } else {
             permissionLauncher.launch(permissionsToRequest)
         }
@@ -235,9 +263,13 @@ fun LocalGalleryScreen(
             searchQuery = ""
         } else if (specialView != SpecialViewType.NONE) {
             specialView = SpecialViewType.NONE
-            loadSelectedCategoryData()
+            loadAllMediaData()
         } else if (selectedFolder != null) {
             selectedFolder = null
+        } else if (tabPagerState.currentPage != 0) {
+            coroutineScope.launch {
+                tabPagerState.animateScrollToPage(0, tween(250, easing = FastOutSlowInEasing))
+            }
         } else {
             onBackClick()
         }
@@ -262,10 +294,12 @@ fun LocalGalleryScreen(
         drawerContent = {
             GallerySidebarDrawerContent(
                 onOpenMusic = {
-                    coroutineScope.launch { drawerState.close() }
-                    specialView = SpecialViewType.NONE
-                    selectedFolder = null
-                    activeTab = MediaTabType.MUSIC
+                    coroutineScope.launch {
+                        drawerState.close()
+                        selectedFolder = null
+                        specialView = SpecialViewType.NONE
+                        tabPagerState.animateScrollToPage(MediaTabType.MUSIC.index, tween(300, easing = FastOutSlowInEasing))
+                    }
                 },
                 onOpenStarred = {
                     coroutineScope.launch { drawerState.close() }
@@ -298,7 +332,7 @@ fun LocalGalleryScreen(
             Column(modifier = Modifier.fillMaxSize()) {
 
                 // =============================================================
-                // 🔝 ১. টপ হেডার বার
+                // 🔝 ১. টপ হেডার বার (টাইটেল ট্যাবের সাথে পরিবর্তিত হবে)
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -321,7 +355,7 @@ fun LocalGalleryScreen(
                                     .clickable {
                                         if (specialView != SpecialViewType.NONE) specialView = SpecialViewType.NONE
                                         else selectedFolder = null
-                                        loadSelectedCategoryData()
+                                        loadAllMediaData()
                                     }
                             )
                         } else {
@@ -344,7 +378,7 @@ fun LocalGalleryScreen(
                                 specialView == SpecialViewType.SAFE_FOLDER -> "Safe Folder"
                                 specialView == SpecialViewType.TRASH -> "Recycle Bin"
                                 selectedFolder != null -> selectedFolder!!.folderName
-                                else -> activeTab.label
+                                else -> currentActiveTab.label
                             },
                             color = Color.White,
                             fontSize = 19.sp,
@@ -383,12 +417,14 @@ fun LocalGalleryScreen(
                             Icon(
                                 imageVector = Icons.Outlined.Folder,
                                 contentDescription = "Files",
-                                tint = if (activeTab == MediaTabType.FILES) ElectricBlue else Color.White,
+                                tint = if (currentActiveTab == MediaTabType.FILES) ElectricBlue else Color.White,
                                 modifier = Modifier
                                     .size(22.dp)
                                     .clickable {
                                         selectedFolder = null
-                                        activeTab = MediaTabType.FILES
+                                        coroutineScope.launch {
+                                            tabPagerState.animateScrollToPage(MediaTabType.FILES.index, tween(300, easing = FastOutSlowInEasing))
+                                        }
                                     }
                             )
                         }
@@ -459,7 +495,9 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // 📂 ২. ক্যাটাগরি ও ফোল্ডার হেডার
+                // =============================================================
+                // 📂 ২. স্ক্রিনশটের হুবহু সাব-ট্যাব বার (Folders | Videos Music Images Files)
+                // =============================================================
                 if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                     Row(
                         modifier = Modifier
@@ -475,31 +513,43 @@ fun LocalGalleryScreen(
                             fontWeight = FontWeight.Bold
                         )
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             MediaTabType.entries.forEach { tab ->
-                                val isSel = (tab == activeTab)
+                                val isSel = (tab.index == tabPagerState.currentPage)
                                 Text(
                                     text = tab.label,
                                     color = if (isSel) ElectricBlue else Color(0xFF8E95A5),
-                                    fontSize = 12.sp,
+                                    fontSize = 12.5.sp,
                                     fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .clickable { activeTab = tab }
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            coroutineScope.launch {
+                                                tabPagerState.animateScrollToPage(
+                                                    page = tab.index,
+                                                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                                                )
+                                            }
+                                        }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                // 📁 ৩. মূল গ্রিড/লিস্ট ভিউ (৩-কলাম বিন্যাস)
+                // =============================================================
+                // ↔️ ৩. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
+                // =============================================================
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = {
                         coroutineScope.launch {
                             isRefreshing = true
-                            loadSelectedCategoryData()
+                            loadAllMediaData()
                             delay(350)
                             isRefreshing = false
                         }
@@ -508,6 +558,7 @@ fun LocalGalleryScreen(
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 ) {
                     when {
+                        // স্পেশাল ভিউ (Starred, Safe Folder, Trash)
                         specialView != SpecialViewType.NONE -> {
                             val displayList = specialItems.filter { it.title.contains(searchQuery, ignoreCase = true) }
                             if (displayList.isEmpty()) {
@@ -526,7 +577,7 @@ fun LocalGalleryScreen(
                                         Screenshot2GridItem(
                                             item = item,
                                             onClick = {
-                                                handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                handleItemClick(item, displayList, currentActiveTab, context, onVideoClick) { list, idx ->
                                                     viewingImageList = list
                                                     viewingImageInitialIndex = idx
                                                 }
@@ -545,7 +596,7 @@ fun LocalGalleryScreen(
                                         Screenshot3ListItem(
                                             item = item,
                                             onClick = {
-                                                handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                handleItemClick(item, displayList, currentActiveTab, context, onVideoClick) { list, idx ->
                                                     viewingImageList = list
                                                     viewingImageInitialIndex = idx
                                                 }
@@ -557,8 +608,9 @@ fun LocalGalleryScreen(
                             }
                         }
 
+                        // ফোল্ডার ওপেন করা থাকলে ফোল্ডারের ভেতরের ফাইলসমূহ
                         selectedFolder != null -> {
-                            val folderMedia = currentItems
+                            val folderMedia = (allTabItems[currentActiveTab] ?: emptyList())
                                 .filter { it.bucketId == selectedFolder!!.bucketId }
                                 .filter { it.title.contains(searchQuery, ignoreCase = true) }
 
@@ -578,7 +630,7 @@ fun LocalGalleryScreen(
                                         Screenshot2GridItem(
                                             item = item,
                                             onClick = {
-                                                handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
+                                                handleItemClick(item, folderMedia, currentActiveTab, context, onVideoClick) { list, idx ->
                                                     viewingImageList = list
                                                     viewingImageInitialIndex = idx
                                                 }
@@ -597,7 +649,7 @@ fun LocalGalleryScreen(
                                         Screenshot3ListItem(
                                             item = item,
                                             onClick = {
-                                                handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
+                                                handleItemClick(item, folderMedia, currentActiveTab, context, onVideoClick) { list, idx ->
                                                     viewingImageList = list
                                                     viewingImageInitialIndex = idx
                                                 }
@@ -609,23 +661,34 @@ fun LocalGalleryScreen(
                             }
                         }
 
+                        // 🌟 মূল ফোল্ডার পেজার: ডানে-বামে সোয়াইপ করলে ট্যাব ও ফোল্ডার স্মুথলি চেঞ্জ হবে
                         else -> {
-                            val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
-                            if (filteredFolders.isEmpty()) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("No folders found", color = Color(0xFF6B7280), fontSize = 13.5.sp)
+                            HorizontalPager(
+                                state = tabPagerState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                            ) { pageIndex ->
+                                val tab = MediaTabType.entries[pageIndex]
+                                val folders = (allTabFolders[tab] ?: emptyList()).filter {
+                                    it.folderName.contains(searchQuery, ignoreCase = true)
                                 }
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, top = 6.dp, end = 16.dp, bottom = 100.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    items(filteredFolders, key = { it.bucketId }) { folder ->
-                                        ScreenshotStyleFolderItem(
-                                            folder = folder,
-                                            onClick = { selectedFolder = folder }
-                                        )
+
+                                if (folders.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No ${tab.label.lowercase()} folders found", color = Color(0xFF6B7280), fontSize = 13.5.sp)
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 16.dp, top = 6.dp, end = 16.dp, bottom = 100.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(folders, key = { "${tab.name}_${it.bucketId}" }) { folder ->
+                                            ScreenshotStyleFolderItem(
+                                                folder = folder,
+                                                onClick = { selectedFolder = folder }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -648,7 +711,7 @@ fun LocalGalleryScreen(
                                     LocalMediaScanner.emptyTrash(context)
                                     Toast.makeText(context, "Recycle Bin Cleared", Toast.LENGTH_SHORT).show()
                                     showEmptyTrashConfirmDialog = false
-                                    loadSelectedCategoryData()
+                                    loadAllMediaData()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF416C))
@@ -705,31 +768,31 @@ fun LocalGalleryScreen(
                     onToggleStar = {
                         LocalMediaScanner.toggleStarred(context, item.path)
                         selectedFileInfoItem = null
-                        loadSelectedCategoryData()
+                        loadAllMediaData()
                     },
                     onMoveToSafe = {
                         LocalMediaScanner.moveToSafeFolder(context, item.path)
                         Toast.makeText(context, "Moved to Safe Folder (Hidden)", Toast.LENGTH_SHORT).show()
                         selectedFileInfoItem = null
-                        loadSelectedCategoryData()
+                        loadAllMediaData()
                     },
                     onRestoreFromSafe = {
                         LocalMediaScanner.restoreFromSafeFolder(context, item.path)
                         Toast.makeText(context, "Unhidden from Safe Folder", Toast.LENGTH_SHORT).show()
                         selectedFileInfoItem = null
-                        loadSelectedCategoryData()
+                        loadAllMediaData()
                     },
                     onMoveToTrash = {
                         LocalMediaScanner.moveToTrash(context, item.path)
                         Toast.makeText(context, "Moved to Recycle Bin", Toast.LENGTH_SHORT).show()
                         selectedFileInfoItem = null
-                        loadSelectedCategoryData()
+                        loadAllMediaData()
                     },
                     onRestore = {
                         LocalMediaScanner.restoreFromTrash(context, item.path)
                         Toast.makeText(context, "Restored successfully", Toast.LENGTH_SHORT).show()
                         selectedFileInfoItem = null
-                        loadSelectedCategoryData()
+                        loadAllMediaData()
                     },
                     onDeletePermanently = {
                         coroutineScope.launch {
@@ -740,7 +803,7 @@ fun LocalGalleryScreen(
                                 Toast.LENGTH_SHORT
                             ).show()
                             selectedFileInfoItem = null
-                            loadSelectedCategoryData()
+                            loadAllMediaData()
                         }
                     }
                 )
@@ -754,7 +817,7 @@ fun LocalGalleryScreen(
                             val path = LocalMediaScanner.createNewFolderAtRoot(newFolderName)
                             Toast.makeText(context, if (path != null) "Folder Created" else "Failed", Toast.LENGTH_SHORT).show()
                             showCreateFolderDialog = false
-                            loadSelectedCategoryData()
+                            loadAllMediaData()
                         }
                     }
                 )
@@ -762,14 +825,14 @@ fun LocalGalleryScreen(
 
             movingItem?.let { itemToMove ->
                 MoveToFolderDialog(
-                    folders = currentFolders,
+                    folders = allTabFolders[currentActiveTab] ?: emptyList(),
                     onDismiss = { movingItem = null },
                     onMoveToExisting = { folder ->
                         coroutineScope.launch {
                             val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, folder.folderPath)
                             Toast.makeText(context, if (success) "Moved to ${folder.folderName}" else "Move failed", Toast.LENGTH_SHORT).show()
                             movingItem = null
-                            loadSelectedCategoryData()
+                            loadAllMediaData()
                         }
                     },
                     onCreateAndMove = { newFolderName ->
@@ -782,7 +845,7 @@ fun LocalGalleryScreen(
                                 Toast.makeText(context, "Could not create folder", Toast.LENGTH_SHORT).show()
                             }
                             movingItem = null
-                            loadSelectedCategoryData()
+                            loadAllMediaData()
                         }
                     }
                 )
@@ -796,7 +859,7 @@ fun LocalGalleryScreen(
                         val success = LocalMediaScanner.renameFile(context, item.path, newName)
                         Toast.makeText(context, if (success) "Renamed successfully" else "Rename failed", Toast.LENGTH_SHORT).show()
                         renamingItem = null
-                        loadSelectedCategoryData()
+                        loadAllMediaData()
                     }
                 )
             }
@@ -806,32 +869,11 @@ fun LocalGalleryScreen(
                     images = viewingImageList,
                     initialIndex = viewingImageInitialIndex,
                     onClose = { viewingImageInitialIndex = -1 },
-                    onImageUpdated = { loadSelectedCategoryData() }
+                    onImageUpdated = { loadAllMediaData() }
                 )
             }
         }
     }
-}
-
-private suspend fun loadCategoryDataDirect(
-    context: Context,
-    activeTab: MediaTabType,
-    specialView: SpecialViewType,
-    onLoaded: (List<LocalVideoItem>, List<LocalVideoFolder>, List<LocalVideoItem>) -> Unit
-) {
-    val items = when (activeTab) {
-        MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
-        MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
-        MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
-        MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
-    }
-    val folders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
-    val specials = when (specialView) {
-        SpecialViewType.SAFE_FOLDER -> LocalMediaScanner.getSafeFolderItems(context)
-        SpecialViewType.TRASH -> LocalMediaScanner.getTrashItems(context)
-        else -> emptyList()
-    }
-    onLoaded(items, folders, specials)
 }
 
 private fun handleItemClick(
