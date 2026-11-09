@@ -20,6 +20,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -33,12 +35,16 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -46,9 +52,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.model.*
+import com.example.ui.ShortTvCustomStackedIcon
 import com.example.ui.screens.localplayer.gallery.*
 import com.example.util.LocalMediaScanner
 import kotlinx.coroutines.Dispatchers
@@ -83,16 +92,40 @@ private val TextMuted = Color(0xFF8E95A5)
 fun LocalGalleryScreen(
     onBackClick: () -> Unit,
     onVideoClick: (videoItem: LocalVideoItem) -> Unit,
+    onNavigateToHome: () -> Unit = {},
+    onNavigateToShorts: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
+    val gallerySections = remember { GallerySection.entries.toTypedArray() }
+
     // =========================================================================
-    // 🗂️ Gallery State & Navigation
+    // 🔀 মাখনের মতো মসৃণ HorizontalPager & পাথ-ফলোয়িং ব্যাকস্ট্যাক
     // =========================================================================
-    var activeSection by remember { mutableStateOf(GallerySection.ALL_VIDEOS) }
+    val tabPagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { gallerySections.size }
+    )
+    val tabListScrollState = rememberLazyListState()
+
+    // ন্যাভিগেশন পাথ হিস্ট্রি (Backstack)
+    val tabHistory = remember { mutableStateListOf<Int>() }
+    var previousRecordedTab by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(tabPagerState.currentPage) {
+        val cur = tabPagerState.currentPage
+        if (cur != previousRecordedTab) {
+            tabHistory.add(previousRecordedTab)
+            previousRecordedTab = cur
+        }
+        tabListScrollState.animateScrollToItem(cur)
+    }
+
     var allIndexedVideos by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
     var folderList by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
@@ -124,6 +157,9 @@ fun LocalGalleryScreen(
     var movingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showStoragePermissionDialog by remember { mutableStateOf(false) }
+
+    // "See More" Floating Pop-up Navigation State
+    var isSeeMoreMenuExpanded by remember { mutableStateOf(false) }
 
     // Pull-to-refresh
     var isRefreshing by remember { mutableStateOf(false) }
@@ -194,9 +230,8 @@ fun LocalGalleryScreen(
         }
     }
 
-    // Filtered & Sorted Videos computation
-    val sectionVideos = remember(activeSection, allIndexedVideos) {
-        when (activeSection) {
+    fun getSectionVideos(section: GallerySection): List<LocalVideoItem> {
+        return when (section) {
             GallerySection.ALL_VIDEOS, GallerySection.FOLDERS -> allIndexedVideos
             GallerySection.RECENTLY_ADDED -> {
                 val fourteenDaysAgo = (System.currentTimeMillis() / 1000) - (14 * 24 * 3600)
@@ -219,19 +254,6 @@ fun LocalGalleryScreen(
         }
     }
 
-    val displayVideos = remember(sectionVideos, selectedFolder, sortOrder, filterConfig, searchQuery) {
-        val baseList = if (selectedFolder != null) {
-            sectionVideos.filter { it.bucketId == selectedFolder!!.bucketId }
-        } else sectionVideos
-
-        LocalMediaScanner.applyFiltersAndSorting(
-            videos = baseList,
-            sortOrder = sortOrder,
-            filterConfig = filterConfig,
-            searchQuery = searchQuery
-        )
-    }
-
     val totalSelectedBytes = remember(selectedVideoIds.toList(), allIndexedVideos) {
         allIndexedVideos.filter { selectedVideoIds.contains(it.id) }.sumOf { it.sizeBytes }
     }
@@ -242,8 +264,13 @@ fun LocalGalleryScreen(
         if (gb >= 1.0) String.format(java.util.Locale.US, "%.2f GB", gb) else String.format(java.util.Locale.US, "%.1f MB", mb)
     }
 
+    // =========================================================================
+    // 🔙 ১০০% পাথ-ফলোয়িং ব্যাক ন্যাভিগেশন (Path-following BackHandler)
+    // =========================================================================
     BackHandler {
-        if (drawerState.isOpen) {
+        if (isSeeMoreMenuExpanded) {
+            isSeeMoreMenuExpanded = false
+        } else if (drawerState.isOpen) {
             coroutineScope.launch { drawerState.close() }
         } else if (showRecycleBinScreen) {
             showRecycleBinScreen = false
@@ -256,9 +283,17 @@ fun LocalGalleryScreen(
             isSearchActive = false
             searchQuery = ""
         } else if (selectedFolder != null) {
-            selectedFolder = null
-        } else if (activeSection != GallerySection.ALL_VIDEOS) {
-            activeSection = GallerySection.ALL_VIDEOS
+            selectedFolder = null // ফোল্ডার থেকে ব্যাক করলে সেই ট্যাবের ফোল্ডার লিস্টে আসবে
+        } else if (tabHistory.isNotEmpty()) {
+            // পূর্বের ভিজিট করা ট্যাবে ফিরে যাবে
+            val previousTab = tabHistory.removeAt(tabHistory.lastIndex)
+            coroutineScope.launch {
+                tabPagerState.animateScrollToPage(previousTab)
+            }
+        } else if (tabPagerState.currentPage != 0) {
+            coroutineScope.launch {
+                tabPagerState.animateScrollToPage(0)
+            }
         } else {
             onBackClick()
         }
@@ -280,7 +315,9 @@ fun LocalGalleryScreen(
             onSuccess = {
                 isSafeFolderUnlocked = true
                 showSafePinScreen = false
-                activeSection = GallerySection.FAVORITES
+                coroutineScope.launch {
+                    tabPagerState.animateScrollToPage(GallerySection.FAVORITES.ordinal)
+                }
             },
             onBack = { showSafePinScreen = false }
         )
@@ -297,13 +334,17 @@ fun LocalGalleryScreen(
                     Toast.makeText(context, "Switching to Music Mode...", Toast.LENGTH_SHORT).show()
                 },
                 onOpenStarred = {
-                    coroutineScope.launch { drawerState.close() }
-                    activeSection = GallerySection.FAVORITES
+                    coroutineScope.launch {
+                        drawerState.close()
+                        tabPagerState.animateScrollToPage(GallerySection.FAVORITES.ordinal)
+                    }
                 },
                 onOpenSafeFolder = {
                     coroutineScope.launch { drawerState.close() }
                     if (isSafeFolderUnlocked) {
-                        activeSection = GallerySection.FAVORITES
+                        coroutineScope.launch {
+                            tabPagerState.animateScrollToPage(GallerySection.FAVORITES.ordinal)
+                        }
                     } else {
                         showSafePinScreen = true
                     }
@@ -324,7 +365,7 @@ fun LocalGalleryScreen(
             Column(modifier = Modifier.fillMaxSize()) {
 
                 // =============================================================
-                // 🔝 ১. Play Drama Flix Gallery Header Bar
+                // 🔝 ১. আল্ট্রা-ক্লিন হেডার বার (Play Drama Flix & GALLERY অপসারিত)
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -371,7 +412,7 @@ fun LocalGalleryScreen(
                                 Text(
                                     text = selectedFolder!!.folderName,
                                     color = Color.White,
-                                    fontSize = 17.sp,
+                                    fontSize = 16.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -394,57 +435,35 @@ fun LocalGalleryScreen(
                                 )
                             }
 
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = "Play Drama Flix",
-                                        color = Color.White,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = CyanAccent.copy(alpha = 0.15f)
-                                    ) {
-                                        Text(
-                                            text = "GALLERY",
-                                            color = CyanAccent,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Black,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = "${allIndexedVideos.size} Videos • ${folderList.size} Folders",
-                                    color = TextMuted,
-                                    fontSize = 11.5.sp
-                                )
-                            }
+                            // 🎯 শুধুমাত্র পরিচ্ছন্ন ভিডিও ও ফোল্ডার সংখ্যা
+                            Text(
+                                text = "${allIndexedVideos.size} Videos • ${folderList.size} Folders",
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
 
-                    // হেডার অ্যাকশন বাটনসমূহ (Search, Grid/List, Sort/Filter, Multi-select)
+                    // হেডার অ্যাকশন বাটনসমূহ (Search, Filter, Grid/List, Select All)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (isSelectionMode) {
+                            val activeSectionVideos = getSectionVideos(gallerySections[tabPagerState.currentPage])
                             TextButton(
                                 onClick = {
-                                    if (selectedVideoIds.size == displayVideos.size) {
+                                    if (selectedVideoIds.size == activeSectionVideos.size) {
                                         selectedVideoIds.clear()
                                     } else {
                                         selectedVideoIds.clear()
-                                        selectedVideoIds.addAll(displayVideos.map { it.id })
+                                        selectedVideoIds.addAll(activeSectionVideos.map { it.id })
                                     }
                                 }
                             ) {
                                 Text(
-                                    text = if (selectedVideoIds.size == displayVideos.size) "Deselect All" else "Select All",
+                                    text = if (selectedVideoIds.size == activeSectionVideos.size) "Deselect" else "Select All",
                                     color = CyanAccent,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
@@ -490,7 +509,7 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // সার্চ বার
+                // সার্চ বার (অ্যাক্টিভ হলে)
                 AnimatedVisibility(visible = isSearchActive && !isSelectionMode) {
                     Row(
                         modifier = Modifier
@@ -507,7 +526,7 @@ fun LocalGalleryScreen(
 
                         Box(modifier = Modifier.weight(1f)) {
                             if (searchQuery.isEmpty()) {
-                                Text("Search by name, folder or format...", color = TextMuted, fontSize = 13.sp)
+                                Text("Search by name or folder...", color = TextMuted, fontSize = 13.sp)
                             }
                             BasicTextField(
                                 value = searchQuery,
@@ -552,47 +571,58 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // 📑 ২. স্টিকি ৬-সেকশন ন্যাভিগেশন বার
+                // 📑 ২. বাটন ছাড়া পিওর টেক্সট ট্যাব (Clean Text Tabs with Underline)
                 // =============================================================
                 if (selectedFolder == null && !isSelectionMode) {
                     LazyRow(
+                        state = tabListScrollState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        items(GallerySection.entries.toTypedArray()) { section ->
-                            val isSelected = (section == activeSection)
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (isSelected) CyanAccent.copy(alpha = 0.18f) else SurfaceDarkCard,
-                                border = BorderStroke(
-                                    width = if (isSelected) 1.dp else 0.8.dp,
-                                    color = if (isSelected) CyanAccent else BorderSubtle
-                                ),
+                        itemsIndexed(gallerySections) { index, section ->
+                            val isSelected = (index == tabPagerState.currentPage)
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .clickable { activeSection = section }
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        coroutineScope.launch {
+                                            tabPagerState.animateScrollToPage(index)
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = section.displayName,
-                                        color = if (isSelected) CyanAccent else TextMuted,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
+                                Text(
+                                    text = section.displayName,
+                                    color = if (isSelected) CyanAccent else Color.White.copy(alpha = 0.65f),
+                                    fontSize = if (isSelected) 14.sp else 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+
+                                Spacer(modifier = Modifier.height(3.dp))
+
+                                // স্লিম আন্ডারলাইন ইন্ডিকেটর
+                                Box(
+                                    modifier = Modifier
+                                        .height(2.dp)
+                                        .width(if (isSelected) 22.dp else 0.dp)
+                                        .clip(RoundedCornerShape(1.dp))
+                                        .background(if (isSelected) CyanAccent else Color.Transparent)
+                                )
                             }
                         }
                     }
                 }
 
                 // =============================================================
-                // 🎬 ৩. ভিডিও গ্রিড / ফোল্ডার ব্রাউজার বডি (Pull-to-refresh সহ)
+                // ↔️ ৩. মাখনের মতো মসৃণ HorizontalPager (বাটারি স্মুথ সোয়াইপ)
                 // =============================================================
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
@@ -609,60 +639,34 @@ fun LocalGalleryScreen(
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    when {
-                        isLoading -> {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.5.dp)
-                            }
+                    if (isLoading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.5.dp)
                         }
-
-                        activeSection == GallerySection.FOLDERS && selectedFolder == null -> {
-                            val displayFolders = remember(folderList, searchQuery) {
-                                if (searchQuery.isBlank()) folderList
-                                else folderList.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
-                            }
-
-                            if (displayFolders.isEmpty()) {
-                                EmptyGalleryNotice("No video folders found")
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 90.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    items(displayFolders, key = { it.bucketId }) { folder ->
-                                        ScreenshotStyleFolderItem(
-                                            folder = folder,
-                                            onClick = { selectedFolder = folder }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        displayVideos.isEmpty() -> {
-                            EmptyGalleryNotice(
-                                message = if (searchQuery.isNotBlank()) "No videos match '$searchQuery'"
-                                else "No videos in ${activeSection.displayName}"
+                    } else if (selectedFolder != null) {
+                        // ফোল্ডারের ভেতরের ভিডিও ভিউ
+                        val folderVideos = remember(allIndexedVideos, selectedFolder, sortOrder, filterConfig, searchQuery) {
+                            val inFolder = allIndexedVideos.filter { it.bucketId == selectedFolder!!.bucketId }
+                            LocalMediaScanner.applyFiltersAndSorting(
+                                videos = inFolder,
+                                sortOrder = sortOrder,
+                                filterConfig = filterConfig,
+                                searchQuery = searchQuery
                             )
                         }
 
-                        isGridView -> {
+                        if (folderVideos.isEmpty()) {
+                            EmptyGalleryNotice("No videos found in this folder")
+                        } else if (isGridView) {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
-                                contentPadding = PaddingValues(
-                                    start = 8.dp,
-                                    top = 6.dp,
-                                    end = 8.dp,
-                                    bottom = if (isSelectionMode) 100.dp else 80.dp
-                                ),
+                                contentPadding = PaddingValues(start = 8.dp, top = 6.dp, end = 8.dp, bottom = 100.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(displayVideos, key = { it.id }) { item ->
+                                items(folderVideos, key = { it.id }) { item ->
                                     val isSelected = selectedVideoIds.contains(item.id)
-
                                     GalleryVideoGridCard(
                                         item = item,
                                         isSelected = isSelected,
@@ -676,30 +680,20 @@ fun LocalGalleryScreen(
                                             }
                                         },
                                         onLongClick = {
-                                            if (!isSelectionMode) {
-                                                selectedVideoIds.add(item.id)
-                                            }
+                                            if (!isSelectionMode) selectedVideoIds.add(item.id)
                                         },
                                         onMenuClick = { selectedActionItem = item }
                                     )
                                 }
                             }
-                        }
-
-                        else -> {
+                        } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(
-                                    start = 12.dp,
-                                    top = 6.dp,
-                                    end = 12.dp,
-                                    bottom = if (isSelectionMode) 100.dp else 80.dp
-                                ),
+                                contentPadding = PaddingValues(start = 12.dp, top = 6.dp, end = 12.dp, bottom = 100.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(displayVideos, key = { it.id }) { item ->
+                                items(folderVideos, key = { it.id }) { item ->
                                     val isSelected = selectedVideoIds.contains(item.id)
-
                                     GalleryVideoListCard(
                                         item = item,
                                         isSelected = isSelected,
@@ -713,12 +707,115 @@ fun LocalGalleryScreen(
                                             }
                                         },
                                         onLongClick = {
-                                            if (!isSelectionMode) {
-                                                selectedVideoIds.add(item.id)
-                                            }
+                                            if (!isSelectionMode) selectedVideoIds.add(item.id)
                                         },
                                         onMenuClick = { selectedActionItem = item }
                                     )
+                                }
+                            }
+                        }
+                    } else {
+                        // মূল HorizontalPager সোয়াইপ ভিউ
+                        HorizontalPager(
+                            state = tabPagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            val section = gallerySections[page]
+
+                            if (section == GallerySection.FOLDERS) {
+                                val displayFolders = remember(folderList, searchQuery) {
+                                    if (searchQuery.isBlank()) folderList
+                                    else folderList.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
+                                }
+
+                                if (displayFolders.isEmpty()) {
+                                    EmptyGalleryNotice("No video folders found")
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 100.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(displayFolders, key = { it.bucketId }) { folder ->
+                                            ScreenshotStyleFolderItem(
+                                                folder = folder,
+                                                onClick = { selectedFolder = folder }
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                val baseList = remember(section, allIndexedVideos) { getSectionVideos(section) }
+                                val displayList = remember(baseList, sortOrder, filterConfig, searchQuery) {
+                                    LocalMediaScanner.applyFiltersAndSorting(
+                                        videos = baseList,
+                                        sortOrder = sortOrder,
+                                        filterConfig = filterConfig,
+                                        searchQuery = searchQuery
+                                    )
+                                }
+
+                                if (displayList.isEmpty()) {
+                                    EmptyGalleryNotice(
+                                        if (searchQuery.isNotBlank()) "No videos match '$searchQuery'"
+                                        else "No videos in ${section.displayName}"
+                                    )
+                                } else if (isGridView) {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(3),
+                                        contentPadding = PaddingValues(start = 8.dp, top = 6.dp, end = 8.dp, bottom = 100.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        items(displayList, key = { it.id }) { item ->
+                                            val isSelected = selectedVideoIds.contains(item.id)
+                                            GalleryVideoGridCard(
+                                                item = item,
+                                                isSelected = isSelected,
+                                                isSelectionMode = isSelectionMode,
+                                                onClick = {
+                                                    if (isSelectionMode) {
+                                                        if (isSelected) selectedVideoIds.remove(item.id)
+                                                        else selectedVideoIds.add(item.id)
+                                                    } else {
+                                                        onVideoClick(item)
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    if (!isSelectionMode) selectedVideoIds.add(item.id)
+                                                },
+                                                onMenuClick = { selectedActionItem = item }
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 12.dp, top = 6.dp, end = 12.dp, bottom = 100.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(displayList, key = { it.id }) { item ->
+                                            val isSelected = selectedVideoIds.contains(item.id)
+                                            GalleryVideoListCard(
+                                                item = item,
+                                                isSelected = isSelected,
+                                                isSelectionMode = isSelectionMode,
+                                                onClick = {
+                                                    if (isSelectionMode) {
+                                                        if (isSelected) selectedVideoIds.remove(item.id)
+                                                        else selectedVideoIds.add(item.id)
+                                                    } else {
+                                                        onVideoClick(item)
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    if (!isSelectionMode) selectedVideoIds.add(item.id)
+                                                },
+                                                onMenuClick = { selectedActionItem = item }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -818,7 +915,36 @@ fun LocalGalleryScreen(
             }
 
             // =============================================================
-            // 🗑️ ৫. ডিলিশন ও লাইভ প্রগ্রেস ডায়ালগসমূহ
+            // 🌟 ৫. এক নম্বর ছবির মতো এক সাইডে "See More" অ্যানিমেটেড পপ-আপ নেভিগেশন
+            // =============================================================
+            if (!isSelectionMode) {
+                FloatingSeeMoreSpeedDialNav(
+                    isExpanded = isSeeMoreMenuExpanded,
+                    onToggleExpand = { isSeeMoreMenuExpanded = !isSeeMoreMenuExpanded },
+                    onNavigateToHome = {
+                        isSeeMoreMenuExpanded = false
+                        onNavigateToHome()
+                    },
+                    onNavigateToShorts = {
+                        isSeeMoreMenuExpanded = false
+                        onNavigateToShorts()
+                    },
+                    onNavigateToDownloads = {
+                        isSeeMoreMenuExpanded = false
+                        onNavigateToDownloads()
+                    },
+                    onNavigateToProfile = {
+                        isSeeMoreMenuExpanded = false
+                        onNavigateToProfile()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 20.dp, end = 16.dp)
+                )
+            }
+
+            // =============================================================
+            // 🗑️ ডায়ালগসমূহ (ডিলিট ও লাইভ প্রগ্রেস)
             // =============================================================
             if (showDeleteConfirmDialog) {
                 DeleteConfirmationDialog(
@@ -861,9 +987,7 @@ fun LocalGalleryScreen(
                 )
             }
 
-            // =============================================================
-            // ⚙️ ৬. সর্ট ও ফিল্টার বটম শিট
-            // =============================================================
+            // সর্ট ও ফিল্টার বটম শিট
             if (showSortFilterSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showSortFilterSheet = false },
@@ -1063,6 +1187,150 @@ fun LocalGalleryScreen(
                             }
                         }
                     }
+                )
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 🌟 এক নম্বর ছবির মতো এক সাইডে "See More" অ্যানিমেটেড স্পিড-ডায়াল উইজেট
+// =============================================================================
+@Composable
+private fun FloatingSeeMoreSpeedDialNav(
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onNavigateToHome: () -> Unit,
+    onNavigateToShorts: () -> Unit,
+    onNavigateToDownloads: () -> Unit,
+    onNavigateToProfile: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.wrapContentSize(),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // অ্যানিমেটেড পপ-আপ নেভিগেশন আইকনসমূহ (ট্যাপ করলে স্প্রিং অ্যানিমেশনের সাথে এক্সপ্যান্ড হবে)
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn(tween(180)) + slideInVertically(
+                initialOffsetY = { it / 2 },
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+            ),
+            exit = fadeOut(tween(150)) + slideOutVertically(
+                targetOffsetY = { it / 2 },
+                animationSpec = tween(150)
+            )
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xE6121724))
+                    .border(1.dp, Color(0xFF232D42), RoundedCornerShape(20.dp))
+                    .padding(vertical = 12.dp, horizontal = 12.dp)
+            ) {
+                PopUpNavItem(
+                    label = "Home",
+                    icon = Icons.Outlined.Home,
+                    iconColor = Color(0xFF00E5FF),
+                    onClick = onNavigateToHome
+                )
+                PopUpNavItem(
+                    label = "Short TV",
+                    customIcon = { tint -> ShortTvCustomStackedIcon(tint = tint, modifier = Modifier.size(20.dp)) },
+                    iconColor = Color(0xFF00E676),
+                    onClick = onNavigateToShorts
+                )
+                PopUpNavItem(
+                    label = "Downloads",
+                    icon = Icons.Outlined.FileDownload,
+                    iconColor = Color(0xFFFFB300),
+                    onClick = onNavigateToDownloads
+                )
+                PopUpNavItem(
+                    label = "Profile",
+                    icon = Icons.Outlined.Person,
+                    iconColor = Color(0xFFD49BFF),
+                    onClick = onNavigateToProfile
+                )
+            }
+        }
+
+        // ১ নম্বর ছবির মতো ^ See More বোতাম (এক সাইডে অবস্থান করে)
+        Surface(
+            onClick = onToggleExpand,
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xF2161E2E),
+            border = BorderStroke(1.2.dp, CyanAccent.copy(alpha = 0.6f)),
+            shadowElevation = 8.dp,
+            modifier = Modifier.wrapContentSize()
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Toggle More",
+                    tint = if (isExpanded) CyanAccent else Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = if (isExpanded) "Close" else "See More",
+                    color = if (isExpanded) CyanAccent else Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PopUpNavItem(
+    label: String,
+    icon: ImageVector? = null,
+    customIcon: (@Composable (Color) -> Unit)? = null,
+    iconColor: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+            .padding(vertical = 4.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(iconColor.copy(alpha = 0.15f))
+                .border(0.8.dp, iconColor.copy(alpha = 0.5f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (customIcon != null) {
+                customIcon(iconColor)
+            } else if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = iconColor,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
