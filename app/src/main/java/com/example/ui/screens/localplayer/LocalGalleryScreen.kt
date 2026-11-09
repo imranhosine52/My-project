@@ -6,17 +6,20 @@
 package com.example.ui.screens.localplayer
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -96,9 +99,6 @@ fun LocalGalleryScreen(
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    // =========================================================================
-    // 🎯 ডানে-বামে স্মুথ সোয়াইপ পেজার (Videos, Music, Images, Files)
-    // =========================================================================
     val tabPagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { MediaTabType.entries.size }
@@ -115,7 +115,6 @@ fun LocalGalleryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
 
-    // ⚡ মাখনের মতো মসৃণ ট্রানজিশনের জন্য সকল ট্যাবের ডেটা ক্যাশ
     var allTabFolders by remember { mutableStateOf<Map<MediaTabType, List<LocalVideoFolder>>>(emptyMap()) }
     var allTabItems by remember { mutableStateOf<Map<MediaTabType, List<LocalVideoItem>>>(emptyMap()) }
     var specialItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
@@ -136,10 +135,33 @@ fun LocalGalleryScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
+    // 🗑️ Android 11+ Scoped Storage Permanent Delete Launcher
+    val systemDeleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            Toast.makeText(context, "File permanently deleted from device storage", Toast.LENGTH_SHORT).show()
+            selectedFileInfoItem?.let { item ->
+                LocalMediaScanner.cleanUpDeletedPath(context, item.path)
+            }
+            selectedFileInfoItem = null
+            // রিফ্রেশ করা
+            coroutineScope.launch {
+                loadCategoryDataDirect(context, currentActiveTab, specialView) { items, folders, specials ->
+                    allTabItems = allTabItems + (currentActiveTab to items)
+                    allTabFolders = allTabFolders + (currentActiveTab to folders)
+                    specialItems = specials
+                }
+            }
+        } else {
+            Toast.makeText(context, "Delete cancelled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
+        if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spokenText.isNullOrBlank()) {
                 searchQuery = spokenText
@@ -148,12 +170,20 @@ fun LocalGalleryScreen(
         }
     }
 
+    // 🛡️ All Files Permission Settings Launcher
     val manageStorageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (Environment.isExternalStorageManager()) {
                 showStoragePermissionDialog = false
+                Toast.makeText(context, "All files access granted!", Toast.LENGTH_SHORT).show()
+                coroutineScope.launch {
+                    loadCategoryDataDirect(context, MediaTabType.FILES, specialView) { items, folders, specials ->
+                        allTabItems = allTabItems + (MediaTabType.FILES to items)
+                        allTabFolders = allTabFolders + (MediaTabType.FILES to folders)
+                    }
+                }
             }
         }
     }
@@ -174,7 +204,6 @@ fun LocalGalleryScreen(
         )
     }
 
-    // 🚀 ব্যাকগ্রাউন্ডে ডেটা লোড করার মেথড
     fun loadDataForTab(tab: MediaTabType) {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
@@ -192,12 +221,6 @@ fun LocalGalleryScreen(
     }
 
     fun loadAllMediaData() {
-        if (currentActiveTab == MediaTabType.FILES && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                showStoragePermissionDialog = true
-            }
-        }
-
         coroutineScope.launch {
             when (specialView) {
                 SpecialViewType.STARRED -> {
@@ -237,7 +260,22 @@ fun LocalGalleryScreen(
         if (hasPermission) loadAllMediaData()
     }
 
-    LaunchedEffect(tabPagerState.currentPage, specialView, hasPermission) {
+    // =========================================================================
+    // 🎯 ফিক্স ১: Files ট্যাবে প্রথমবার আসলেই পারমিশন চেক ও অটো-প্রম্পট
+    // =========================================================================
+    LaunchedEffect(tabPagerState.currentPage) {
+        if (currentActiveTab == MediaTabType.FILES && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                showStoragePermissionDialog = true
+            } else {
+                loadDataForTab(MediaTabType.FILES)
+            }
+        } else {
+            loadDataForTab(currentActiveTab)
+        }
+    }
+
+    LaunchedEffect(specialView, hasPermission) {
         hasPermission = permissionsToRequest.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         if (hasPermission) {
             if (specialView != SpecialViewType.NONE) {
@@ -267,7 +305,6 @@ fun LocalGalleryScreen(
             selectedFolder = null
         } else if (tabPagerState.currentPage != 0) {
             coroutineScope.launch {
-                // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
                 tabPagerState.animateScrollToPage(page = 0)
             }
         } else {
@@ -298,7 +335,6 @@ fun LocalGalleryScreen(
                         drawerState.close()
                         selectedFolder = null
                         specialView = SpecialViewType.NONE
-                        // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
                         tabPagerState.animateScrollToPage(page = MediaTabType.MUSIC.index)
                     }
                 },
@@ -333,7 +369,7 @@ fun LocalGalleryScreen(
             Column(modifier = Modifier.fillMaxSize()) {
 
                 // =============================================================
-                // 🔝 ১. টপ হেডার বার (টাইটেল ট্যাবের সাথে পরিবর্তিত হবে)
+                // 🔝 ১. টপ হেডার বার
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -424,7 +460,6 @@ fun LocalGalleryScreen(
                                     .clickable {
                                         selectedFolder = null
                                         coroutineScope.launch {
-                                            // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
                                             tabPagerState.animateScrollToPage(page = MediaTabType.FILES.index)
                                         }
                                     }
@@ -530,7 +565,6 @@ fun LocalGalleryScreen(
                                             indication = null
                                         ) {
                                             coroutineScope.launch {
-                                                // 🎯 ফিক্সড: নামসহ প্যারামিটার ব্যবহার করা হয়েছে
                                                 tabPagerState.animateScrollToPage(page = tab.index)
                                             }
                                         }
@@ -542,7 +576,7 @@ fun LocalGalleryScreen(
                 }
 
                 // =============================================================
-                // ↔️ ৩. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
+                // ↔️ ৩. সোয়াইপযোগ্য পেজার (HorizontalPager)
                 // =============================================================
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
@@ -608,7 +642,7 @@ fun LocalGalleryScreen(
                             }
                         }
 
-                        // ফোল্ডার ওপেন করা থাকলে ফোল্ডারের ভেতরের ফাইলসমূহ
+                        // ফোল্ডার ওপেন করা থাকলে ফোল্ডারের ফাইলসমূহ
                         selectedFolder != null -> {
                             val folderMedia = (allTabItems[currentActiveTab] ?: emptyList())
                                 .filter { it.bucketId == selectedFolder!!.bucketId }
@@ -673,8 +707,29 @@ fun LocalGalleryScreen(
                                 }
 
                                 if (folders.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("No ${tab.label.lowercase()} folders found", color = Color(0xFF6B7280), fontSize = 13.5.sp)
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Text(
+                                                text = "No ${tab.label.lowercase()} folders found",
+                                                color = Color(0xFF6B7280),
+                                                fontSize = 13.5.sp
+                                            )
+                                            if (tab == MediaTabType.FILES && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+                                                Button(
+                                                    onClick = { showStoragePermissionDialog = true },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Grant All Files Access", color = Color.White, fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
                                     }
                                 } else {
                                     LazyColumn(
@@ -726,11 +781,12 @@ fun LocalGalleryScreen(
                 )
             }
 
-            // ডায়ালগসমূহ
+            // 🛡️ All Files Permission ডায়ালগ
             if (showStoragePermissionDialog) {
                 StoragePermissionDialog(
                     onDismiss = { showStoragePermissionDialog = false },
                     onGrant = {
+                        showStoragePermissionDialog = false
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                             try {
                                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
@@ -746,6 +802,9 @@ fun LocalGalleryScreen(
                 )
             }
 
+            // =========================================================================
+            // 🎯 ফিক্স ২: পার্মানেন্ট ডিলিট হ্যান্ডলিং
+            // =========================================================================
             selectedFileInfoItem?.let { item ->
                 FileActionMenuSheet(
                     item = item,
@@ -795,14 +854,29 @@ fun LocalGalleryScreen(
                     },
                     onDeletePermanently = {
                         coroutineScope.launch {
-                            val success = LocalMediaScanner.deletePermanently(context, item.path)
-                            Toast.makeText(
-                                context,
-                                if (success) "Deleted permanently from storage" else "File deleted",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            selectedFileInfoItem = null
-                            loadAllMediaData()
+                            // ১. সরাসরি ডিলিট চেষ্টা (All Files Access থাকলে সাথে সাথে সফল হবে)
+                            val isDeleted = LocalMediaScanner.deletePermanently(context, item.path)
+                            if (isDeleted) {
+                                Toast.makeText(context, "Permanently deleted from device", Toast.LENGTH_SHORT).show()
+                                selectedFileInfoItem = null
+                                loadAllMediaData()
+                            } else {
+                                // ২. অন্য অ্যাপের ফাইল হলে Android 11+ System Delete Request ডায়ালগ তোলা
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    try {
+                                        val uriList = listOf(item.contentUri)
+                                        val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, uriList)
+                                        systemDeleteLauncher.launch(
+                                            IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                                        )
+                                    } catch (e: Exception) {
+                                        // যদি All Files পারমিশন মিসিং থাকে
+                                        showStoragePermissionDialog = true
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Permission required to delete this file", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
                     }
                 )
@@ -873,6 +947,27 @@ fun LocalGalleryScreen(
             }
         }
     }
+}
+
+private suspend fun loadCategoryDataDirect(
+    context: Context,
+    activeTab: MediaTabType,
+    specialView: SpecialViewType,
+    onLoaded: (List<LocalVideoItem>, List<LocalVideoFolder>, List<LocalVideoItem>) -> Unit
+) {
+    val items = when (activeTab) {
+        MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
+        MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
+        MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
+        MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
+    }
+    val folders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
+    val specials = when (specialView) {
+        SpecialViewType.SAFE_FOLDER -> LocalMediaScanner.getSafeFolderItems(context)
+        SpecialViewType.TRASH -> LocalMediaScanner.getTrashItems(context)
+        else -> emptyList()
+    }
+    onLoaded(items, folders, specials)
 }
 
 private fun handleItemClick(
