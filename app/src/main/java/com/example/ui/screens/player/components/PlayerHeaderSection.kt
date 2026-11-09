@@ -13,7 +13,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -124,10 +123,6 @@ private val TelegramDarkMenuBg = Color(0xFF232D3B)
 private val TelegramMenuBorder = Color(0xFF323F52)
 private val TelegramMenuText = Color(0xFFE4ECF5)
 
-// =========================================================================
-// 🎯 ১ নম্বর ছবির হুবহু ভেক্টর আউটলাইন Prev এবং Next বাটন
-// =========================================================================
-
 @Composable
 fun EpisodePrevNavButton(
     onClick: () -> Unit,
@@ -147,7 +142,6 @@ fun EpisodePrevNavButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // ১ নম্বর ছবির হুবহু |◁ আউটলাইন আইকন
         Canvas(modifier = Modifier.size(width = 22.dp, height = 18.dp)) {
             val strokeW = 1.9.dp.toPx()
             val w = size.width
@@ -208,7 +202,6 @@ fun EpisodeNextNavButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // ১ নম্বর ছবির হুবহু ▷| আউটলাইন আইকন
         Canvas(modifier = Modifier.size(width = 22.dp, height = 18.dp)) {
             val strokeW = 1.9.dp.toPx()
             val w = size.width
@@ -251,7 +244,7 @@ fun EpisodeNextNavButton(
 }
 
 // =========================================================================
-// 🎬 মূল হেডার সেকশন
+// 🎬 মূল হেডার সেকশন (২ নম্বর ছবির নিচে টানলে মাখনের মতো ফুলস্ক্রিন জেসচার সহ)
 // =========================================================================
 
 @Composable
@@ -283,7 +276,6 @@ fun PlayerHeaderSection(
     var isShowingFullEmojiPickerInPopup by remember { mutableStateOf(false) }
     var isDismissingPopup by remember { mutableStateOf(false) }
 
-    // 🛡️ ইমোজি একাধিকবার যাওয়া রোধ করতে স্ট্রং মিউটেক্স লক (Debounce Guard)
     var isReactionProcessingLocked by remember { mutableStateOf(false) }
 
     val popupScale = remember { Animatable(0.35f) }
@@ -352,7 +344,6 @@ fun PlayerHeaderSection(
     var animatingReactionKey by remember { mutableStateOf<String?>(null) }
     val reactionAnimScale = remember { Animatable(1f) }
 
-    // 🎯 একক ও সুরক্ষিত ইমোজি সেন্ড ফাংশন (Multiple Send সম্পূর্ণ বন্ধ)
     fun triggerSingleReaction(key: String) {
         if (isReactionProcessingLocked) return
         isReactionProcessingLocked = true
@@ -382,12 +373,36 @@ fun PlayerHeaderSection(
     }
 
     Box(modifier = modifier.fillMaxWidth()) {
+        // =========================================================================
+        // 🚀 ২ নম্বর ছবির চিহ্নিত সম্পূর্ণ এরিয়া জুড়ে নিচে টান দিলে মাখনের মতো ফুলস্ক্রিন
+        // =========================================================================
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 2.dp)
+                .pointerInput(Unit) {
+                    var totalDragDown = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { totalDragDown = 0f },
+                        onDragEnd = {
+                            if (totalDragDown > 35f) {
+                                onSwipeDownFullscreen()
+                            }
+                            totalDragDown = 0f
+                        },
+                        onDragCancel = { totalDragDown = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0 || totalDragDown > 0) {
+                                totalDragDown += dragAmount
+                                if (totalDragDown > 18f) {
+                                    change.consume()
+                                }
+                            }
+                        }
+                    )
+                }
         ) {
-            // ১. টাইটেল (নিচে টানলে ফুলস্ক্রিন) ও ডানপাশে Prev / Next বাটন
+            // ১. টাইটেল ও ডানপাশের Prev/Next এরিয়া
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -395,33 +410,10 @@ fun PlayerHeaderSection(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // =========================================================================
-                // 🚀 টাইটেলের এখানে ধরে নিচে টান দিলে মাখনের মতো ফুলস্ক্রিন হওয়ার জেসচার
-                // =========================================================================
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 12.dp)
-                        .pointerInput(Unit) {
-                            var dragDownAmount = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { dragDownAmount = 0f },
-                                onDragEnd = {
-                                    if (dragDownAmount > 30f) {
-                                        onSwipeDownFullscreen()
-                                    }
-                                    dragDownAmount = 0f
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    if (dragAmount > 0 || dragDownAmount > 0) {
-                                        dragDownAmount += dragAmount
-                                        if (dragDownAmount > 15f) {
-                                            change.consume()
-                                        }
-                                    }
-                                }
-                            )
-                        },
+                        .padding(end = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
@@ -462,9 +454,7 @@ fun PlayerHeaderSection(
                     }
                 }
 
-                // =========================================================================
-                // 🎯 ডানপাশে ১ নম্বর ছবির Prev ও Next বাটন এবং প্রতিক্রিয়া এরিয়া
-                // =========================================================================
+                // ডানপাশের Prev ও Next বাটন এবং প্রতিক্রিয়া এরিয়া
                 Column(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -482,7 +472,6 @@ fun PlayerHeaderSection(
                         )
                     }
 
-                    // রিঅ্যাকশন এলাকা (ডাবল-ট্যাপের রেন্ডম লাভ বাদ দিয়ে শুধুমাত্র একক ট্যাপে পপআপ ওপেন হবে)
                     Box(
                         modifier = Modifier
                             .widthIn(min = 180.dp)
@@ -591,7 +580,7 @@ fun PlayerHeaderSection(
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রাম স্টাইল রিয়্যাকশন পপআপ (ক্লিক করলেই একটি মাত্র ইমোজি সেন্ড হবে)
+        // 🌟 টেলিগ্রাম স্টাইল রিয়্যাকশন পপআপ
         // =========================================================================
         if (showContextMenu) {
             Popup(
@@ -658,7 +647,7 @@ fun PlayerHeaderSection(
                                                     modifier = Modifier
                                                         .clip(CircleShape)
                                                         .clickable {
-                                                            triggerSingleReaction(item.key) // 👈 একক ইমোজি সেন্ড
+                                                            triggerSingleReaction(item.key)
                                                             dismissPopupSmoothly()
                                                         }
                                                         .padding(3.dp)
@@ -845,7 +834,7 @@ fun PlayerHeaderSection(
                                                     .aspectRatio(1f)
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
-                                                        triggerSingleReaction(item.key) // 👈 একক ইমোজি সেন্ড
+                                                        triggerSingleReaction(item.key)
                                                         dismissPopupSmoothly()
                                                     },
                                                 contentAlignment = Alignment.Center
