@@ -228,28 +228,28 @@ fun PlayerBatchDownloadSheet(
     }
 
     // =========================================================================
-    // 📱 ব্যাকড্রপ স্ক্রিম (উপরে ট্যাপ করলে বন্ধ হবে, প্লেয়ার দেখা যাবে)
+    // 📱 ব্যাকড্রপ স্ক্রিম
     // =========================================================================
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Color.Black.copy(alpha = 0.50f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { onClose() },
         contentAlignment = Alignment.BottomCenter
     ) {
-        // 🎯 অর্ধেক স্ক্রিনের কার্ড (৫৮% হাইট)
+        // 🎯 কমেন্ট ট্যাবের মতো বড় (৭২% হাইট) এবং সাইড ক্রপ ছাড়া সোজা কোণা
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.58f)
+                .fillMaxHeight(0.72f) // 👈 সাইজে বড় করা হয়েছে
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { /* ক্লিক কনজিউম করা যাতে ডায়ালগ বন্ধ না হয় */ },
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp), // 👈 অতিরিক্ত বাঁকানো ক্রপ বাদ দিয়ে সোজা কোণা
             colors = CardDefaults.cardColors(containerColor = Color(0xFF141720)),
             border = BorderStroke(0.8.dp, Color(0xFF262E3E))
         ) {
@@ -257,39 +257,27 @@ fun PlayerBatchDownloadSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 8.dp, bottom = 82.dp),
+                        .padding(horizontal = 14.dp)
+                        .padding(top = 10.dp, bottom = 80.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // ড্র্যাগ হ্যান্ডেল বার
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .width(36.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color(0xFF3B4455))
-                    )
-
                     // ১. হেডার
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = title,
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             modifier = Modifier.weight(1f).padding(end = 8.dp)
                         )
 
-                        IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF9E9EA7))
+                        IconButton(onClick = onClose, modifier = Modifier.size(26.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF9E9EA7), modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -298,9 +286,9 @@ fun PlayerBatchDownloadSheet(
                     // ২. VIP ব্যানার
                     if (!isVip) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(6.dp),
                             color = Color(0xFF2C2208),
-                            border = BorderStroke(1.dp, Color(0xFFFFB300).copy(alpha = 0.6f)),
+                            border = BorderStroke(0.8.dp, Color(0xFFFFB300).copy(alpha = 0.6f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onNavigateToVip() }
@@ -333,10 +321,10 @@ fun PlayerBatchDownloadSheet(
                             availableQualities.forEach { q ->
                                 val isSelected = selectedQuality.key == q.key
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     color = if (isSelected) Color(0xFF382B17) else Color(0xFF1F2430),
                                     border = BorderStroke(
-                                        width = 1.dp,
+                                        width = 0.8.dp,
                                         color = if (isSelected) Color(0xFFE5B567) else Color(0xFF2D3545)
                                     ),
                                     modifier = Modifier.clickable {
@@ -377,7 +365,7 @@ fun PlayerBatchDownloadSheet(
                                 Text(
                                     text = "$start-$end",
                                     color = if (isSelected) Color(0xFF00E676) else Color(0xFF8E95A5),
-                                    fontSize = 12.5.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable { selectedChunkIndex = index }
@@ -389,12 +377,14 @@ fun PlayerBatchDownloadSheet(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // ৪. পর্বের গ্রিড
+                    // ৪. পর্বের গ্রিড (ওয়েট ১ দিয়ে ভারসাম্যপূর্ণ করা হয়েছে)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(8),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
                     ) {
                         items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
                             val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
@@ -402,12 +392,12 @@ fun PlayerBatchDownloadSheet(
                             Box(
                                 modifier = Modifier
                                     .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSelectedForDl) Color(0xFF273832) else Color(0xFF333842))
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSelectedForDl) Color(0xFF273832) else Color(0xFF2A2F3B))
                                     .border(
                                         width = if (isSelectedForDl) 0.8.dp else 0.4.dp,
-                                        color = if (isSelectedForDl) Color(0xFF00E676) else Color(0xFF4A5262),
-                                        shape = RoundedCornerShape(6.dp)
+                                        color = if (isSelectedForDl) Color(0xFF00E676) else Color(0xFF3F4756),
+                                        shape = RoundedCornerShape(4.dp)
                                     )
                                     .clickable {
                                         if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
@@ -460,7 +450,7 @@ fun PlayerBatchDownloadSheet(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
@@ -470,7 +460,7 @@ fun PlayerBatchDownloadSheet(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.clickable {
                                     if (isAllSelected) selectedDownloadEpisodes.clear()
                                     else {
@@ -491,7 +481,7 @@ fun PlayerBatchDownloadSheet(
                                         Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(11.dp))
                                     }
                                 }
-                                Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("Select All", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                             }
 
                             val downloadButtonBrush = if (!isVip) {
@@ -556,10 +546,10 @@ fun PlayerBatchDownloadSheet(
                                 ) {
                                     if (!isVip) {
                                         VipCrownMiniIcon(tint = Color(0xFF2B210E))
-                                        Text(buttonText, color = Color(0xFF2B210E), fontSize = 12.5.sp, fontWeight = FontWeight.Black)
+                                        Text(buttonText, color = Color(0xFF2B210E), fontSize = 12.sp, fontWeight = FontWeight.Black)
                                     } else {
                                         Icon(Icons.Outlined.FileDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                        Text(buttonText, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text(buttonText, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
