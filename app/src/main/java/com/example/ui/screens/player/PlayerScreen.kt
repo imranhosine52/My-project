@@ -16,6 +16,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -76,14 +77,15 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
-import androidx.media3.extractor.mp4.Mp4Extractor
 import com.example.ads.StartAppBanner
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
@@ -110,6 +112,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.CookieHandler
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -121,7 +124,7 @@ private fun findActivityFromContext(context: Context): Activity? {
 }
 
 /**
- * 🎯 ডিরেক্ট মিডিয়া স্ট্রিম (MP4, MKV, M3U8 ইত্যাদি) বনাম Web Embed লিংক নিখুঁতভাবে শনাক্তকারী
+ * 🎯 ডিরেক্ট মিডিয়া স্ট্রিম বনাম Web Embed লিংক নিখুঁতভাবে শনাক্তকারী
  */
 private fun isDirectStreamableUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
@@ -349,43 +352,53 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🚀 ULTRA-OPTIMIZED EXOPLAYER (FAST STARTUP + BUFFERING + DECODER FALLBACK)
+    // 🚀 CLEAN & ROBUST EXOPLAYER (BROWSER-PARITY HEADERS & BALANCED BUFFER)
     // =========================================================================
     val exoPlayer = remember {
+        // ১. মাল্টি-হপ রিডাইরেক্টে কুকি ধরে রাখার জন্য সিস্টেম কুকি ম্যানেজার
+        try {
+            if (CookieHandler.getDefault() == null) {
+                CookieHandler.setDefault(java.net.CookieManager())
+            }
+        } catch (_: Exception) {}
+
+        // ২. ব্রাউজারের হুবহু হেডার সহ স্ট্যান্ডার্ড HTTP ডাটা সোর্স
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(20000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) PlayDramaFlix")
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+            .setDefaultRequestProperties(
+                mapOf(
+                    "Accept" to "*/*",
+                    "Referer" to "https://playdramaflix.com/"
+                )
+            )
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-        // 🎯 MP4 এবং MKV-এর দ্রুত এক্সট্রাকশনের জন্য কনফিগার করা এক্সট্র্যাক্টরস ফ্যাক্টরি
+        // ৩. ক্লিন ও নির্ভরযোগ্য স্ট্যান্ডার্ড এক্সট্র্যাক্টরস ফ্যাক্টরি
         val extractorsFactory = DefaultExtractorsFactory()
-            .setConstantBitrateSeekingEnabled(true)
-            .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
-
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        // 🛡️ হার্ডওয়্যার কোডেক ফেইল করলে অটোমেটিক সফটওয়্যার ডিকোডারে যাওয়ার সুবিধা
+        // ৪. হার্ডওয়্যার ডিকোডার ফেইল করলে অটোমেটিক সফটওয়্যার ডিকোডারে যাওয়ার সুবিধা
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 
-        // ⚡ মোবাইল-ফ্রেন্ডলি ব্যালেন্সড বাফার কন্ট্রোল (prioritizeTimeOverSizeThresholds বাদ দেওয়া হয়েছে)
-        val robustLoadControl = DefaultLoadControl.Builder()
+        // ৫. ব্যালেন্সড ও ফাস্ট বাফার লোড কন্ট্রোল (টাইম থ্রেশহোল্ড বাধ্যবাধকতা ছাড়া)
+        val balancedLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS, // 50,000ms
-                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS, // 50,000ms
-                1000, // bufferForPlaybackMs: মাত্র ১ সেকেন্ড বাফার হলেই প্লেব্যাক শুরু!
-                2000  // bufferForPlaybackAfterRebufferMs: ২ সেকেন্ড বাফার
+                20_000, // minBuffer: ২০ সেকেন্ড
+                50_000, // maxBuffer: ৫০ সেকেন্ড
+                1000,   // bufferForPlayback: মাত্র ১ সেকেন্ড বাফার হলেই প্লেব্যাক শুরু
+                2000    // bufferAfterRebuffer: ২ সেকেন্ড
             )
             .setBackBuffer(30_000, true) // ৩০ সেকেন্ড ব্যাক-বাফার
             .build()
 
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(robustLoadControl)
+            .setLoadControl(balancedLoadControl)
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
@@ -662,9 +675,25 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🔍 VERBOSE EXOPLAYER LISTENER FOR LOGCAT PLAYBACK ERROR DIAGNOSIS
+    // =========================================================================
     DisposableEffect(exoPlayer, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                Log.d("PlayerScreen", "🎵 onTracksChanged: groupsCount=${tracks.groups.size}")
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
+                val stateName = when (state) {
+                    Player.STATE_IDLE -> "STATE_IDLE"
+                    Player.STATE_BUFFERING -> "STATE_BUFFERING"
+                    Player.STATE_READY -> "STATE_READY"
+                    Player.STATE_ENDED -> "STATE_ENDED"
+                    else -> "STATE_$state"
+                }
+                Log.d("PlayerScreen", "📊 onPlaybackStateChanged: $stateName | playWhenReady=${exoPlayer.playWhenReady} | duration=${exoPlayer.duration}ms")
+
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     if (activeCustomVideoAd == null) exoPlayer.play()
@@ -678,10 +707,18 @@ fun PlayerScreen(
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
+                Log.d("PlayerScreen", "▶️ onIsPlayingChanged: isPlaying=$playing")
                 isPlaying = playing
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                val httpErrorCode = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+                Log.e(
+                    "PlayerScreen",
+                    "❌ [ExoPlayer Error] Code: ${error.errorCode} (${error.errorCodeName}) | HTTP Status: $httpErrorCode | Message: ${error.message}",
+                    error
+                )
+
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                     persistentWebView.loadUrl(activeStreamUrl)
                 }
@@ -734,10 +771,9 @@ fun PlayerScreen(
             val webPlayerUrl = currentEp.webPlayerUrl?.trim() ?: ""
             val serverUrl = playerState.selectedServer?.url?.trim() ?: ""
 
-            // কোয়ালিটি অপশনের ভেতরের প্রথম ভ্যালিড URL
             val downloadOptionUrl = currentEp.downloadOptions?.firstOrNull { it.url.isNotBlank() }?.url?.trim() ?: ""
 
-            // ১. ডিরেক্ট মিডিয়া ফাইল (MP4 / MKV / M3U8 ইত্যাদি) শনাক্তকরণ অগ্রাধিকার তালিকা
+            // ১. ডিরেক্ট মিডিয়া ফাইল শনাক্তকরণ অগ্রাধিকার
             val directCandidate = when {
                 isDirectStreamableUrl(appStream) -> appStream
                 isDirectStreamableUrl(streamUrl) -> streamUrl
@@ -769,6 +805,8 @@ fun PlayerScreen(
 
             if (resolvedUrl.isBlank()) return@LaunchedEffect
 
+            Log.d("PlayerScreen", "🎯 Attempting playback: URL=$resolvedUrl | isEmbed=$isEmbed | Episode=${currentEp.episodeNumber}")
+
             val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}"
             if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == resolvedUrl) return@LaunchedEffect
 
@@ -788,13 +826,13 @@ fun PlayerScreen(
                     val cleanPath = resolvedUrl.substringBefore("?").substringBefore("#").lowercase()
 
                     // =========================================================================
-                    // ⚠️ গুরুত্বপূর্ণ সমাধান: প্রগ্রেসিভ MP4 ও MKV-তে কখনোই MIME Type সেট করবেন না!
-                    // শুধুমাত্র HLS (.m3u8) ও DASH (.mpd)-এ MIME Type প্রয়োজন হয়।
+                    // ⚠️ গুরুত্বপূর্ণ: প্রগ্রেসিভ MP4 ও MKV-র জন্য কোনো MIME Type সেট করবেন না।
+                    // শুধু অ্যাডাপ্টিভ HLS (.m3u8) এবং DASH (.mpd)-এর জন্য সেট করুন।
                     // =========================================================================
                     val adaptiveMimeType = when {
                         cleanPath.endsWith(".m3u8") || resolvedUrl.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
                         cleanPath.endsWith(".mpd") || resolvedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
-                        else -> null // MP4 ও MKV-র জন্য null রাখায় Media3 নিজে থেকে সঠিক Extractor ব্যবহার করবে
+                        else -> null
                     }
 
                     val mediaItemBuilder = MediaItem.Builder()
@@ -805,7 +843,7 @@ fun PlayerScreen(
                             }
                         }
 
-                    // 💬 External Subtitles ইনজেকশন (যদি কোনো আলাদা সাবটাইটেল ফাইল থাকে)
+                    // 💬 External Subtitles ইনজেকশন (যদি সার্ভার অপশনে সাবফাইল থাকে)
                     val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
                     currentEp.downloadOptions?.forEachIndexed { index, option ->
                         val optUrl = option.url.trim()
@@ -837,7 +875,8 @@ fun PlayerScreen(
                     if (activeCustomVideoAd == null) {
                         exoPlayer.play()
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    Log.e("PlayerScreen", "Failed to prepare MediaItem: ${e.message}", e)
                     if (embedCandidate.isNotBlank()) {
                         useWebPlayerFallback = true
                         persistentWebView.loadUrl(embedCandidate)
