@@ -11,7 +11,7 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36
 
   defaultConfig {
     applicationId = "com.aistudio.dramaflix.gqmzkb"
@@ -126,11 +126,14 @@ dependencies {
   // 🖼️ Image Loader
   implementation(libs.coil.compose)
   
-  // 🎬 ExoPlayer Media3
+  // 🎬 ExoPlayer Media3 (Full MP4, MKV, DASH & HLS Support)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.exoplayer.hls)
+  implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
+  implementation("androidx.media3:media3-extractor:1.4.1")
+  implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
   
   // 🌐 Networking & Auth
   implementation(libs.converter.moshi)
