@@ -561,7 +561,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🎯 ৬. সেকশন ভিত্তিক ভিডিও ফিল্টারিং ও সর্টিং
+    // 🎯 ৬. সেকশন ভিত্তিক ভিডিও ফিল্টারিং ও সর্টিং (Recently Played অপসারিত)
     // =========================================================================
     suspend fun getVideosForSection(
         context: Context,
@@ -574,10 +574,6 @@ object LocalMediaScanner {
             GallerySection.RECENTLY_ADDED -> {
                 val fourteenDaysAgo = (System.currentTimeMillis() / 1000) - (14 * 24 * 3600)
                 allVideos.filter { it.dateAdded >= fourteenDaysAgo }.sortedByDescending { it.dateAdded }
-            }
-            GallerySection.RECENTLY_PLAYED -> {
-                allVideos.filter { getLastPlaybackPosition(context, it.id) > 0 }
-                    .sortedByDescending { getLastPlayedTimestamp(context, it.id) }
             }
             GallerySection.DOWNLOADS -> {
                 allVideos.filter {
@@ -710,7 +706,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // ♻️ ৮. রিয়েল Recycle Bin ইঞ্জিন (প্রকৃত ফাইল মুভ, মেটাডাটা সংরক্ষণ ও রিস্টোর)
+    // ♻️ ৮. রিয়েল Recycle Bin ইঞ্জিন
     // =========================================================================
     private fun getRecycleBinPhysicalVault(context: Context): File {
         val dir = File(context.getExternalFilesDir(null), ".recycle_bin")
@@ -804,13 +800,11 @@ object LocalMediaScanner {
             )
             saveTrashedMetadataList(context, metadataList)
 
-            // পুরনো পাথ ট্র্যাশে মার্ক করা
             val trashPaths = getTrashPaths(context).toMutableSet()
             trashPaths.add(item.path)
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putStringSet(KEY_TRASH, trashPaths).apply()
 
-            // মিডিয়া স্ক্যানার জানানো যাতে গ্যালারি ও প্লেয়ার থেকে অবিলম্বে মুছে যায়
             try {
                 MediaScannerConnection.scanFile(context, arrayOf(item.path), null, null)
             } catch (_: Exception) {}
@@ -818,7 +812,6 @@ object LocalMediaScanner {
             return@withContext true
         }
 
-        // যদি কোনো কারণে ফাইল ট্রান্সফার ব্যর্থ হয়, পাথ ফিল্টারে যুক্ত করা
         moveToTrash(context, item.path)
         true
     }
@@ -917,7 +910,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 📊 ৯. লাইভ ব্যাচ ডিলিশন ইঞ্জিন (Live Batch Delete Engine)
+    // 📊 ৯. লাইভ ব্যাচ ডিলিশন ইঞ্জিন
     // =========================================================================
     suspend fun executeBatchDelete(
         context: Context,
