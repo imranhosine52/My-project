@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.screens.player.RealAudioTrack
 
 /**
- * 🎵 ১ নম্বর ছবির মতো হুবহু ক্লিন ও স্লিম অডিও ল্যাঙ্গুয়েজ ড্রয়ার
- * অতিরিক্ত স্টেরিও/কোডেক টেক্সট ছাড়া শুধুমাত্র ভাষার নাম ডানপাশে কম্প্যাক্টভাবে প্রদর্শিত হবে।
+ * 🎵 একদম উপর থেকে সিরিয়ালে চাপানো কম্প্যাক্ট অডিও ল্যাঙ্গুয়েজ ড্রয়ার
+ * অতিরিক্ত ফাঁকা স্পেস ছাড়া সবকটি ভাষা নিখুঁতভাবে প্রদর্শিত হবে।
  */
 @Composable
 fun PlayerAudioDrawer(
@@ -32,46 +32,46 @@ fun PlayerAudioDrawer(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(top = 18.dp, end = 16.dp, start = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(top = 8.dp, end = 16.dp, start = 6.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp), // 👈 অতিরিক্ত স্পেস বাদ দিয়ে চাপিয়ে রাখা হয়েছে
         horizontalAlignment = Alignment.End
     ) {
-        // ১. হেডার (১ নম্বর ছবির মতো আন্ডারলাইনসহ)
+        // ১. হেডার
         item {
             Column(
                 horizontalAlignment = Alignment.End,
-                modifier = Modifier.padding(bottom = 6.dp)
+                modifier = Modifier.padding(bottom = 2.dp)
             ) {
                 Text(
                     text = "AUDIO LANGUAGE",
                     color = Color(0xFF00E5FF),
-                    fontSize = 12.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
                 )
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Box(
                     modifier = Modifier
                         .width(72.dp)
-                        .height(2.dp)
+                        .height(1.8.dp)
                         .background(Color(0xFF00E5FF))
                 )
             }
         }
 
-        // ২. যদি কোনো অডিও ট্র্যাক না থাকে
+        // ২. কোনো অডিও ট্র্যাক না থাকলে ফলব্যাক
         if (availableAudioTracks.isEmpty()) {
             item {
                 Text(
                     text = "Default",
                     color = Color(0xFF00E5FF),
-                    fontSize = 14.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(vertical = 4.dp)
+                    modifier = Modifier.padding(vertical = 2.dp)
                 )
             }
         } else {
-            // ৩. ১ নম্বর ছবির হুবহু ভাষার তালিকা (কোনো সাবটেক্সট বা অতিরিক্ত লেখা ছাড়া)
+            // ৩. একদম উপর থেকে সিরিয়ালে চাপানো ভাষার তালিকা
             items(
                 items = availableAudioTracks,
                 key = { it.id }
@@ -92,17 +92,17 @@ fun PlayerAudioDrawer(
                                 onSelectAudioTrack(audioTrack)
                             }
                         }
-                        .padding(vertical = 3.dp),
+                        .padding(vertical = 1.5.dp),
                     contentAlignment = Alignment.CenterEnd
                 ) {
                     Text(
                         text = languageName,
                         color = when {
-                            isSelected -> Color(0xFF00E5FF) // সিলেক্টেড হলে ১ নম্বর ছবির মতো উজ্জ্বল সাইয়ান কালার
+                            isSelected -> Color(0xFF00E5FF) // সিলেক্টেড ভাষা উজ্জ্বল সাইয়ান কালার
                             !audioTrack.isSupported -> Color(0xFF6B7280)
-                            else -> Color.White // আনসিলেক্টেড হলে সাদা
+                            else -> Color.White // আনসিলেক্টেড ভাষা সাদা
                         },
-                        fontSize = 14.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         textAlign = TextAlign.End
                     )
