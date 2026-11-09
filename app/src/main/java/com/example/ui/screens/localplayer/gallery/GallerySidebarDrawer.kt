@@ -2,20 +2,20 @@ package com.example.ui.screens.localplayer.gallery
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.LockOutline
-import androidx.compose.material.icons.filled.StarOutline
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -180,7 +180,7 @@ fun GallerySidebarDrawerContent(
             DrawerMenuCardItem(
                 label = "Starred Items",
                 subLabel = "Favorite videos & bookmarks",
-                icon = Icons.Default.StarOutline,
+                icon = Icons.Default.Star,
                 iconTint = GoldAccent,
                 badgeText = null,
                 badgeColor = GoldAccent,
@@ -193,7 +193,7 @@ fun GallerySidebarDrawerContent(
             DrawerMenuCardItem(
                 label = "Safe Folder",
                 subLabel = "PIN protected private vault",
-                icon = Icons.Default.LockOutline,
+                icon = Icons.Default.Lock,
                 iconTint = CyanElectric,
                 badgeText = "LOCKED",
                 badgeColor = CyanElectric,
@@ -206,7 +206,7 @@ fun GallerySidebarDrawerContent(
             DrawerMenuCardItem(
                 label = "Recycle Bin",
                 subLabel = "Restore or purge deleted media",
-                icon = Icons.Default.DeleteOutline,
+                icon = Icons.Default.Delete,
                 iconTint = DangerNeonRed,
                 badgeText = "TRASH",
                 badgeColor = DangerNeonRed,
@@ -327,10 +327,10 @@ private fun DrawerMenuCardItem(
 
             // ডানে ছোট অ্যারো
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
                 tint = Color(0xFF4C5870),
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(16.dp)
             )
         }
     }
