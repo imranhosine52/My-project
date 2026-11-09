@@ -1,5 +1,6 @@
 package com.example.ui.screens.player
 
+import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,7 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * 🎵 শর্টস ও লং প্লেয়ার উভয়ের জন্য শেয়ার্ড অডিও ট্র্যাক মডেল
+ * 🎵 শর্টস ও লং প্লেয়ার উভয়ের জন্য অ্যাডভান্সড মাল্টি-অডিও ট্র্যাক মডেল
+ * MP4 ও MKV-এর Multiple Audio Stream, Language Code, Codec ও Channel সমর্থন করে।
  */
 data class RealAudioTrack(
     val id: String,
@@ -26,11 +28,37 @@ data class RealAudioTrack(
     val label: String,
     val groupIndex: Int,
     val trackIndex: Int,
-    val isSelected: Boolean = false
-)
+    val isSelected: Boolean = false,
+    // 🚀 নতুন ফিচার ও অ্যাডভান্সড ট্র্যাক মেটাডাটা (১০০% ব্যাকওয়ার্ড কমপ্যাটিবল)
+    val languageCode: String = language,
+    val channelCount: Int = 2,
+    val channelInfo: String = "",       // e.g. "Stereo (2.0)", "Surround 5.1"
+    val codec: String = "",             // e.g. "AAC", "AC3", "E-AC3", "Opus", "MP3"
+    val bitrate: Int = 0,
+    val sampleRate: Int = 0,
+    val isDefault: Boolean = false,
+    val isSupported: Boolean = true
+) {
+    val displayLanguage: String
+        get() = label.ifBlank { language.ifBlank { "Audio" } }
+
+    val formattedDescription: String
+        get() = buildString {
+            append(displayLanguage)
+            if (channelInfo.isNotBlank()) {
+                append(" • ").append(channelInfo)
+            } else if (channelCount > 2) {
+                append(" • ").append("${channelCount}.1 Surround")
+            }
+            if (codec.isNotBlank()) {
+                append(" (").append(codec.uppercase()).append(")")
+            }
+        }
+}
 
 /**
- * 💬 শর্টস ও লং প্লেয়ার উভয়ের জন্য শেয়ার্ড সাবটাইটেল ট্র্যাক মডেল
+ * 💬 শর্টস ও লং প্লেয়ার উভয়ের জন্য অ্যাডভান্সড মাল্টি-সাবটাইটেল ট্র্যাক মডেল
+ * Embedded (SRT, VTT, ASS/SSA) এবং External সাবটাইটেল সমর্থন করে।
  */
 data class RealSubtitleTrack(
     val id: String,
@@ -38,11 +66,31 @@ data class RealSubtitleTrack(
     val label: String,
     val groupIndex: Int,
     val trackIndex: Int,
-    val isSelected: Boolean = false
-)
+    val isSelected: Boolean = false,
+    // 🚀 নতুন ফিচার ও অ্যাডভান্সড সাবটাইটেল মেটাডাটা (১০০% ব্যাকওয়ার্ড কমপ্যাটিবল)
+    val languageCode: String = language,
+    val mimeType: String = "",          // e.g. "text/vtt", "application/x-subrip", "text/x-ssa"
+    val isExternal: Boolean = false,
+    val externalUri: Uri? = null,
+    val isDefault: Boolean = false,
+    val isForced: Boolean = false,
+    val isSupported: Boolean = true
+) {
+    val displayLabel: String
+        get() = label.ifBlank { language.ifBlank { "Subtitle" } }
+
+    val isAssOrSsa: Boolean
+        get() = mimeType.contains("ssa", ignoreCase = true) || mimeType.contains("ass", ignoreCase = true)
+
+    val isVtt: Boolean
+        get() = mimeType.contains("vtt", ignoreCase = true)
+
+    val isSrt: Boolean
+        get() = mimeType.contains("subrip", ignoreCase = true) || mimeType.contains("srt", ignoreCase = true)
+}
 
 /**
- * 🌟 PD Flix Brand Logo (শর্টস প্লেয়ারের স্টার্টআপ স্ক্রিনের জন্য)
+ * 🌟 PD Flix Brand Logo (শর্টস ও লং প্লেয়ারের স্টার্টআপ স্ক্রিনের জন্য)
  */
 @Composable
 fun PdFlixBrandLogo(modifier: Modifier = Modifier) {
