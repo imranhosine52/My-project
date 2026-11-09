@@ -10,6 +10,7 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -52,7 +53,9 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import com.example.data.model.AdvancedAudioTrackInfo
 import com.example.data.model.AdvancedSubtitleTrackInfo
 import com.example.data.model.LocalVideoItem
@@ -265,13 +268,15 @@ fun LocalPlayerVideoBox(
     var currentAudioLabel by rememberSaveable(currentVideo.id) { mutableStateOf("Audio") }
 
     // =========================================================================
-    // 💬 Phase 5: মাল্টি-সাবটাইটেল ট্র্যাক স্টেট
+    // 💬 Phase 5: মাল্টি-সাবটাইটেল ট্র্যাক ও কাস্টমাইজেশন স্টেট
     // =========================================================================
     var availableSubtitleTracks by remember { mutableStateOf<List<AdvancedSubtitleTrackInfo>>(emptyList()) }
     var selectedSubtitleTrackId by rememberSaveable { mutableStateOf("off") }
     var currentSubtitleLabel by rememberSaveable { mutableStateOf("CC") }
     var currentSubtitleDelayMs by rememberSaveable { mutableLongStateOf(0L) }
     var currentSubtitleSizeScale by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var currentFontFamily by rememberSaveable { mutableStateOf("DEFAULT") }
+    var currentBgStyle by rememberSaveable { mutableStateOf("SEMI_TRANSPARENT") }
 
     var isMuted by remember { mutableStateOf(false) }
     var bufferedPositionMs by remember { mutableLongStateOf(0L) }
@@ -398,18 +403,13 @@ fun LocalPlayerVideoBox(
         }
     }
 
-    // =========================================================================
     // 🎯 স্ক্রিন রোটেট ফিক্স: কম্পোজিশনে ঢোকার সাথে সাথে ইনস্ট্যান্ট ট্র্যাক এক্সট্র্যাক্ট
-    // =========================================================================
     LaunchedEffect(exoPlayer, currentVideo.id) {
         if (!exoPlayer.currentTracks.isEmpty) {
             extractTracks(exoPlayer.currentTracks)
         }
     }
 
-    // =========================================================================
-    // 🔀 প্লেব্যাক না থামিয়ে অডিও ট্র্যাক পরিবর্তন (Seamless Switching)
-    // =========================================================================
     fun applyAudioTrack(track: AdvancedAudioTrackInfo) {
         selectedAudioTrackId = track.id
         currentAudioLabel = track.displayName
@@ -426,9 +426,6 @@ fun LocalPlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // 💬 প্লেব্যাক না থামিয়ে সাবটাইটেল পরিবর্তন (Seamless Subtitle Switching)
-    // =========================================================================
     fun applySubtitleTrack(subTrack: AdvancedSubtitleTrackInfo?) {
         if (subTrack == null) {
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
@@ -455,9 +452,6 @@ fun LocalPlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // 📁 এক্সটার্নাল সাবটাইটেল (.srt, .vtt) লোডিং ইঞ্জিন
-    // =========================================================================
     fun loadExternalSubtitleFile(uri: Uri) {
         try {
             val uriStr = uri.toString().lowercase()
@@ -500,11 +494,18 @@ fun LocalPlayerVideoBox(
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
                 bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
+
+                // =============================================================
+                // 🎯 ভিডিও শেষ হলে কালো স্ক্রিন ছাড়াই অটো-রিস্টার্ট লুপ
+                // =============================================================
+                if (state == Player.STATE_ENDED) {
+                    exoPlayer.seekTo(0L)
+                    exoPlayer.play()
+                }
             }
         }
         exoPlayer.addListener(listener)
 
-        // ডিসপোজেবল ইফেক্ট শুরুর সময়ও যদি ট্র্যাক থেকে থাকে তবে সাথে সাথে এক্সট্র্যাক্ট করা
         if (!exoPlayer.currentTracks.isEmpty) {
             extractTracks(exoPlayer.currentTracks)
         }
@@ -708,7 +709,9 @@ fun LocalPlayerVideoBox(
                 )
             }
     ) {
-        // ১. ExoPlayer সারফেস
+        // =============================================================
+        // ১. ExoPlayer সারফেস ও সাবটাইটেল স্টাইল রেন্ডারার
+        // =============================================================
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -725,6 +728,34 @@ fun LocalPlayerVideoBox(
             },
             update = { view ->
                 if (view.player != exoPlayer) view.player = exoPlayer
+
+                // 🎯 সাবটাইটেল সাইজ, ফন্ট ও ব্যাকগ্রাউন্ড কালার সরাসরি মিডিয়া৩-তে প্রয়োগ
+                val typeface = when (currentFontFamily) {
+                    "SERIF" -> Typeface.SERIF
+                    "MONOSPACE" -> Typeface.MONOSPACE
+                    else -> Typeface.SANS_SERIF
+                }
+
+                val (fgColor, bgColor) = when (currentBgStyle) {
+                    "NONE" -> Pair(android.graphics.Color.WHITE, android.graphics.Color.TRANSPARENT)
+                    "SOLID_BLACK" -> Pair(android.graphics.Color.WHITE, android.graphics.Color.BLACK)
+                    "YELLOW_BLACK" -> Pair(android.graphics.Color.YELLOW, android.graphics.Color.BLACK)
+                    else -> Pair(android.graphics.Color.WHITE, android.graphics.Color.argb(140, 0, 0, 0)) // SEMI
+                }
+
+                val captionStyle = CaptionStyleCompat(
+                    fgColor,
+                    bgColor,
+                    android.graphics.Color.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                    android.graphics.Color.BLACK,
+                    typeface
+                )
+
+                view.subtitleView?.setStyle(captionStyle)
+                view.subtitleView?.setFractionalTextSize(
+                    SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * currentSubtitleSizeScale
+                )
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -832,7 +863,7 @@ fun LocalPlayerVideoBox(
         )
 
         // =============================================================
-        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (ছবি ১ ও ২ এর হুবহু ডিজাইনে ড্রয়ার কল)
+        // 🚪 ৫. ল্যান্ডস্কেপ সাইড ড্রয়ারসমূহ (হালকা ব্যাকগ্রাউন্ড শ্যাডো সহ)
         // =============================================================
         AnimatedVisibility(
             visible = showSideDrawer,
@@ -849,13 +880,14 @@ fun LocalPlayerVideoBox(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(if (sideDrawerType == "playlist") 285.dp else 220.dp)
+                    .width(if (sideDrawerType == "playlist") 285.dp else 225.dp)
                     .background(
                         Brush.horizontalGradient(
                             listOf(
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.35f),
-                                Color.Black.copy(alpha = 0.75f)
+                                Color.Black.copy(alpha = 0.18f),
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Black.copy(alpha = 0.72f)
                             )
                         )
                     )
@@ -895,6 +927,14 @@ fun LocalPlayerVideoBox(
                             currentTextSizeScale = currentSubtitleSizeScale,
                             onSubtitleSizeScaleChanged = { scale ->
                                 currentSubtitleSizeScale = scale
+                            },
+                            currentFontFamily = currentFontFamily,
+                            onFontFamilyChanged = { font ->
+                                currentFontFamily = font
+                            },
+                            currentBgStyle = currentBgStyle,
+                            onBgStyleChanged = { bg ->
+                                currentBgStyle = bg
                             },
                             onClose = { sideDrawerType = "none" }
                         )
