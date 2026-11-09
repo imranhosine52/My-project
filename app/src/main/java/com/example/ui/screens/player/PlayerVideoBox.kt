@@ -1125,7 +1125,6 @@ fun PlayerVideoBox(
                     )
                 }
         ) {
-            // 🎯 TextureView ব্যবহার করা হয়েছে যাতে Compose graphicsLayer-এ স্ক্রিন কালো না হয়
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -1137,7 +1136,6 @@ fun PlayerVideoBox(
                         )
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        setSurfaceType(PlayerView.SURFACE_TYPE_TEXTURE_VIEW) // 👈 ব্ল্যাক স্ক্রিন স্থায়ী সমাধান
                         keepScreenOn = true
                     }
                 },
@@ -1149,12 +1147,12 @@ fun PlayerVideoBox(
                 },
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = zoomScale,
-                        scaleY = zoomScale,
-                        translationX = zoomOffset.x,
+                    .graphicsLayer {
+                        scaleX = zoomScale
+                        scaleY = zoomScale
+                        translationX = zoomOffset.x
                         translationY = zoomOffset.y
-                    )
+                    }
             )
 
             // ফুল প্লেয়ার ক্লিকবেড লেয়ার
@@ -1401,7 +1399,7 @@ fun PlayerVideoBox(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // বাফারিং স্পিনার (🎯 এখন ভিডিও বাফারিং চলার সময় সবসময় সঠিক লোডিং দেখাবে)
+            // বাফারিং স্পিনার
             if (isBuffering && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
