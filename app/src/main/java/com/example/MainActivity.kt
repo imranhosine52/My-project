@@ -99,6 +99,13 @@ sealed class Screen {
     data class NotFound(val message: String? = null) : Screen()
 }
 
+// 🎯 ব্যাকস্ট্যাকে অরিজিনাল ট্যাব ও ক্যাটাগরি মেমোরি রাখার ডেটা মডেল
+data class NavHistoryItem(
+    val screen: Screen,
+    val tab: BottomNavTab,
+    val category: String = HomeNavHelper.activeCategory
+)
+
 class MainActivity : ComponentActivity() {
 
     private val viewModel: DramaFlixViewModel by viewModels {
@@ -373,7 +380,7 @@ class MainActivity : ComponentActivity() {
         }
 
         // =========================================================================
-        // 🎯 ডিরেক্ট মিডিয়া ফাইল (MP4, MKV, WebM, MP3) ইন-অ্যাপ প্লেয়ার হ্যান্ডলার
+        // 🎯 ডিরেক্ট মিডিয়া ফাইল (MP4, MKV, WebM, MP3) হ্যান্ডলার
         // =========================================================================
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
@@ -435,7 +442,6 @@ class MainActivity : ComponentActivity() {
                         fileName = mediaUri.lastPathSegment ?: "External Media"
                     }
 
-                    // 🎯 MP4 এবং MKV MIME টাইপ স্বয়ংক্রিয়ভাবে নিশ্চিত করা
                     val lowerName = fileName.lowercase()
                     if (lowerName.endsWith(".mkv") || mimeType.contains("matroska", ignoreCase = true)) {
                         mimeType = "video/x-matroska"
@@ -500,7 +506,8 @@ private fun MainAppContent(
         )
     }
 
-    val navigationBackStack = remember { mutableStateListOf<Screen>() }
+    // 🎯 সুনির্দিষ্ট স্ক্রিন, ট্যাব এবং ক্যাটাগরি হিস্টোরি সংরক্ষণ
+    val navigationBackStack = remember { mutableStateListOf<NavHistoryItem>() }
 
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
@@ -523,18 +530,24 @@ private fun MainAppContent(
         )
     }
 
+    // =========================================================================
+    // 🔙 নিখুঁত ব্যাক ন্যাভিগেশন: যে ট্যাব/ক্যাটাগরি থেকে এসেছিল ঠিক সেখানে ফেরত যাওয়া
+    // =========================================================================
     val handleBackNavigation: () -> Unit = {
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
         if (navigationBackStack.isNotEmpty()) {
-            val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
-            currentScreen = previousScreen
-            selectedTab = resolveTabForScreen(previousScreen)
-            if (previousScreen is Screen.Home) {
-                HomeNavHelper.activeCategory = previousScreen.category
-            }
+            val lastEntry = navigationBackStack.removeAt(navigationBackStack.lastIndex)
+            HomeNavHelper.activeCategory = lastEntry.category
+            selectedTab = lastEntry.tab
+            currentScreen = lastEntry.screen
         } else if (currentScreen !is Screen.Home) {
             currentScreen = Screen.Home(category = HomeNavHelper.activeCategory)
             selectedTab = resolveTabForScreen(currentScreen)
+        } else if (selectedTab != BottomNavTab.HOME) {
+            selectedTab = BottomNavTab.HOME
+            HomeNavHelper.activeCategory = "Home"
+            currentScreen = Screen.Home(category = "Home")
         } else {
             onFinish()
         }
@@ -548,8 +561,20 @@ private fun MainAppContent(
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
 
-            navigationBackStack.add(currentScreen)
-            selectedTab = tab ?: resolveTabForScreen(newScreen)
+            // আগের স্ক্রিন, সক্রিয় ট্যাব ও ক্যাটাগরি ব্যাকস্ট্যাকে রাখা
+            navigationBackStack.add(
+                NavHistoryItem(
+                    screen = currentScreen,
+                    tab = selectedTab,
+                    category = HomeNavHelper.activeCategory
+                )
+            )
+
+            if (tab != null) {
+                selectedTab = tab
+            } else if (newScreen !is Screen.Player) {
+                selectedTab = resolveTabForScreen(newScreen)
+            }
 
             val isExempted = newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalPlayer ||
                     newScreen is Screen.LocalAudioPlayer || currentScreen is Screen.LocalAudioPlayer ||
@@ -566,15 +591,19 @@ private fun MainAppContent(
         }
     }
 
+    // =========================================================================
+    // 🎬 সরাসরি ড্রামা ওপেনার (আগের ট্যাব ও ক্যাটাগরি ধ্বংস না করে সংরক্ষিত রাখা)
+    // =========================================================================
     val openDramaDirect: (String, Boolean) -> Unit = { rawSlug, forceShorts ->
         val cleanSlug = rawSlug
             .substringBefore("###subTab=")
             .substringBefore("###category=")
             .trim()
         val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=").substringBefore("###category=") else null
-        val sourceCategory = if (rawSlug.contains("###category=")) rawSlug.substringAfter("###category=").substringBefore("###subTab=") else null
 
-        HomeNavHelper.activeSubTab = sourceSubTab
+        if (sourceSubTab != null) {
+            HomeNavHelper.activeSubTab = sourceSubTab
+        }
 
         if (cleanSlug.isBlank() || cleanSlug.equals("404", ignoreCase = true) || cleanSlug.equals("not-found", ignoreCase = true)) {
             navigateTo(Screen.NotFound("ড্রামা বা কনটেন্টটি খুঁজে পাওয়া যায়নি!"), BottomNavTab.HOME)
@@ -584,40 +613,12 @@ private fun MainAppContent(
                     home.trendingDramas + home.banglaDubbed + home.hindiDubbed + home.dramaSeriesContent
             val targetDrama = allDramas.find { it.slug == cleanSlug || it.id == cleanSlug }
 
-            val detectedCategory = when {
-                !sourceCategory.isNullOrBlank() -> sourceCategory
-                sourceSubTab != null -> "Short TV"
-                home.banglaDubbed.any { it.slug == cleanSlug } -> "Bangla Dubbed"
-                home.hindiDubbed.any { it.slug == cleanSlug } -> "Hindi Dubbed"
-                home.shortsContent.any { it.slug == cleanSlug } -> "Short TV"
-                home.trendingDramas.any { it.slug == cleanSlug } -> "Trending"
-                home.recentlyAdded.any { it.slug == cleanSlug } -> "Recently Added"
-                home.dramaSeriesContent.any { it.slug == cleanSlug } -> "Drama Series"
-                targetDrama?.dubBadge?.contains("Bangla", ignoreCase = true) == true -> "Bangla Dubbed"
-                targetDrama?.dubBadge?.contains("Hindi", ignoreCase = true) == true -> "Hindi Dubbed"
-                targetDrama?.categories?.isNotEmpty() == true -> {
-                    val currentCat = (currentScreen as? Screen.Home)?.category
-                    if (currentCat != null && currentCat != "Home" && targetDrama.categories.any { it.equals(currentCat, ignoreCase = true) }) {
-                        currentCat
-                    } else {
-                        targetDrama.categories.first()
-                    }
-                }
-                currentScreen is Screen.Home && (currentScreen as Screen.Home).category != "Home" -> (currentScreen as Screen.Home).category
-                else -> HomeNavHelper.activeCategory
-            }
-
-            HomeNavHelper.activeCategory = detectedCategory
-
-            if (currentScreen is Screen.Home) {
-                currentScreen = Screen.Home(category = detectedCategory)
-            }
-
             val isShorts = forceShorts || targetDrama?.isShorts == true || cleanSlug.contains("shorts", ignoreCase = true)
             if (isShorts) {
                 navigateTo(Screen.ShortsPlayer(cleanSlug, sourceSubTab), BottomNavTab.SHORT_TV)
             } else {
-                navigateTo(Screen.Player(cleanSlug), null)
+                // যে ট্যাবে ছিল সেই ট্যাব অক্ষুণ্ণ রেখে প্লেয়ার ওপেন হবে
+                navigateTo(Screen.Player(cleanSlug), selectedTab)
             }
         }
     }
@@ -687,7 +688,7 @@ private fun MainAppContent(
         }
     }
 
-    BackHandler(enabled = navigationBackStack.isNotEmpty() || currentScreen !is Screen.Home) {
+    BackHandler(enabled = navigationBackStack.isNotEmpty() || currentScreen !is Screen.Home || selectedTab != BottomNavTab.HOME) {
         handleBackNavigation()
     }
 
