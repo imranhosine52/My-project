@@ -142,6 +142,78 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
+/**
+ * 🎯 সাবটাইটেল থেকে ডোমেন/স্প্যাম নাম ফিল্টার করে আসল ভাষার নাম বের করার ইঞ্জিন
+ */
+private fun resolveCleanSubtitleLabel(
+    rawLabel: String,
+    languageCode: String,
+    trackIndex: Int
+): String {
+    val clean = rawLabel.trim()
+    val lowerClean = clean.lowercase()
+
+    val isDomainOrSpam = lowerClean.contains(".net") ||
+            lowerClean.contains(".com") ||
+            lowerClean.contains(".org") ||
+            lowerClean.contains(".xyz") ||
+            lowerClean.contains(".tv") ||
+            lowerClean.contains(".in") ||
+            lowerClean.contains(".cc") ||
+            lowerClean.contains(".me") ||
+            lowerClean.contains(".co") ||
+            lowerClean.contains("www.") ||
+            lowerClean.contains("http://") ||
+            lowerClean.contains("https://") ||
+            lowerClean.contains("katdrama") ||
+            lowerClean.contains("pahe") ||
+            lowerClean.contains("yts") ||
+            lowerClean.contains("subtitlecat")
+
+    val detectedLang = when {
+        lowerClean.contains("bangla") || lowerClean.contains("bengali") || lowerClean.contains("বাংলা") -> "Bengali"
+        lowerClean.contains("hindi") || lowerClean.contains("হিন্দি") -> "Hindi"
+        lowerClean.contains("english") || lowerClean.contains("eng") -> "English"
+        lowerClean.contains("tamil") -> "Tamil"
+        lowerClean.contains("telugu") -> "Telugu"
+        lowerClean.contains("korean") || lowerClean.contains("kor") -> "Korean"
+        lowerClean.contains("japanese") || lowerClean.contains("jap") -> "Japanese"
+        lowerClean.contains("chinese") || lowerClean.contains("chi") -> "Chinese"
+        lowerClean.contains("spanish") || lowerClean.contains("spa") -> "Spanish"
+        lowerClean.contains("arabic") || lowerClean.contains("ara") -> "Arabic"
+        lowerClean.contains("indonesian") || lowerClean.contains("ind") -> "Indonesian"
+        else -> null
+    }
+
+    if (detectedLang != null) return detectedLang
+
+    if (!isDomainOrSpam && clean.isNotBlank() && clean.length in 2..25 && !clean.all { it.isDigit() }) {
+        return clean
+    }
+
+    val lang = languageCode.lowercase().trim()
+    if (lang.isNotBlank() && lang != "und" && !isDomainOrSpam && lang != "kat") {
+        return when (lang) {
+            "bn", "ben" -> "Bengali"
+            "hi", "hin" -> "Hindi"
+            "en", "eng" -> "English"
+            "ta", "tam" -> "Tamil"
+            "te", "tel" -> "Telugu"
+            "ko", "kor" -> "Korean"
+            "ja", "jpn" -> "Japanese"
+            "zh", "zho", "chi" -> "Chinese"
+            "es", "spa" -> "Spanish"
+            "ar", "ara" -> "Arabic"
+            else -> {
+                val loc = runCatching { Locale(lang) }.getOrNull()
+                loc?.getDisplayLanguage(Locale.US)?.takeIf { it.isNotBlank() && it != lang } ?: "English"
+            }
+        }
+    }
+
+    return if (trackIndex <= 1) "English" else "Subtitle $trackIndex"
+}
+
 @Composable
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
@@ -195,11 +267,12 @@ fun PlayerVideoBox(
     var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
 
     // =========================================================================
-    // 🎵 Real Multi-Audio Tracks State
+    // 🎵 Real Multi-Audio Tracks State & বাংলা/হিন্দি অটো-সিলেকশন ফ্ল্যাগ
     // =========================================================================
     var availableAudioTracks by remember { mutableStateOf<List<RealAudioTrack>>(emptyList()) }
     var selectedAudioTrackId by rememberSaveable { mutableStateOf("default") }
     var currentAudioLabel by rememberSaveable { mutableStateOf("Audio") }
+    var hasAutoSelectedAudio by remember(episodeNumber, slug) { mutableStateOf(false) }
 
     // =========================================================================
     // 💬 Real Multi-Subtitle Tracks State
@@ -224,7 +297,6 @@ fun PlayerVideoBox(
     var realBitrateBps by remember(episodeNumber, slug) { mutableLongStateOf(0L) }
     var liveDownloadedMb by remember(episodeNumber, slug) { mutableFloatStateOf(0.12f) }
 
-    // ভিডিও প্রস্তুত কিনা তা তাৎক্ষণিক যাচাই (স্মার্ট স্কিপ চেকার)
     val isVideoReady by remember(isFirstFrameRendered, exoPlayer.playbackState, exoPlayer.isPlaying, currentPositionMs) {
         derivedStateOf {
             isFirstFrameRendered ||
@@ -233,14 +305,12 @@ fun PlayerVideoBox(
         }
     }
 
-    // ভিডিও রেডি না হওয়া পর্যন্ত লোডিং স্ক্রিন থাকবে (রেডি হলে সাথে সাথে স্কিপ)
     val shouldShowLoadingScreen by remember(isVideoReady, playbackErrorMessage) {
         derivedStateOf {
             !isVideoReady && playbackErrorMessage == null
         }
     }
 
-    // ২ MB ডাউনলোড কাউন্টডাউন স্মুথ অ্যানিমেশন
     LaunchedEffect(shouldShowLoadingScreen, episodeNumber, slug) {
         if (shouldShowLoadingScreen) {
             val startTime = System.currentTimeMillis()
@@ -491,7 +561,34 @@ fun PlayerVideoBox(
     var showRightDoubleTapAnim by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎧 REAL MEDIA3 TRACK DETECTION ENGINE (লুপ-মুক্ত)
+    // 🔀 AUDIO SWITCHER ENGINE
+    // =========================================================================
+    fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack, showToast: Boolean = true) {
+        if (!audioTrack.isSupported) {
+            if (showToast) Toast.makeText(context, "Unsupported Audio Format!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        selectedAudioTrackId = audioTrack.id
+        currentAudioLabel = audioTrack.label
+
+        val currentTracks = exoPlayer.currentTracks
+        val targetGroup = currentTracks.groups.getOrNull(audioTrack.groupIndex)
+
+        if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_AUDIO) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, audioTrack.trackIndex))
+                .build()
+        }
+        if (showToast) {
+            Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // =========================================================================
+    // 🎧 REAL MEDIA3 TRACK DETECTION + বাংলা/হিন্দি অটো-সিলেকশন + সাবটাইটেল ক্লিনার
     // =========================================================================
     fun extractTracks(tracks: Tracks) {
         val foundVideoTracks = mutableListOf<RealVideoTrack>()
@@ -615,21 +712,12 @@ fun PlayerVideoBox(
                             rawLabel.isBlank() && (lang.isBlank() || lang == "und")
 
                     if (!isCeaDummy) {
-                        val readableLabel = when {
-                            rawLabel.isNotBlank() -> rawLabel
-                            lang != "und" && lang.isNotBlank() -> {
-                                val loc = Locale(lang)
-                                loc.getDisplayLanguage(Locale.US).ifBlank {
-                                    when (lang) {
-                                        "bn", "ben" -> "Bengali Subtitle"
-                                        "hi", "hin" -> "Hindi Subtitle"
-                                        "en", "eng" -> "English Subtitle"
-                                        else -> "${lang.uppercase()} Subtitle"
-                                    }
-                                }
-                            }
-                            else -> "Subtitle ${foundSubtitleTracks.size + 1}"
-                        }
+                        // 🎯 KatDrama.net বা যেকোনো ডোমেন স্প্যাম বাদ দিয়ে আসল ভাষার নাম বের করা
+                        val readableLabel = resolveCleanSubtitleLabel(
+                            rawLabel = rawLabel,
+                            languageCode = lang,
+                            trackIndex = foundSubtitleTracks.size + 1
+                        )
 
                         val trackId = "sub_${groupIndex}_$i"
                         val isExternal = format.id?.startsWith("ext_") == true || (format.selectionFlags and C.SELECTION_FLAG_AUTOSELECT) == 0 && format.id != null
@@ -671,7 +759,7 @@ fun PlayerVideoBox(
             availableVideoTracks = if (foundVideoTracks.isNotEmpty()) foundVideoTracks else listOf(RealVideoTrack(0, 0, 0, "Auto", isAuto = true))
         }
 
-        availableAudioTracks = if (foundAudioTracks.isNotEmpty()) {
+        val finalAudioTracks = if (foundAudioTracks.isNotEmpty()) {
             foundAudioTracks.distinctBy { it.label }
         } else {
             listOf(
@@ -686,30 +774,49 @@ fun PlayerVideoBox(
                 )
             )
         }
+        availableAudioTracks = finalAudioTracks
+
+        // =========================================================================
+        // 🎯 স্মার্ট ডিফল্ট অডিও সিলেকশন: ১. বাংলা -> ২. হিন্দি -> ৩. ফলব্যাক
+        // =========================================================================
+        if (!hasAutoSelectedAudio && finalAudioTracks.size > 1) {
+            val bengaliCandidate = finalAudioTracks.firstOrNull { tr ->
+                tr.isSupported && (
+                    tr.language.equals("bn", ignoreCase = true) ||
+                    tr.language.equals("ben", ignoreCase = true) ||
+                    tr.languageCode.equals("bn", ignoreCase = true) ||
+                    tr.languageCode.equals("ben", ignoreCase = true) ||
+                    tr.label.contains("Bangla", ignoreCase = true) ||
+                    tr.label.contains("Bengali", ignoreCase = true)
+                )
+            }
+
+            val hindiCandidate = finalAudioTracks.firstOrNull { tr ->
+                tr.isSupported && (
+                    tr.language.equals("hi", ignoreCase = true) ||
+                    tr.language.equals("hin", ignoreCase = true) ||
+                    tr.languageCode.equals("hi", ignoreCase = true) ||
+                    tr.languageCode.equals("hin", ignoreCase = true) ||
+                    tr.label.contains("Hindi", ignoreCase = true)
+                )
+            }
+
+            val targetAutoTrack = bengaliCandidate ?: hindiCandidate
+
+            if (targetAutoTrack != null) {
+                hasAutoSelectedAudio = true
+                if (!targetAutoTrack.isSelected) {
+                    applyExoPlayerAudioTrack(targetAutoTrack, showToast = false)
+                } else {
+                    selectedAudioTrackId = targetAutoTrack.id
+                    currentAudioLabel = targetAutoTrack.label
+                }
+            } else {
+                hasAutoSelectedAudio = true
+            }
+        }
 
         availableSubtitleTracks = foundSubtitleTracks.distinctBy { it.label }
-    }
-
-    fun applyExoPlayerAudioTrack(audioTrack: RealAudioTrack) {
-        if (!audioTrack.isSupported) {
-            Toast.makeText(context, "Unsupported Audio Format!", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        selectedAudioTrackId = audioTrack.id
-        currentAudioLabel = audioTrack.label
-
-        val currentTracks = exoPlayer.currentTracks
-        val targetGroup = currentTracks.groups.getOrNull(audioTrack.groupIndex)
-
-        if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_AUDIO) {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                .setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, audioTrack.trackIndex))
-                .build()
-        }
-        Toast.makeText(context, "Audio: ${audioTrack.label}", Toast.LENGTH_SHORT).show()
     }
 
     fun applyExoPlayerSubtitleTrack(subTrack: RealSubtitleTrack?) {
@@ -1229,7 +1336,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 🚀 পরিচ্ছন্ন ও স্লিক ২.০ MB ডাউনলোড অ্যানিমেশন ওভারলে (Smart Skip সহ)
+            // 🚀 পরিচ্ছন্ন ২.০ MB ডাউনলোড অ্যানিমেশন ওভারলে (Smart Skip সহ)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowLoadingScreen,
@@ -1268,7 +1375,6 @@ fun PlayerVideoBox(
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        // 🎯 শুধু পরিচ্ছন্ন MB কাউন্টার (অতিরিক্ত লাইন, % এবং স্পিড সম্পূর্ণ বাদ)
                         Text(
                             text = "${String.format(Locale.US, "%.2f", liveDownloadedMb)} MB / 2.0 MB",
                             color = Color.White.copy(alpha = 0.90f),
@@ -1388,7 +1494,7 @@ fun PlayerVideoBox(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // বাফারিং স্পিনার (ভিডিও চলার মাঝপথে লোডিং হলে)
+            // বাফারিং স্পিনার
             if (isBuffering && !isPiPActive && !shouldShowLoadingScreen) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
@@ -1435,9 +1541,7 @@ fun PlayerVideoBox(
                 )
             }
 
-            // =============================================================
-            // 🎯 কন্ট্রোল বার ওভারলে (লোডিং স্ক্রিন চলাকালীন সম্পূর্ণ হাইড থাকবে)
-            // =============================================================
+            // কন্ট্রোল বার ওভারলে
             if (!isPiPActive && activeInPlayerCustomAd == null && pendingAdClicks == 0 && !shouldShowLoadingScreen) {
                 PlayerControlsOverlay(
                     isControlsVisible = isControlsVisible,
@@ -1518,9 +1622,7 @@ fun PlayerVideoBox(
                 )
             }
 
-            // =============================================================
-            // 🎯 সাইড ড্রয়ার উইডথ (১ নম্বর ছবির মতো অডিও সাইডবার স্লিম ও কম্প্যাক্ট)
-            // =============================================================
+            // সাইড ড্রয়ার উইডথ
             val targetDrawerWidth = remember(sideDrawerType, isDeviceLandscape) {
                 when (sideDrawerType) {
                     "playlist", "download" -> if (isDeviceLandscape) 295.dp else 260.dp
